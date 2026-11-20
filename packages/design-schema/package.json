@@ -1,0 +1,30 @@
+{
+  "name": "@design-ai/design-schema",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "files": [
+    "dist"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "dev": "tsdown --watch",
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": "26.x"
+  },
+  "devDependencies": {
+    "tsdown": "0.22.9",
+    "typescript": "^6.0.0"
+  }
+}

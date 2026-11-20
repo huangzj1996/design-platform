@@ -1,0 +1,8 @@
+{
+  "version": "0.2",
+  "language": "en",
+  "useGitignore": true,
+  "files": ["**/*.{cjs,css,cts,html,js,json,jsonc,md,mjs,mts,ts,yaml,yml}"],
+  "ignorePaths": [".husky/_/**", "pnpm-lock.yaml"],
+  "words": ["asar", "esbuild", "winstaller", "wslpath"]
+}

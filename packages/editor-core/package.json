@@ -1,0 +1,36 @@
+{
+  "name": "@design-ai/editor-core",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "",
+  "keywords": [],
+  "license": "MIT",
+  "author": {
+    "name": "hzj1996",
+    "email": "1113293699@qq.com"
+  },
+  "files": [
+    "dist"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "dev": "tsdown --watch",
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": "26.x"
+  },
+  "devDependencies": {
+    "tsdown": "0.22.9",
+    "typescript": "^6.0.0"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "name": "design-ai-workspace",
+  "private": true,
+  "scripts": {
+    "build": "pnpm --filter './packages/*' -r build",
+    "start": "pnpm --filter @design-ai/desktop start",
+    "package": "pnpm --filter @design-ai/desktop package",
+    "make": "pnpm --filter @design-ai/desktop make",
+    "release": "pnpm --filter @design-ai/desktop release",
+    "lint": "eslint . && pnpm --filter @design-ai/desktop lint",
+    "lint:fix": "eslint . --fix && pnpm --filter @design-ai/desktop lint:fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "spellcheck": "cspell lint --no-progress",
+    "typecheck": "pnpm -r typecheck",
+    "prepare": "husky"
+  },
+  "engines": {
+    "node": "26.x"
+  },
+  "packageManager": "pnpm@12.21.0+sha512.66fd8278ee28935ce951792d34367ff3af5c432a2756445823029533835b8da529bbe0be5130afd56ed0713fb8789e47bad82d93bd5ae2fe54b15562d6276ef0",
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "cspell": "^10.5.2",
+    "eslint": "^10.15.0",
+    "globals": "^17.14.0",
+    "husky": "^9.1.7",
+    "prettier": "^3.10.1",
+    "typescript": "6.0.3",
+    "typescript-eslint": "^8.73.0"
+  }
+}
