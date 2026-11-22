@@ -17,43 +17,15 @@ import {
   vi,
 } from 'vitest';
 import { Canvas } from '../src/electron-render/Canvas';
-import type {
-  CanvasEngine,
-  CanvasEngineFactory,
-} from '../src/electron-render/canvas-engine';
-import type {
-  CanvasScene,
-  CanvasSelection,
-} from '../src/electron-render/canvas-scene';
+import { TestCanvasRegistry } from './test-canvas-engine';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean;
 }
 
-class TestCanvasEngine implements CanvasEngine {
-  scene: CanvasScene | null = null;
-  selection: CanvasSelection | null = null;
-  destroyed = false;
-
-  constructor(private readonly onSelect: (id: string | null) => void) {}
-
-  setScene(scene: CanvasScene, selection: CanvasSelection | null): void {
-    this.scene = scene;
-    this.selection = selection;
-  }
-
-  destroy(): void {
-    this.destroyed = true;
-  }
-
-  tap(id: string | null): void {
-    this.onSelect(id);
-  }
-}
-
 let container: HTMLDivElement;
 let root: Root;
-let engine: TestCanvasEngine | null;
+let canvas: TestCanvasRegistry;
 
 beforeAll(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -67,7 +39,7 @@ afterAll(() => {
 beforeEach(() => {
   container = document.createElement('div');
   document.body.append(container);
-  engine = null;
+  canvas = new TestCanvasRegistry();
 });
 
 afterEach(() => {
@@ -85,11 +57,6 @@ function documentFrom(input: unknown): DesignDocument {
   return result.document;
 }
 
-const createEngine: CanvasEngineFactory = (_host, options) => {
-  engine = new TestCanvasEngine(options.onSelect);
-  return engine;
-};
-
 async function render(
   document: DesignDocument | null,
   selectionId: string | null = null,
@@ -102,7 +69,7 @@ async function render(
         document={document}
         selectionId={selectionId}
         onSelect={onSelect}
-        createEngine={createEngine}
+        createEngine={canvas.factory}
       />,
     );
   });
@@ -117,7 +84,7 @@ async function rerender(
       <Canvas
         document={document}
         selectionId={selectionId}
-        createEngine={createEngine}
+        createEngine={canvas.factory}
       />,
     );
   });
@@ -143,11 +110,11 @@ describe('Canvas', () => {
   it('shows the empty states without creating a canvas engine', async () => {
     await render(null);
     expect(container.textContent).toContain('尚未打开设计稿');
-    expect(engine).toBeNull();
+    expect(canvas.engine).toBeNull();
 
     await rerender(documentFrom({ version: 1, children: [] }), null);
     expect(container.textContent).toContain('空白设计稿');
-    expect(engine).toBeNull();
+    expect(canvas.engine).toBeNull();
   });
 
   it('hands the variable-resolved scene and selection to the engine', async () => {
@@ -176,18 +143,18 @@ describe('Canvas', () => {
       'title',
     );
 
-    expect(engine).not.toBeNull();
-    expect(engine?.scene?.roots[0]?.id).toBe('frame');
-    expect(engine?.scene?.roots[0]?.children[0]).toMatchObject({
+    expect(canvas.engine).not.toBeNull();
+    expect(canvas.engine?.scene?.roots[0]?.id).toBe('frame');
+    expect(canvas.engine?.scene?.roots[0]?.children[0]).toMatchObject({
       id: 'title',
       text: { content: '变量标题' },
     });
-    expect(engine?.selection).toMatchObject({
+    expect(canvas.engine?.selection).toMatchObject({
       id: 'title',
       box: { x: 0, y: 0, width: 80, height: 20 },
       outline: { color: '#4592FF', strokeWidth: 3 },
     });
-    expect(engine?.selection?.sizeTag.text).toBe('80 × 20');
+    expect(canvas.engine?.selection?.sizeTag.text).toBe('80 × 20');
   });
 
   it('forwards canvas taps and clears the selection when empty space is tapped', async () => {
@@ -195,25 +162,25 @@ describe('Canvas', () => {
     await render(documentWithFrame, null, onSelect);
 
     await act(async () => {
-      engine?.tap('rectangle');
+      canvas.engine?.tap('rectangle');
     });
     expect(onSelect).toHaveBeenLastCalledWith('rectangle');
 
     await act(async () => {
-      engine?.tap(null);
+      canvas.engine?.tap(null);
     });
     expect(onSelect).toHaveBeenLastCalledWith(null);
   });
 
   it('updates the selection without recreating the engine', async () => {
     await render(documentWithFrame, null);
-    const created = engine;
+    const created = canvas.engine;
     expect(created?.selection).toBeNull();
 
     await rerender(documentWithFrame, 'rectangle');
-    expect(engine).toBe(created);
-    expect(engine?.selection?.id).toBe('rectangle');
-    expect(engine?.selection?.box).toEqual({
+    expect(canvas.engine).toBe(created);
+    expect(canvas.engine?.selection?.id).toBe('rectangle');
+    expect(canvas.engine?.selection?.box).toEqual({
       x: 100,
       y: 0,
       width: 40,
@@ -221,13 +188,13 @@ describe('Canvas', () => {
     });
 
     await rerender(documentWithFrame, 'title');
-    expect(engine).toBe(created);
-    expect(engine?.selection?.id).toBe('title');
+    expect(canvas.engine).toBe(created);
+    expect(canvas.engine?.selection?.id).toBe('title');
   });
 
   it('destroys the engine when unmounted', async () => {
     await render(documentWithFrame, null);
-    const created = engine;
+    const created = canvas.engine;
 
     act(() => {
       root.unmount();

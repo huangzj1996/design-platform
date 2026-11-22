@@ -6,9 +6,8 @@ import { describe, expect, it } from 'vitest';
 import {
   buildCanvasScene,
   findCanvasSelection,
-  type CanvasScene,
-  type CanvasSceneNode,
 } from '../src/electron-render/canvas-scene';
+import { findSceneNode } from './test-canvas-engine';
 
 function documentFrom(input: unknown): DesignDocument {
   const result = validateDesignDocument(input);
@@ -16,27 +15,6 @@ function documentFrom(input: unknown): DesignDocument {
     throw new Error(JSON.stringify(result.errors));
   }
   return result.document;
-}
-
-function nodeById(scene: CanvasScene, id: string): CanvasSceneNode {
-  const visit = (nodes: CanvasSceneNode[]): CanvasSceneNode | undefined => {
-    for (const node of nodes) {
-      if (node.id === id) {
-        return node;
-      }
-      const nested = visit(node.children);
-      if (nested !== undefined) {
-        return nested;
-      }
-    }
-    return undefined;
-  };
-
-  const node = visit(scene.roots);
-  if (node === undefined) {
-    throw new Error(`No scene node for ${id}`);
-  }
-  return node;
 }
 
 const fiveElementDocument = {
@@ -101,7 +79,7 @@ describe('buildCanvasScene', () => {
     expect(scene).toMatchObject({ width: 400, height: 300 });
     expect(scene.roots).toHaveLength(1);
 
-    const frame = nodeById(scene, 'frame');
+    const frame = findSceneNode(scene, 'frame');
     expect(frame).toMatchObject({
       type: 'frame',
       layout: 'vertical',
@@ -120,25 +98,25 @@ describe('buildCanvasScene', () => {
       'icon',
     ]);
 
-    expect(nodeById(scene, 'rectangle').box).toEqual({
+    expect(findSceneNode(scene, 'rectangle').box).toEqual({
       x: 16,
       y: 16,
       width: 100,
       height: 40,
     });
-    expect(nodeById(scene, 'ellipse').box).toEqual({
+    expect(findSceneNode(scene, 'ellipse').box).toEqual({
       x: 16,
       y: 64,
       width: 40,
       height: 40,
     });
-    expect(nodeById(scene, 'text').box).toEqual({
+    expect(findSceneNode(scene, 'text').box).toEqual({
       x: 16,
       y: 112,
       width: 40,
       height: 30,
     });
-    expect(nodeById(scene, 'icon').box).toEqual({
+    expect(findSceneNode(scene, 'icon').box).toEqual({
       x: 16,
       y: 150,
       width: 24,
@@ -189,7 +167,7 @@ describe('buildCanvasScene', () => {
       }),
     );
 
-    expect(nodeById(scene, 'styled-frame')).toMatchObject({
+    expect(findSceneNode(scene, 'styled-frame')).toMatchObject({
       visible: false,
       opacity: 0.5,
       rotation: 30,
@@ -198,7 +176,7 @@ describe('buildCanvasScene', () => {
       strokeWidth: 3,
       cornerRadius: 8,
     });
-    expect(nodeById(scene, 'styled-rectangle')).toMatchObject({
+    expect(findSceneNode(scene, 'styled-rectangle')).toMatchObject({
       visible: true,
       opacity: 1,
       rotation: 0,
@@ -207,7 +185,7 @@ describe('buildCanvasScene', () => {
       strokeWidth: 2,
       cornerRadius: 4,
     });
-    expect(nodeById(scene, 'styled-ellipse')).toMatchObject({
+    expect(findSceneNode(scene, 'styled-ellipse')).toMatchObject({
       fill: '#0000ff',
       box: { width: 40, height: 40 },
     });
@@ -235,7 +213,7 @@ describe('buildCanvasScene', () => {
       }),
     );
 
-    expect(nodeById(scene, 'wrapped')).toMatchObject({
+    expect(findSceneNode(scene, 'wrapped')).toMatchObject({
       type: 'text',
       box: { width: 40, height: 48 },
       text: {
@@ -279,13 +257,13 @@ describe('buildCanvasScene', () => {
       }),
     );
 
-    expect(nodeById(scene, 'known-icon').icon).toEqual({
+    expect(findSceneNode(scene, 'known-icon').icon).toEqual({
       library: 'lucide',
       icon: 'arrow-right',
       color: '#123456',
       strokeWidth: 2,
     });
-    expect(nodeById(scene, 'unknown-icon').icon).toEqual({
+    expect(findSceneNode(scene, 'unknown-icon').icon).toEqual({
       library: 'other',
       icon: 'star',
       color: '#654321',
@@ -334,11 +312,11 @@ describe('buildCanvasScene', () => {
 
     const scene = buildCanvasScene(document);
 
-    expect(nodeById(scene, 'brand-block')).toMatchObject({
+    expect(findSceneNode(scene, 'brand-block')).toMatchObject({
       fill: '#3366ff',
       box: { x: 10, y: 10, width: 120 },
     });
-    expect(nodeById(scene, 'variable-title')).toMatchObject({
+    expect(findSceneNode(scene, 'variable-title')).toMatchObject({
       visible: false,
       fill: '#3366ff',
       text: { content: '欢迎' },

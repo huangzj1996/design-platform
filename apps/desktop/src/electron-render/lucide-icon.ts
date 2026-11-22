@@ -191,6 +191,7 @@ async function loadIconPaths(key: string): Promise<IconPath[] | null> {
   if (load === undefined) {
     return null;
   }
+  // Dynamic icon modules expose their raw SVG nodes on the internal `__iconData`.
   const module = await load();
   const data = (module as { __iconData?: { node?: IconNode[] } }).__iconData;
   if (data?.node === undefined) {

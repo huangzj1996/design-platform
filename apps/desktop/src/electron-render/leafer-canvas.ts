@@ -2,18 +2,22 @@ import type { UI as LeaferElement } from 'leafer-ui';
 import type { CanvasEngine, CanvasEngineOptions } from './canvas-engine';
 import {
   CANVAS_STAGE_PADDING,
+  MIN_CANVAS_SIZE,
+  canvasStageSize,
   type CanvasScene,
   type CanvasSceneNode,
   type CanvasSelection,
 } from './canvas-scene';
-import { ICON_VIEWBOX_SIZE, loadLucideIconPaths } from './lucide-icon';
+import {
+  ICON_VIEWBOX_SIZE,
+  loadLucideIconPaths,
+  type IconPath,
+} from './lucide-icon';
 
 interface TargetWithParent {
   data?: { elementId?: unknown };
   parent?: TargetWithParent | null;
 }
-
-const DEFAULT_CANVAS_SIZE = 1;
 
 /** Walks from a hit node to the nearest node carrying a document element id. */
 export function selectedElementId(
@@ -44,20 +48,17 @@ export async function createLeaferEngine(
 
   const leafer = new Leafer({
     view: host,
-    width: DEFAULT_CANVAS_SIZE,
-    height: DEFAULT_CANVAS_SIZE,
+    width: MIN_CANVAS_SIZE,
+    height: MIN_CANVAS_SIZE,
     fill: '#ffffff',
   });
   leafer.on('tap', (event) => {
-    options.onSelect(
-      selectedElementId(event.target as unknown as TargetWithParent),
-    );
+    options.onSelect(selectedElementId(event.target));
   });
 
   let content: LeaferElement | null = null;
   let overlay: LeaferElement | null = null;
   let lastScene: CanvasScene | null = null;
-  let sceneVersion = 0;
 
   function elementInput(node: CanvasSceneNode) {
     return {
@@ -113,9 +114,10 @@ export async function createLeaferEngine(
   function addIconPaths(
     container: LeaferElement,
     node: CanvasSceneNode,
-    shapes: NonNullable<Awaited<ReturnType<typeof loadLucideIconPaths>>>,
+    shapes: IconPath[],
   ): void {
-    if (node.icon === undefined) {
+    const icon = node.icon;
+    if (icon === undefined) {
       return;
     }
     const scaleX = node.box.width / ICON_VIEWBOX_SIZE;
@@ -124,9 +126,9 @@ export async function createLeaferEngine(
       container.add(
         new Path({
           path: shape.path,
-          fill: shape.filled ? node.icon.color : undefined,
-          stroke: node.icon.color,
-          strokeWidth: node.icon.strokeWidth,
+          fill: shape.filled ? icon.color : undefined,
+          stroke: icon.color,
+          strokeWidth: icon.strokeWidth,
           strokeCap: 'round',
           strokeJoin: 'round',
           scaleX,
@@ -137,36 +139,24 @@ export async function createLeaferEngine(
     }
   }
 
-  function iconNode(node: CanvasSceneNode, version: number): LeaferElement {
-    const container = new Box({
-      x: node.box.x,
-      y: node.box.y,
-      width: node.box.width,
-      height: node.box.height,
-      opacity: node.opacity,
-      rotation: node.rotation,
-      visible: node.visible,
-      origin: 'center',
-      hitFill: 'all',
-      data: { elementId: node.id },
-    });
-
-    if (node.icon === undefined) {
+  function iconNode(node: CanvasSceneNode): LeaferElement {
+    const container = new Box(elementInput(node));
+    const icon = node.icon;
+    if (icon === undefined) {
       return container;
     }
 
-    void loadLucideIconPaths(node.icon.library, node.icon.icon).then(
-      (shapes) => {
-        if (container.destroyed || version !== sceneVersion) {
-          return;
-        }
-        if (shapes === null) {
-          container.add(iconPlaceholder(node));
-          return;
-        }
-        addIconPaths(container, node, shapes);
-      },
-    );
+    void loadLucideIconPaths(icon.library, icon.icon).then((shapes) => {
+      if (container.destroyed) {
+        // The scene was replaced while the icon was loading.
+        return;
+      }
+      if (shapes === null) {
+        container.add(iconPlaceholder(node));
+        return;
+      }
+      addIconPaths(container, node, shapes);
+    });
 
     return container;
   }
@@ -190,12 +180,12 @@ export async function createLeaferEngine(
     });
   }
 
-  function sceneNode(node: CanvasSceneNode, version: number): LeaferElement {
+  function sceneNode(node: CanvasSceneNode): LeaferElement {
     switch (node.type) {
       case 'frame': {
         const frame = new Box(elementInput(node));
         for (const child of node.children) {
-          frame.add(sceneNode(child, version));
+          frame.add(sceneNode(child));
         }
         return frame;
       }
@@ -206,22 +196,22 @@ export async function createLeaferEngine(
       case 'text':
         return textNode(node);
       case 'icon':
-        return iconNode(node, version);
+        return iconNode(node);
     }
   }
 
-  function buildContent(scene: CanvasScene, version: number): LeaferElement {
+  function buildContent(scene: CanvasScene): LeaferElement {
     const root = new Box({
       x: CANVAS_STAGE_PADDING,
       y: CANVAS_STAGE_PADDING,
-      width: Math.max(DEFAULT_CANVAS_SIZE, scene.width),
-      height: Math.max(DEFAULT_CANVAS_SIZE, scene.height),
+      width: Math.max(MIN_CANVAS_SIZE, scene.width),
+      height: Math.max(MIN_CANVAS_SIZE, scene.height),
       fill: '#ffffff',
       hitFill: 'all',
       zIndex: 0,
     });
     for (const node of scene.roots) {
-      root.add(sceneNode(node, version));
+      root.add(sceneNode(node));
     }
     return root;
   }
@@ -290,27 +280,17 @@ export async function createLeaferEngine(
     setScene(scene: CanvasScene, selection: CanvasSelection | null): void {
       if (scene !== lastScene) {
         lastScene = scene;
-        sceneVersion += 1;
-        const version = sceneVersion;
-        leafer.resize({
-          width:
-            Math.max(DEFAULT_CANVAS_SIZE, scene.width) +
-            CANVAS_STAGE_PADDING * 2,
-          height:
-            Math.max(DEFAULT_CANVAS_SIZE, scene.height) +
-            CANVAS_STAGE_PADDING * 2,
-        });
+        leafer.resize(canvasStageSize(scene));
         if (content !== null) {
           content.destroy();
         }
-        content = buildContent(scene, version);
+        content = buildContent(scene);
         leafer.add(content);
       }
       showSelection(selection);
     },
 
     destroy(): void {
-      sceneVersion += 1;
       leafer.destroy(true);
     },
   };

@@ -39,10 +39,6 @@ export class TestCanvasRegistry {
     return this.engine;
   };
 
-  reset(): void {
-    this.engine = null;
-  }
-
   tap(id: string | null): void {
     if (this.engine === null) {
       throw new Error('Canvas engine not created');

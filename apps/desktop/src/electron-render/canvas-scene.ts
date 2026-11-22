@@ -57,8 +57,22 @@ export interface CanvasScene {
   roots: CanvasSceneNode[];
 }
 
+/** Smallest scene dimension, so an empty view still has a valid canvas. */
+export const MIN_CANVAS_SIZE = 1;
+
 /** Extra canvas space that keeps outlines and size tags off the stage edge. */
 export const CANVAS_STAGE_PADDING = 48;
+
+/** Size of the canvas stage, including room for the selection overlay. */
+export function canvasStageSize(scene: CanvasScene): {
+  width: number;
+  height: number;
+} {
+  return {
+    width: Math.max(MIN_CANVAS_SIZE, scene.width) + CANVAS_STAGE_PADDING * 2,
+    height: Math.max(MIN_CANVAS_SIZE, scene.height) + CANVAS_STAGE_PADDING * 2,
+  };
+}
 
 /** Selected-state styling taken from the Pencil editor reference board. */
 export const SELECTION_OUTLINE = {
@@ -141,7 +155,9 @@ function sceneNode(node: LayoutNode): CanvasSceneNode {
     case 'icon':
       return {
         ...common,
+        // Icons paint their paths with `icon.color` instead of a surface fill.
         fill: undefined,
+        stroke: undefined,
         icon: {
           library: element.library,
           icon: element.icon,
@@ -190,14 +206,12 @@ function locateNode(
   return null;
 }
 
-function formatDimension(value: number): string {
-  return Number.isInteger(value)
-    ? String(value)
-    : String(Math.round(value * 100) / 100);
-}
-
 function round(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function formatDimension(value: number): string {
+  return String(round(value));
 }
 
 /**

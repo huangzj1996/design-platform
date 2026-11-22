@@ -1,15 +1,12 @@
 import type { DesignDocument } from '@design-ai/design-schema';
-import { useEffect, useMemo, useRef } from 'react';
-import {
-  createLeaferCanvasEngine,
-  type CanvasEngine,
-  type CanvasEngineFactory,
-} from './canvas-engine';
+import { useEffect, useEffectEvent, useMemo, useRef } from 'react';
+import type { CanvasEngine, CanvasEngineFactory } from './canvas-engine';
 import {
   buildCanvasScene,
-  CANVAS_STAGE_PADDING,
+  canvasStageSize,
   findCanvasSelection,
 } from './canvas-scene';
+import { createLeaferEngine } from './leafer-canvas';
 
 export interface CanvasProps {
   document: DesignDocument | null;
@@ -23,26 +20,34 @@ export function Canvas({
   document,
   selectionId = null,
   onSelect,
-  createEngine = createLeaferCanvasEngine,
+  createEngine = createLeaferEngine,
 }: CanvasProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<CanvasEngine | null>(null);
-  const onSelectRef = useRef(onSelect);
-  onSelectRef.current = onSelect;
+  const emitSelect = useEffectEvent((id: string | null) => {
+    onSelect?.(id);
+  });
 
-  const hasElements = document !== null && document.children.length > 0;
   const scene = useMemo(
     () => (document === null ? null : buildCanvasScene(document)),
     [document],
   );
+  const hasElements = scene !== null && scene.roots.length > 0;
   const selection = useMemo(
     () => (scene === null ? null : findCanvasSelection(scene, selectionId)),
     [scene, selectionId],
   );
   const sceneRef = useRef(scene);
-  sceneRef.current = scene;
   const selectionRef = useRef(selection);
-  selectionRef.current = selection;
+
+  useEffect(() => {
+    sceneRef.current = scene;
+    selectionRef.current = selection;
+    if (scene === null) {
+      return;
+    }
+    engineRef.current?.setScene(scene, selection);
+  }, [scene, selection]);
 
   useEffect(() => {
     if (!hasElements) {
@@ -57,9 +62,7 @@ export function Canvas({
     let engine: CanvasEngine | null = null;
     void (async () => {
       try {
-        const created = await createEngine(host, {
-          onSelect: (id) => onSelectRef.current?.(id),
-        });
+        const created = await createEngine(host, { onSelect: emitSelect });
         if (disposed) {
           created.destroy();
           return;
@@ -81,18 +84,11 @@ export function Canvas({
     };
   }, [createEngine, hasElements]);
 
-  useEffect(() => {
-    if (scene === null) {
-      return;
-    }
-    engineRef.current?.setScene(scene, selection);
-  }, [scene, selection]);
-
-  if (document === null) {
+  if (scene === null) {
     return <div className="canvas canvas-empty">尚未打开设计稿</div>;
   }
 
-  if (!hasElements || scene === null) {
+  if (scene.roots.length === 0) {
     return (
       <div className="canvas canvas-empty" data-empty="true">
         空白设计稿
@@ -100,16 +96,14 @@ export function Canvas({
     );
   }
 
+  const stage = canvasStageSize(scene);
   return (
     <div className="canvas" data-testid="canvas">
       <div
         ref={hostRef}
         className="canvas-stage"
         data-testid="canvas-stage"
-        style={{
-          width: `${Math.max(1, scene.width) + CANVAS_STAGE_PADDING * 2}px`,
-          height: `${Math.max(1, scene.height) + CANVAS_STAGE_PADDING * 2}px`,
-        }}
+        style={{ width: `${stage.width}px`, height: `${stage.height}px` }}
       />
     </div>
   );
