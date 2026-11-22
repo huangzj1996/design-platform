@@ -561,6 +561,32 @@ function layoutFrameChildren(
   });
 }
 
+export interface ElementSize {
+  width: number;
+  height: number;
+}
+
+/**
+ * Measures one element as if it were placed at the document root. Text uses
+ * the shared measurement rules and auto-layout frames fit their content.
+ * Returns undefined when either axis has no size basis.
+ */
+export function measureElementSize(
+  element: DesignElement,
+): ElementSize | undefined {
+  const issues: LayoutIssue[] = [];
+  const parent: ParentLayout = { kind: 'root' };
+  const width = resolveSize(element, 'width', parent, '$', issues);
+  if (issues.length > 0) {
+    return undefined;
+  }
+  const height = resolveSize(element, 'height', parent, '$', issues);
+  if (issues.length > 0) {
+    return undefined;
+  }
+  return { width: round(width), height: round(height) };
+}
+
 /**
  * Computes the shared layout tree for a validated design document. Variable
  * bindings are resolved first so sizes, spacing and measured text use their

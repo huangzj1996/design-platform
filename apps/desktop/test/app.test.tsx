@@ -120,8 +120,8 @@ const pencilWithWarning = `{
       ]
     },
     {
-      "id": "group-skipped",
-      "type": "group",
+      "id": "path-skipped",
+      "type": "path",
       "children": [{ "id": "hidden", "type": "text", "content": "不应出现" }]
     }
   ]
@@ -364,7 +364,7 @@ describe('desktop open flow', () => {
     const warnings = container.querySelector('[data-testid="import-warnings"]');
     expect(warnings?.textContent).toContain('unsupported_node');
     expect(warnings?.textContent).toContain('$.children[1]');
-    expect(warnings?.textContent).toContain('group');
+    expect(warnings?.textContent).toContain('path');
     expect(container.querySelector('[role="alert"]')).toBeNull();
   });
 

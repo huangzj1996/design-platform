@@ -3,6 +3,7 @@ import {
   isHexColor,
   isOneOf,
   isPlainObject,
+  measureElementSize,
   type DesignElement,
   type Diagnostic,
   type Dimension,
@@ -43,7 +44,7 @@ const TEXT_ALIGNS: readonly TextAlign[] = [
 const TEXT_GROWTHS = ['auto', 'fixed-width', 'fixed-width-height'] as const;
 const DEFAULT_ICON_LIBRARY = 'lucide';
 
-const COMMON_FIELDS = [
+const ENTITY_FIELDS = [
   'id',
   'type',
   'x',
@@ -51,6 +52,9 @@ const COMMON_FIELDS = [
   'enabled',
   'opacity',
   'rotation',
+] as const;
+const COMMON_FIELDS = [
+  ...ENTITY_FIELDS,
   'fill',
   'stroke',
   'strokeWidth',
@@ -69,6 +73,7 @@ const FRAME_FIELDS = [
   'clip',
 ] as const;
 const SHAPE_FIELDS = [...COMMON_FIELDS, ...SIZED_FIELDS] as const;
+const GROUP_FIELDS = [...ENTITY_FIELDS, 'children'] as const;
 const TEXT_FIELDS = [
   ...COMMON_FIELDS,
   ...SIZED_FIELDS,
@@ -434,7 +439,7 @@ function paddingValue(
   return undefined;
 }
 
-function applyCommonFields(
+function applyEntityFields(
   node: Record<string, unknown>,
   path: string,
   ctx: ConversionContext,
@@ -472,7 +477,14 @@ function applyCommonFields(
   if (rotation !== undefined) {
     element.rotation = rotation;
   }
+}
 
+function applyPaintFields(
+  node: Record<string, unknown>,
+  path: string,
+  ctx: ConversionContext,
+  element: ElementStyle,
+): void {
   applyColorField(node, 'fill', path, ctx, element);
   applyColorField(node, 'stroke', path, ctx, element);
 
@@ -491,6 +503,16 @@ function applyCommonFields(
       element.cornerRadius = cornerRadius;
     }
   }
+}
+
+function applyCommonFields(
+  node: Record<string, unknown>,
+  path: string,
+  ctx: ConversionContext,
+  element: ElementStyle,
+): void {
+  applyEntityFields(node, path, ctx, element);
+  applyPaintFields(node, path, ctx, element);
 }
 
 /** Applies the style and size fields shared by every sized element type. */
@@ -640,6 +662,112 @@ function convertFrame(
         .filter((child): child is DesignElement => child !== null);
       if (children.length > 0) {
         frame.children = children;
+      }
+    }
+  }
+
+  return frame;
+}
+
+const roundMeasure = (value: number): number =>
+  Math.round((value + Number.EPSILON) * 100) / 100;
+
+interface GroupBounds {
+  offsetX: number;
+  offsetY: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Bounds of a group's convertible children, measured with the shared layout
+ * and text rules. The group origin stays the frame origin; children that
+ * extend beyond the origin on the left or top shift the frame and are
+ * re-anchored so their canvas positions stay unchanged.
+ */
+function measureGroupBounds(
+  children: DesignElement[],
+): GroupBounds | undefined {
+  let minX = 0;
+  let minY = 0;
+  let maxX = 0;
+  let maxY = 0;
+  let measured = 0;
+
+  for (const child of children) {
+    const size = measureElementSize(child);
+    if (size === undefined) {
+      continue;
+    }
+    measured += 1;
+    const x = child.x ?? 0;
+    const y = child.y ?? 0;
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x + size.width);
+    maxY = Math.max(maxY, y + size.height);
+  }
+
+  if (measured === 0) {
+    return undefined;
+  }
+
+  return {
+    offsetX: minX,
+    offsetY: minY,
+    width: roundMeasure(maxX - minX),
+    height: roundMeasure(maxY - minY),
+  };
+}
+
+/**
+ * Converts a Pencil group into a free-positioning, transparent frame. Pencil
+ * groups have no size of their own, so the frame's fixed size comes from the
+ * measured bounds of its convertible children while their positions remain
+ * relative to the group origin.
+ */
+function convertGroup(
+  node: Record<string, unknown>,
+  path: string,
+  ctx: ConversionContext,
+): FrameElement {
+  warnUnknownFields(node, GROUP_FIELDS, path, ctx);
+
+  const frame: FrameElement = {
+    id: resolveId(node, 'frame', path, ctx),
+    type: 'frame',
+    layout: 'none',
+  };
+  ctx.sourcePaths.set(frame, path);
+  applyEntityFields(node, path, ctx, frame);
+
+  if (node.children !== undefined) {
+    if (!Array.isArray(node.children)) {
+      warnInvalidField(ctx, path, 'children');
+    } else {
+      const children = node.children
+        .map((child, index) => convertNode(child, childPath(path, index), ctx))
+        .filter((child): child is DesignElement => child !== null);
+      if (children.length > 0) {
+        frame.children = children;
+      }
+
+      const bounds = measureGroupBounds(children);
+      if (bounds !== undefined) {
+        frame.width = bounds.width;
+        frame.height = bounds.height;
+        if (bounds.offsetX !== 0) {
+          frame.x = (frame.x ?? 0) + bounds.offsetX;
+          for (const child of children) {
+            child.x = (child.x ?? 0) - bounds.offsetX;
+          }
+        }
+        if (bounds.offsetY !== 0) {
+          frame.y = (frame.y ?? 0) + bounds.offsetY;
+          for (const child of children) {
+            child.y = (child.y ?? 0) - bounds.offsetY;
+          }
+        }
       }
     }
   }
@@ -831,6 +959,8 @@ export function convertNode(
   switch (type) {
     case 'frame':
       return convertFrame(node, path, ctx);
+    case 'group':
+      return convertGroup(node, path, ctx);
     case 'rectangle':
       return convertRectangle(node, path, ctx);
     case 'ellipse':

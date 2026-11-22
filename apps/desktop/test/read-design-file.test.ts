@@ -63,7 +63,7 @@ const pencilSample = `// Pencil 2.25 样稿，覆盖五种基础元素。
     },
     {
       "id": "unsupported",
-      "type": "group",
+      "type": "path",
       "children": [{ "id": "inner", "type": "text", "content": "不应导入" }]
     }
   ]
@@ -262,7 +262,7 @@ describe('readDesignFile', () => {
       ],
       [
         'skipped.pen',
-        '{ "version": "2.25", "children": [{ "id": "g", "type": "group" }] }',
+        '{ "version": "2.25", "children": [{ "id": "p", "type": "path" }] }',
         'empty_import',
       ],
     ];

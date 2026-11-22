@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   layoutDesignDocument,
+  measureElementSize,
   measureText,
   validateDesignDocument,
   type DesignDocument,
@@ -117,6 +118,37 @@ describe('measureText', () => {
     expect(measurement.lineCount).toBe(1);
     expect(measurement.width).toBe(76);
     expect(measurement.height).toBe(19.2);
+  });
+});
+
+describe('measureElementSize', () => {
+  it('uses the shared size rules for text, auto-layout frames and fixed elements', () => {
+    expect(
+      measureElementSize({ id: 'label', type: 'text', text: 'Hi' }),
+    ).toEqual({ width: 12, height: 19.2 });
+    expect(
+      measureElementSize({
+        id: 'block',
+        type: 'rectangle',
+        width: 20,
+        height: 10,
+      }),
+    ).toEqual({ width: 20, height: 10 });
+    expect(
+      measureElementSize({
+        id: 'row',
+        type: 'frame',
+        layout: 'horizontal',
+        gap: 4,
+        children: [
+          { id: 'a', type: 'text', text: 'Hi' },
+          { id: 'b', type: 'text', text: '标题' },
+        ],
+      }),
+    ).toEqual({ width: 48, height: 19.2 });
+    expect(
+      measureElementSize({ id: 'unsized', type: 'rectangle' }),
+    ).toBeUndefined();
   });
 });
 

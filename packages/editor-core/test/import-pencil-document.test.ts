@@ -269,6 +269,203 @@ describe('importPencilDocument', () => {
     expectValid(document);
   });
 
+  it('imports a Pencil group as a free-positioned transparent frame sized to its children', () => {
+    const { document, warnings } = successOf(
+      importPencilDocument(`{
+        "version": "2.25",
+        "children": [
+          {
+            "id": "group",
+            "type": "group",
+            "x": 24,
+            "y": 16,
+            "children": [
+              { "id": "title", "type": "text", "content": "Hello", "x": 8, "y": 4, "fontSize": 20 },
+              { "id": "badge", "type": "rectangle", "x": 64, "y": 12, "width": 8, "height": 8, "fill": "#FF0000" }
+            ]
+          }
+        ]
+      }`),
+    );
+
+    expect(warnings).toEqual([]);
+    const group = frameOf(document.children, 'group');
+    expect(group).toMatchObject({
+      id: 'group',
+      type: 'frame',
+      layout: 'none',
+      x: 24,
+      y: 16,
+      width: 72,
+      height: 28,
+    });
+    expect(group.fill).toBeUndefined();
+    expect(group).not.toHaveProperty('clip');
+    expect(group.children?.map((child) => child.id)).toEqual([
+      'title',
+      'badge',
+    ]);
+
+    const layout = layoutDesignDocument(document);
+    expect(layout.issues).toEqual([]);
+    expect(layout.roots[0]?.box).toMatchObject({
+      x: 24,
+      y: 16,
+      width: 72,
+      height: 28,
+    });
+    expect(layout.roots[0]?.children[0]?.box).toMatchObject({
+      x: 8,
+      y: 4,
+      width: 40,
+      height: 24,
+    });
+    expect(layout.roots[0]?.children[1]?.box).toMatchObject({
+      x: 64,
+      y: 12,
+      width: 8,
+      height: 8,
+    });
+    expectValid(document);
+  });
+
+  it('keeps convertible group children and reports unsupported group properties', () => {
+    const { document, warnings } = successOf(
+      importPencilDocument(`{
+        "version": "2.25",
+        "children": [
+          {
+            "id": "group",
+            "type": "group",
+            "name": "组合",
+            "effect": { "type": "blur", "radius": 2 },
+            "opacity": 0.5,
+            "rotation": 10,
+            "children": [
+              { "id": "label", "type": "text", "content": "Hi", "x": 0, "y": 0 },
+              { "id": "unsupported", "type": "path" },
+              { "id": "dot", "type": "ellipse", "x": 20, "y": 10, "width": 8, "height": 8 }
+            ]
+          }
+        ]
+      }`),
+    );
+
+    const group = frameOf(document.children, 'group');
+    expect(group).toMatchObject({
+      id: 'group',
+      type: 'frame',
+      layout: 'none',
+      opacity: 0.5,
+      rotation: 10,
+      width: 28,
+      height: 19.2,
+    });
+    expect(group.children?.map((child) => child.id)).toEqual(['label', 'dot']);
+    expect(
+      warningFor(warnings, 'unsupported_property', '$.children[0].name'),
+    ).toBeDefined();
+    expect(
+      warningFor(warnings, 'unsupported_property', '$.children[0].effect'),
+    ).toBeDefined();
+    expect(
+      warningFor(warnings, 'unsupported_node', '$.children[0].children[1]'),
+    ).toBeDefined();
+    expectValid(document);
+  });
+
+  it('lays a converted group out as a fixed-size child of an auto-layout frame', () => {
+    const { document, warnings } = successOf(
+      importPencilDocument(`{
+        "version": "2.25",
+        "children": [
+          {
+            "id": "row",
+            "type": "frame",
+            "layout": "horizontal",
+            "width": 300,
+            "height": 80,
+            "gap": 10,
+            "children": [
+              {
+                "id": "group",
+                "type": "group",
+                "x": 999,
+                "y": 999,
+                "children": [
+                  { "id": "a", "type": "rectangle", "x": 0, "y": 0, "width": 40, "height": 20 },
+                  { "id": "b", "type": "rectangle", "x": 20, "y": 10, "width": 60, "height": 30 }
+                ]
+              },
+              { "id": "tail", "type": "rectangle", "width": 10, "height": 10 }
+            ]
+          }
+        ]
+      }`),
+    );
+
+    expect(warnings).toEqual([]);
+    expect(
+      frameOf(frameOf(document.children, 'row').children, 'group'),
+    ).toMatchObject({ width: 80, height: 40 });
+
+    const layout = layoutDesignDocument(document);
+    expect(layout.issues).toEqual([]);
+    expect(layout.roots[0]?.children[0]?.box).toMatchObject({
+      x: 0,
+      y: 0,
+      width: 80,
+      height: 40,
+    });
+    expect(layout.roots[0]?.children[1]?.box).toMatchObject({ x: 90, y: 0 });
+    expect(layout.roots[0]?.children[0]?.children[1]?.box).toMatchObject({
+      x: 20,
+      y: 10,
+      width: 60,
+      height: 30,
+    });
+    expectValid(document);
+  });
+
+  it('anchors the converted frame to children that extend beyond the group origin', () => {
+    const { document, warnings } = successOf(
+      importPencilDocument(`{
+        "version": "2.25",
+        "children": [
+          {
+            "id": "group",
+            "type": "group",
+            "x": 100,
+            "y": 50,
+            "children": [
+              { "id": "offset", "type": "rectangle", "x": -10, "y": -5, "width": 20, "height": 15 }
+            ]
+          }
+        ]
+      }`),
+    );
+
+    expect(warnings).toEqual([]);
+    const group = frameOf(document.children, 'group');
+    expect(group).toMatchObject({
+      x: 90,
+      y: 45,
+      width: 20,
+      height: 15,
+    });
+    expect(elementOf(group.children, 'offset')).toMatchObject({ x: 0, y: 0 });
+
+    const layout = layoutDesignDocument(document);
+    expect(layout.issues).toEqual([]);
+    expect(layout.roots[0]?.children[0]?.box).toMatchObject({
+      x: 0,
+      y: 0,
+      width: 20,
+      height: 15,
+    });
+    expectValid(document);
+  });
+
   it('skips unsupported nodes together with their subtrees and reports the location', () => {
     const { document, warnings } = successOf(
       importPencilDocument(`{
@@ -276,8 +473,8 @@ describe('importPencilDocument', () => {
         "children": [
           { "id": "before", "type": "rectangle", "width": 10, "height": 10 },
           {
-            "id": "group",
-            "type": "group",
+            "id": "path",
+            "type": "path",
             "children": [
               { "id": "nested", "type": "text", "content": "不应导入" }
             ]
@@ -292,7 +489,7 @@ describe('importPencilDocument', () => {
       'after',
     ]);
     const warning = warningFor(warnings, 'unsupported_node', '$.children[1]');
-    expect(warning?.message).toContain('group');
+    expect(warning?.message).toContain('path');
     expectValid(document);
   });
 
