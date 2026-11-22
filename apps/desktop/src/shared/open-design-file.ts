@@ -9,6 +9,12 @@ export const DesktopDiagnosticCodes = {
 
 export type OpenDesignFileResult =
   | { status: 'opened'; filePath: string; document: DesignDocument }
+  | {
+      status: 'imported';
+      sourcePath: string;
+      document: DesignDocument;
+      warnings: Diagnostic[];
+    }
   | { status: 'cancelled' }
   | { status: 'failed'; filePath: string; errors: Diagnostic[] };
 

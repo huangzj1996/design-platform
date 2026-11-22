@@ -10,19 +10,27 @@ import {
 
 export interface EditorState {
   document: DesignDocument | null;
+  /** Save target of a native document; `null` for an unsaved import. */
   filePath: string | null;
+  /** Pencil source of an imported draft, shown until the draft is saved. */
+  sourcePath: string | null;
   diagnostics: Diagnostic[];
+  warnings: Diagnostic[];
 }
 
 export const initialEditorState: EditorState = {
   document: null,
   filePath: null,
+  sourcePath: null,
   diagnostics: [],
+  warnings: [],
 };
 
 /**
  * Applies an open-file result to the editor. A failed or cancelled open leaves
  * the current design untouched; only diagnostics are shown for a failure.
+ * An imported Pencil file becomes an unsaved native draft and keeps its
+ * conversion warnings visible.
  */
 export function applyOpenResult(
   state: EditorState,
@@ -33,11 +41,21 @@ export function applyOpenResult(
       return state;
     case 'failed':
       return { ...state, diagnostics: result.errors };
+    case 'imported':
+      return {
+        document: result.document,
+        filePath: null,
+        sourcePath: result.sourcePath,
+        diagnostics: [],
+        warnings: result.warnings,
+      };
     case 'opened':
       return {
         document: result.document,
         filePath: result.filePath,
+        sourcePath: null,
         diagnostics: [],
+        warnings: [],
       };
   }
 }

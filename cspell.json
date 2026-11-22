@@ -4,5 +4,12 @@
   "useGitignore": true,
   "files": ["**/*.{cjs,css,cts,html,js,json,jsonc,md,mjs,mts,ts,yaml,yml}"],
   "ignorePaths": [".husky/_/**", "pnpm-lock.yaml"],
-  "words": ["asar", "esbuild", "winstaller", "wslpath"]
+  "words": [
+    "asar",
+    "demibold",
+    "esbuild",
+    "extralight",
+    "winstaller",
+    "wslpath"
+  ]
 }

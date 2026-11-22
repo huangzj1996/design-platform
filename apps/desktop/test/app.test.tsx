@@ -101,6 +101,32 @@ const frameWithText = {
   ],
 };
 
+const pencilWithWarning = `{
+  "version": "2.25",
+  "children": [
+    {
+      "id": "frame-imported",
+      "type": "frame",
+      "width": 360,
+      "height": 240,
+      "layout": "vertical",
+      "padding": 12,
+      "gap": 6,
+      "children": [
+        { "id": "rect-imported", "type": "rectangle", "width": 40, "height": 20, "fill": "#FF0000" },
+        { "id": "ellipse-imported", "type": "ellipse", "width": 16, "height": 16, "fill": "#00FF00" },
+        { "id": "text-imported", "type": "text", "content": "导入的标题" },
+        { "id": "icon-imported", "type": "icon", "library": "lucide", "icon": "arrow-right", "width": 20, "height": 20 }
+      ]
+    },
+    {
+      "id": "group-skipped",
+      "type": "group",
+      "children": [{ "id": "hidden", "type": "text", "content": "不应出现" }]
+    }
+  ]
+}`;
+
 describe('desktop open flow', () => {
   it('opens a blank document from a real temporary directory', async () => {
     const filePath = await writeJson('blank.json', {
@@ -313,5 +339,69 @@ describe('desktop open flow', () => {
     expect(container.textContent).toContain('第二份标题');
     expect(container.textContent).not.toContain('产品标题');
     expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it('imports a Pencil file and displays the conversion warnings', async () => {
+    const filePath = path.join(directory, 'sample.pen');
+    await writeFile(filePath, pencilWithWarning, 'utf8');
+    await showOpenResult(filePath);
+    renderApp();
+
+    expect(container.textContent).toContain('尚未打开设计稿');
+
+    await clickOpen();
+
+    expect(container.textContent).toContain('sample.pen');
+    expect(elementById('frame-imported')?.dataset.elementType).toBe('frame');
+    expect(elementById('rect-imported')?.dataset.elementType).toBe('rectangle');
+    expect(elementById('ellipse-imported')?.dataset.elementType).toBe(
+      'ellipse',
+    );
+    expect(elementById('text-imported')?.textContent).toBe('导入的标题');
+    expect(elementById('icon-imported')?.dataset.iconName).toBe('arrow-right');
+    expect(container.textContent).not.toContain('不应出现');
+
+    const warnings = container.querySelector('[data-testid="import-warnings"]');
+    expect(warnings?.textContent).toContain('unsupported_node');
+    expect(warnings?.textContent).toContain('$.children[1]');
+    expect(warnings?.textContent).toContain('group');
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it('keeps the current design when a Pencil import fails and shows the reason', async () => {
+    const nativePath = await writeJson('valid.json', frameWithText);
+    await showOpenResult(nativePath);
+    renderApp();
+    await clickOpen();
+    expect(container.textContent).toContain('产品标题');
+
+    const penPath = path.join(directory, 'future.pen');
+    await writeFile(penPath, '{ "version": "2.26", "children": [] }', 'utf8');
+    await showOpenResult(penPath);
+    await clickOpen();
+
+    expect(container.textContent).toContain('产品标题');
+    const alert = container.querySelector('[role="alert"]');
+    expect(alert?.textContent).toContain('unsupported_version');
+    expect(alert?.textContent).toContain('$.version');
+    expect(
+      container.querySelector('[data-testid="import-warnings"]'),
+    ).toBeNull();
+  });
+
+  it('opens a genuinely empty Pencil document as an empty native draft', async () => {
+    const filePath = path.join(directory, 'empty.pen');
+    await writeFile(filePath, '{ "version": "2.25", "children": [] }', 'utf8');
+    await showOpenResult(filePath);
+    renderApp();
+
+    await clickOpen();
+
+    expect(container.textContent).toContain('empty.pen');
+    expect(container.textContent).toContain('空白设计稿');
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(
+      container.querySelector('[data-testid="import-warnings"]'),
+    ).toBeNull();
   });
 });
