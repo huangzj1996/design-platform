@@ -16,9 +16,15 @@ type ShapeElement = RectangleElement | EllipseElement;
 
 export interface CanvasProps {
   document: DesignDocument | null;
+  selectionId?: string | null;
+  onSelect?: (id: string) => void;
 }
 
-export function Canvas({ document }: CanvasProps) {
+export function Canvas({
+  document,
+  selectionId = null,
+  onSelect,
+}: CanvasProps) {
   if (document === null) {
     return <div className="canvas canvas-empty">尚未打开设计稿</div>;
   }
@@ -40,33 +46,68 @@ export function Canvas({ document }: CanvasProps) {
         style={{ width: `${layout.width}px`, height: `${layout.height}px` }}
       >
         {layout.roots.map((node) => (
-          <CanvasNode key={node.element.id} node={node} />
+          <CanvasNode
+            key={node.element.id}
+            node={node}
+            selectionId={selectionId}
+            onSelect={onSelect}
+          />
         ))}
       </div>
     </div>
   );
 }
 
-function CanvasNode({ node }: { node: LayoutNode }) {
+interface CanvasNodeProps {
+  node: LayoutNode;
+  selectionId: string | null;
+  onSelect?: (id: string) => void;
+}
+
+function CanvasNode({ node, selectionId, onSelect }: CanvasNodeProps) {
   const { element } = node;
+  const selected = element.id === selectionId;
+  const interaction: ElementInteraction = {
+    'data-selected': selected ? 'true' : 'false',
+    onClick: (event: { stopPropagation: () => void }) => {
+      event.stopPropagation();
+      onSelect?.(element.id);
+    },
+  };
 
   switch (element.type) {
     case 'frame':
       return (
-        <FrameView element={element} node={node}>
+        <FrameView element={element} node={node} interaction={interaction}>
           {node.children.map((child) => (
-            <CanvasNode key={child.element.id} node={child} />
+            <CanvasNode
+              key={child.element.id}
+              node={child}
+              selectionId={selectionId}
+              onSelect={onSelect}
+            />
           ))}
         </FrameView>
       );
     case 'rectangle':
     case 'ellipse':
-      return <ShapeView element={element} node={node} />;
+      return (
+        <ShapeView element={element} node={node} interaction={interaction} />
+      );
     case 'text':
-      return <TextView element={element} node={node} />;
+      return (
+        <TextView element={element} node={node} interaction={interaction} />
+      );
     case 'icon':
-      return <IconView element={element} node={node} />;
+      return (
+        <IconView element={element} node={node} interaction={interaction} />
+      );
   }
+}
+
+interface ElementInteraction {
+  'data-selected': 'true' | 'false';
+  onClick: (event: { stopPropagation: () => void }) => void;
 }
 
 function boxStyle(node: LayoutNode): CSSProperties {
@@ -123,9 +164,10 @@ interface FrameViewProps {
   element: FrameElement;
   node: LayoutNode;
   children: ReactNode;
+  interaction: ElementInteraction;
 }
 
-function FrameView({ element, node, children }: FrameViewProps) {
+function FrameView({ element, node, children, interaction }: FrameViewProps) {
   const layout = element.layout ?? 'horizontal';
   const style: CSSProperties = {
     ...boxStyle(node),
@@ -137,6 +179,7 @@ function FrameView({ element, node, children }: FrameViewProps) {
     <div
       className={`canvas-frame canvas-frame-${layout}`}
       {...elementAttributes(node)}
+      {...interaction}
       data-layout={layout}
       data-justify-content={element.justifyContent ?? 'start'}
       data-align-items={element.alignItems ?? 'start'}
@@ -150,9 +193,11 @@ function FrameView({ element, node, children }: FrameViewProps) {
 function ShapeView({
   element,
   node,
+  interaction,
 }: {
   element: ShapeElement;
   node: LayoutNode;
+  interaction: ElementInteraction;
 }) {
   const style: CSSProperties = {
     ...boxStyle(node),
@@ -167,6 +212,7 @@ function ShapeView({
     <div
       className={`canvas-shape canvas-${element.type}`}
       {...elementAttributes(node)}
+      {...interaction}
       style={style}
     />
   );
@@ -175,9 +221,11 @@ function ShapeView({
 function TextView({
   element,
   node,
+  interaction,
 }: {
   element: TextElement;
   node: LayoutNode;
+  interaction: ElementInteraction;
 }) {
   const style: CSSProperties = {
     ...boxStyle(node),
@@ -198,7 +246,12 @@ function TextView({
   };
 
   return (
-    <span className="canvas-text" {...elementAttributes(node)} style={style}>
+    <span
+      className="canvas-text"
+      {...elementAttributes(node)}
+      {...interaction}
+      style={style}
+    >
       {element.text}
     </span>
   );
@@ -207,9 +260,11 @@ function TextView({
 function IconView({
   element,
   node,
+  interaction,
 }: {
   element: IconElement;
   node: LayoutNode;
+  interaction: ElementInteraction;
 }) {
   const icon = resolveLucideIcon(element);
   const style: CSSProperties = {
@@ -221,6 +276,7 @@ function IconView({
 
   const attributes = {
     ...elementAttributes(node),
+    ...interaction,
     className: `canvas-icon${icon === null ? ' canvas-icon-placeholder' : ''}`,
     'data-icon-library': element.library,
     'data-icon-name': element.icon,

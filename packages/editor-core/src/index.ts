@@ -1,4 +1,14 @@
 export {
+  addElement,
+  createBlankDocument,
+  createDefaultElement,
+  createElementId,
+  deleteElement,
+  findElement,
+  updateElement,
+  type ElementPatch,
+} from './document/edit';
+export {
   PencilDiagnosticCodes,
   type PencilDiagnosticCode,
 } from './pencil/diagnostics';
