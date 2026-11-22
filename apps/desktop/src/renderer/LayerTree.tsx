@@ -1,16 +1,5 @@
-import type {
-  DesignDocument,
-  DesignElement,
-  ElementType,
-} from '@design-ai/design-schema';
-
-export const ELEMENT_TYPE_LABELS: Record<ElementType, string> = {
-  frame: '容器',
-  rectangle: '矩形',
-  ellipse: '圆形',
-  text: '文字',
-  icon: '图标',
-};
+import type { DesignDocument, DesignElement } from '@design-ai/design-schema';
+import { ELEMENT_TYPE_LABELS } from './element-labels';
 
 function elementLabel(element: DesignElement): string {
   if (element.type === 'text') {

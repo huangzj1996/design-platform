@@ -4,6 +4,7 @@ import {
   type DesignDocument,
   type Diagnostic,
 } from '@design-ai/design-schema';
+import { errorMessage } from '../shared/error-message';
 import {
   DesktopDiagnosticCodes,
   type SaveDesignFileInput,
@@ -44,10 +45,6 @@ interface PathQueue {
 }
 
 const DRAFT_KEY = '\u0000draft';
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 function failedResult(
   filePath: string | null,
@@ -161,11 +158,8 @@ export class DesignFileSaver {
     queue.writing = true;
 
     try {
-      while (queue.pending !== null) {
-        const pending = this.takePending(queue);
-        if (pending === null) {
-          break;
-        }
+      let pending = this.takePending(queue);
+      while (pending !== null) {
         const result = await this.persist(pending, queue);
         for (const resolve of pending.resolvers) {
           resolve(result);
@@ -183,6 +177,8 @@ export class DesignFileSaver {
           }
           break;
         }
+
+        pending = this.takePending(queue);
       }
     } finally {
       queue.writing = false;

@@ -14,12 +14,9 @@ const api: DesignAiApi = {
   saveDesignFile: (input) =>
     ipcRenderer.invoke(SAVE_DESIGN_FILE_CHANNEL, input),
   onCloseRequest: (listener) => {
-    const handler = () => {
-      listener();
-    };
-    ipcRenderer.on(CLOSE_REQUEST_CHANNEL, handler);
+    ipcRenderer.on(CLOSE_REQUEST_CHANNEL, listener);
     return () => {
-      ipcRenderer.removeListener(CLOSE_REQUEST_CHANNEL, handler);
+      ipcRenderer.removeListener(CLOSE_REQUEST_CHANNEL, listener);
     };
   },
   confirmClose: () => {

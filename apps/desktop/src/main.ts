@@ -6,6 +6,7 @@ import {
   type OpenDialogOptions,
 } from 'electron';
 import path from 'node:path';
+import { createDiagnostic } from '@design-ai/design-schema';
 import started from 'electron-squirrel-startup';
 import { createDesignFile } from './main/create-design-file';
 import { readDesignFile } from './main/read-design-file';
@@ -122,11 +123,11 @@ const registerDesignFileHandlers = (projectDirectory: string) => {
           status: 'failed',
           filePath: null,
           errors: [
-            {
-              code: DesktopDiagnosticCodes.fileWriteError,
-              path: '$',
-              message: '无效的保存请求',
-            },
+            createDiagnostic(
+              DesktopDiagnosticCodes.fileWriteError,
+              '$',
+              '无效的保存请求',
+            ),
           ],
         };
       }

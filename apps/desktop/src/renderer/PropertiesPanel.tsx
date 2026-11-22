@@ -6,7 +6,7 @@ import type {
   FrameElement,
 } from '@design-ai/design-schema';
 import type { ChangeEvent } from 'react';
-import { ELEMENT_TYPE_LABELS } from './LayerTree';
+import { ELEMENT_TYPE_LABELS } from './element-labels';
 
 export interface PropertiesPanelProps {
   document: DesignDocument | null;
@@ -17,6 +17,12 @@ export interface PropertiesPanelProps {
 }
 
 const DEFAULT_PADDING: [number, number, number, number] = [0, 0, 0, 0];
+const PADDING_LABELS = [
+  '内边距上',
+  '内边距右',
+  '内边距下',
+  '内边距左',
+] as const;
 const CHILD_TYPES: readonly ElementType[] = [
   'text',
   'rectangle',
@@ -24,6 +30,11 @@ const CHILD_TYPES: readonly ElementType[] = [
   'icon',
   'frame',
 ];
+
+interface ElementFieldsProps<T extends DesignElement> {
+  element: T;
+  onUpdate: (patch: ElementPatch) => void;
+}
 
 function normalizeColor(value: unknown): string {
   return typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value)
@@ -110,10 +121,7 @@ function TextField({ label, value, onChange }: TextFieldProps) {
 function CommonFields({
   element,
   onUpdate,
-}: {
-  element: DesignElement;
-  onUpdate: (patch: ElementPatch) => void;
-}) {
+}: ElementFieldsProps<DesignElement>) {
   return (
     <>
       <label className="property-field">
@@ -143,13 +151,7 @@ function CommonFields({
   );
 }
 
-function SizeFields({
-  element,
-  onUpdate,
-}: {
-  element: DesignElement;
-  onUpdate: (patch: ElementPatch) => void;
-}) {
+function SizeFields({ element, onUpdate }: ElementFieldsProps<DesignElement>) {
   return (
     <>
       <NumberField
@@ -171,10 +173,7 @@ function SizeFields({
 function TextFields({
   element,
   onUpdate,
-}: {
-  element: Extract<DesignElement, { type: 'text' }>;
-  onUpdate: (patch: ElementPatch) => void;
-}) {
+}: ElementFieldsProps<Extract<DesignElement, { type: 'text' }>>) {
   return (
     <>
       <label className="property-field property-field-wide">
@@ -215,20 +214,8 @@ function TextFields({
   );
 }
 
-function FrameFields({
-  element,
-  onUpdate,
-}: {
-  element: FrameElement;
-  onUpdate: (patch: ElementPatch) => void;
-}) {
+function FrameFields({ element, onUpdate }: ElementFieldsProps<FrameElement>) {
   const padding = element.padding ?? DEFAULT_PADDING;
-  const paddingLabels = [
-    '内边距上',
-    '内边距右',
-    '内边距下',
-    '内边距左',
-  ] as const;
 
   const setPadding = (index: number, value: number | undefined) => {
     if (value === undefined) {
@@ -261,8 +248,8 @@ function FrameFields({
       />
       {padding.map((value, index) => (
         <NumberField
-          key={paddingLabels[index]}
-          label={paddingLabels[index] ?? `内边距${index}`}
+          key={PADDING_LABELS[index]}
+          label={PADDING_LABELS[index] ?? `内边距${index}`}
           value={value}
           min={0}
           onChange={(next) => setPadding(index, next)}
@@ -275,10 +262,7 @@ function FrameFields({
 function IconFields({
   element,
   onUpdate,
-}: {
-  element: Extract<DesignElement, { type: 'icon' }>;
-  onUpdate: (patch: ElementPatch) => void;
-}) {
+}: ElementFieldsProps<Extract<DesignElement, { type: 'icon' }>>) {
   return (
     <>
       <TextField

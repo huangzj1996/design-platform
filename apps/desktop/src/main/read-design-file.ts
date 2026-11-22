@@ -4,6 +4,7 @@ import {
   parseDesignDocument,
 } from '@design-ai/design-schema';
 import { importPencilDocument } from '@design-ai/editor-core';
+import { errorMessage } from '../shared/error-message';
 import {
   DesktopDiagnosticCodes,
   type OpenDesignFileResult,
@@ -28,7 +29,6 @@ export async function readDesignFile(
   try {
     contents = await readFile(filePath, 'utf8');
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
     return {
       status: 'failed',
       filePath,
@@ -36,7 +36,7 @@ export async function readDesignFile(
         createDiagnostic(
           DesktopDiagnosticCodes.fileReadError,
           '$',
-          `无法读取设计稿文件：${message}`,
+          `无法读取设计稿文件：${errorMessage(error)}`,
         ),
       ],
     };

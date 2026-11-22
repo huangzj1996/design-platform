@@ -1,10 +1,9 @@
 import { createHash } from 'node:crypto';
 
 /**
- * Serializes a JSON value in RFC 8785 canonical form: object keys are sorted
- * by their UTF-16 code units, arrays keep their order, and no insignificant
- * whitespace is emitted. The snapshots persisted by the editor contain only
- * JSON values, so this covers the document contract.
+ * Serializes JSON data deterministically: object keys are sorted by their
+ * UTF-16 code units, arrays keep their order, and no insignificant whitespace
+ * is emitted. The editor only fingerprints plain JSON snapshots.
  */
 export function canonicalizeJson(value: unknown): string {
   if (value === null || typeof value !== 'object') {

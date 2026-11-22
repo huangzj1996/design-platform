@@ -1,4 +1,8 @@
-import type { Diagnostic, ElementType } from '@design-ai/design-schema';
+import type {
+  DesignDocument,
+  Diagnostic,
+  ElementType,
+} from '@design-ai/design-schema';
 import { validateDesignDocument } from '@design-ai/design-schema';
 import {
   addElement,
@@ -11,6 +15,7 @@ import {
 import { useEffect, useRef, useState } from 'react';
 import type {
   CreateDesignFileResult,
+  DesignAiApi,
   OpenDesignFileResult,
   SaveDesignFileInput,
   SaveDesignFileResult,
@@ -48,34 +53,29 @@ export interface AppProps {
   saveDelayMs?: number;
 }
 
-async function openThroughBridge(): Promise<OpenDesignFileResult> {
+function requireDesignAi(operation: string): DesignAiApi {
   if (window.designAi === undefined) {
-    throw new Error('设计稿打开桥接不可用');
+    throw new Error(`设计稿${operation}桥接不可用`);
   }
-  return window.designAi.openDesignFile();
+  return window.designAi;
+}
+
+async function openThroughBridge(): Promise<OpenDesignFileResult> {
+  return requireDesignAi('打开').openDesignFile();
 }
 
 async function createThroughBridge(): Promise<CreateDesignFileResult> {
-  if (window.designAi === undefined) {
-    throw new Error('设计稿新建桥接不可用');
-  }
-  return window.designAi.createDesignFile();
+  return requireDesignAi('新建').createDesignFile();
 }
 
 async function saveThroughBridge(
   input: SaveDesignFileInput,
 ): Promise<SaveDesignFileResult> {
-  if (window.designAi === undefined) {
-    throw new Error('设计稿保存桥接不可用');
-  }
-  return window.designAi.saveDesignFile(input);
+  return requireDesignAi('保存').saveDesignFile(input);
 }
 
 function subscribeThroughBridge(listener: () => void): () => void {
-  if (window.designAi === undefined) {
-    return () => {};
-  }
-  return window.designAi.onCloseRequest(listener);
+  return window.designAi?.onCloseRequest(listener) ?? (() => {});
 }
 
 function confirmThroughBridge(): void {
@@ -96,13 +96,27 @@ function DiagnosticList({ diagnostics }: { diagnostics: Diagnostic[] }) {
   );
 }
 
+/** Describes the save state shown next to the current document name. */
+function saveStatusText(state: EditorState): string {
+  if (state.saveStatus === 'saving') {
+    return '正在保存…';
+  }
+  if (state.saveStatus === 'error') {
+    return '保存失败';
+  }
+  if (state.dirty) {
+    return '未保存的修改';
+  }
+  return state.filePath === null ? '未保存' : '已保存';
+}
+
 /**
  * Validates an edit before showing it, so property inputs can never persist a
  * document that no longer satisfies the version 1 contract.
  */
 function commitEdit(
   state: EditorState,
-  document: EditorState['document'],
+  document: DesignDocument | null,
   selectionId: string | null = state.selectionId,
 ): EditorState {
   if (document === null) {
@@ -182,38 +196,41 @@ export function App({
     }
   };
 
-  const handleOpen = async () => {
-    // Close and switch only start after the current design's pending write
-    // succeeds. Reading the target afterwards also avoids reopening a stale
-    // copy of the currently open file.
-    if (stateRef.current.document !== null) {
-      const saved = await flush();
-      if (saved === 'failed') {
-        setState((current) => setPendingAction(current, 'open'));
-        return;
-      }
+  /**
+   * Flushes pending edits before an action that closes or replaces the current
+   * design. A failed save keeps the design open and records the action for the
+   * retry entry.
+   */
+  const saveBeforeAction = async (action: PendingAction): Promise<boolean> => {
+    if (stateRef.current.document === null) {
+      return true;
     }
-    await openNow();
+    const saved = await flush();
+    if (saved !== 'failed') {
+      return true;
+    }
+    setState((current) => setPendingAction(current, action));
+    return false;
+  };
+
+  const handleOpen = async () => {
+    // Reading the target after the flush also avoids reopening a stale copy of
+    // the currently open file.
+    if (await saveBeforeAction('open')) {
+      await openNow();
+    }
   };
 
   const handleCreate = async () => {
-    if (stateRef.current.document !== null) {
-      const saved = await flush();
-      if (saved === 'failed') {
-        setState((current) => setPendingAction(current, 'create'));
-        return;
-      }
+    if (await saveBeforeAction('create')) {
+      await runCreate();
     }
-    await runCreate();
   };
 
   const handleCloseRequest = async () => {
-    const saved = await flush();
-    if (saved === 'failed') {
-      setState((current) => setPendingAction(current, 'close'));
-      return;
+    if (await saveBeforeAction('close')) {
+      confirmClose();
     }
-    confirmClose();
   };
 
   const closeHandlerRef = useRef<() => void>(() => {});
@@ -302,16 +319,6 @@ export function App({
   };
 
   const document = state.document;
-  const saveStatusLabel =
-    state.saveStatus === 'saving'
-      ? '正在保存…'
-      : state.saveStatus === 'error'
-        ? '保存失败'
-        : state.dirty
-          ? '未保存的修改'
-          : document !== null && state.filePath === null
-            ? '未保存'
-            : '已保存';
 
   return (
     <div className="app">
@@ -323,7 +330,7 @@ export function App({
           </span>
           {document !== null ? (
             <span className="save-status" data-testid="save-status">
-              {saveStatusLabel}
+              {saveStatusText(state)}
             </span>
           ) : null}
         </div>

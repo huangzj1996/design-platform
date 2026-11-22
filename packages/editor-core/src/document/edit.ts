@@ -1,19 +1,23 @@
-import type {
-  DesignDocument,
-  DesignElement,
-  ElementType,
-  FrameElement,
+import {
+  DESIGN_DOCUMENT_VERSION,
+  type DesignDocument,
+  type DesignElement,
+  type ElementType,
 } from '@design-ai/design-schema';
 
 export type ElementPatch = Record<string, unknown>;
 
-const ELEMENT_ID_PATTERN = /^(.*)-([0-9]+)$/;
+const NUMERIC_SUFFIX = /^[0-9]+$/;
 
 /**
  * Creates the document used by the home page's new-design action.
  */
 export function createBlankDocument(): DesignDocument {
-  return { version: 1, children: [], variables: [] };
+  return {
+    version: DESIGN_DOCUMENT_VERSION,
+    children: [],
+    variables: [],
+  };
 }
 
 /**
@@ -40,8 +44,8 @@ export function findElement(
 }
 
 /**
- * Derives an id that is unique within the document. The first free numeric
- * suffix after the element type is used, for example `text-1` or `frame-3`.
+ * Derives an id that is unique within the document by continuing after the
+ * highest existing `<type>-<number>` suffix, for example `text-1` or `frame-3`.
  */
 export function createElementId(
   document: DesignDocument,
@@ -53,10 +57,11 @@ export function createElementId(
     if (!element.id.startsWith(prefix)) {
       return;
     }
-    const match = ELEMENT_ID_PATTERN.exec(element.id);
-    if (match?.[1] === type) {
-      highest = Math.max(highest, Number(match[2]));
+    const suffix = element.id.slice(prefix.length);
+    if (!NUMERIC_SUFFIX.test(suffix)) {
+      return;
     }
+    highest = Math.max(highest, Number(suffix));
   });
   return `${prefix}${highest + 1}`;
 }
@@ -139,17 +144,15 @@ export function addElement(
 
   return {
     ...document,
-    children: mapElements(document.children, (candidate) =>
-      candidate.id === parentId
-        ? {
-            ...(candidate as FrameElement),
-            children: [
-              ...((candidate as FrameElement).children ?? []),
-              element,
-            ],
-          }
-        : candidate,
-    ),
+    children: mapElements(document.children, (candidate) => {
+      if (candidate.id !== parentId || candidate.type !== 'frame') {
+        return candidate;
+      }
+      return {
+        ...candidate,
+        children: [...(candidate.children ?? []), element],
+      };
+    }),
   };
 }
 
@@ -191,23 +194,13 @@ function removeElements(
   elements: readonly DesignElement[],
   id: string,
 ): DesignElement[] {
-  const result: DesignElement[] = [];
-  for (const element of elements) {
-    if (element.id === id) {
-      continue;
-    }
-    if (element.type === 'frame') {
-      result.push({
-        ...element,
-        ...(element.children === undefined
-          ? {}
-          : { children: removeElements(element.children, id) }),
-      });
-    } else {
-      result.push(element);
-    }
-  }
-  return result;
+  return elements
+    .filter((element) => element.id !== id)
+    .map((element) =>
+      element.type === 'frame' && element.children !== undefined
+        ? { ...element, children: removeElements(element.children, id) }
+        : element,
+    );
 }
 
 function mapElements(

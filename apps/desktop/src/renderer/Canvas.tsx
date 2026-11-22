@@ -10,7 +10,7 @@ import {
   type TextElement,
 } from '@design-ai/design-schema';
 import { icons, type LucideIcon } from 'lucide-react';
-import type { CSSProperties, ReactNode } from 'react';
+import type { CSSProperties, MouseEventHandler, ReactNode } from 'react';
 
 type ShapeElement = RectangleElement | EllipseElement;
 
@@ -69,7 +69,7 @@ function CanvasNode({ node, selectionId, onSelect }: CanvasNodeProps) {
   const selected = element.id === selectionId;
   const interaction: ElementInteraction = {
     'data-selected': selected ? 'true' : 'false',
-    onClick: (event: { stopPropagation: () => void }) => {
+    onClick: (event) => {
       event.stopPropagation();
       onSelect?.(element.id);
     },
@@ -107,7 +107,7 @@ function CanvasNode({ node, selectionId, onSelect }: CanvasNodeProps) {
 
 interface ElementInteraction {
   'data-selected': 'true' | 'false';
-  onClick: (event: { stopPropagation: () => void }) => void;
+  onClick: MouseEventHandler;
 }
 
 function boxStyle(node: LayoutNode): CSSProperties {

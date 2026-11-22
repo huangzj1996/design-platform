@@ -1,9 +1,8 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import {
-  createDiagnostic,
-  DESIGN_DOCUMENT_VERSION,
-} from '@design-ai/design-schema';
+import { createDiagnostic } from '@design-ai/design-schema';
+import { createBlankDocument } from '@design-ai/editor-core';
+import { errorMessage } from '../shared/error-message';
 import {
   DesktopDiagnosticCodes,
   type CreateDesignFileResult,
@@ -49,10 +48,6 @@ function failure(message: string): CreateDesignFileResult {
   };
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 function isFileExists(error: unknown): boolean {
   return (
     typeof error === 'object' &&
@@ -82,12 +77,7 @@ export async function createDesignFile(
       projectDirectory,
       defaultDesignFileName(attempt),
     );
-    const document = {
-      version: DESIGN_DOCUMENT_VERSION,
-      children: [],
-      variables: [],
-      filePath,
-    };
+    const document = { ...createBlankDocument(), filePath };
 
     try {
       await write(filePath, `${JSON.stringify(document, null, 2)}\n`, {

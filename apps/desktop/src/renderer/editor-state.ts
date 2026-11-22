@@ -3,6 +3,7 @@ import {
   type DesignDocument,
   type Diagnostic,
 } from '@design-ai/design-schema';
+import { errorMessage } from '../shared/error-message';
 import {
   DesktopDiagnosticCodes,
   type CreateDesignFileResult,
@@ -13,6 +14,9 @@ import {
 export type PendingAction = 'open' | 'create' | 'close';
 
 export type SaveStatus = 'idle' | 'saving' | 'error';
+
+const OPEN_FAILURE_TITLE = '无法打开设计稿';
+const CREATE_FAILURE_TITLE = '无法新建设计稿';
 
 export interface EditorState {
   document: DesignDocument | null;
@@ -40,7 +44,7 @@ export const initialEditorState: EditorState = {
   filePath: null,
   sourcePath: null,
   diagnostics: [],
-  diagnosticsTitle: '无法打开设计稿',
+  diagnosticsTitle: OPEN_FAILURE_TITLE,
   warnings: [],
   selectionId: null,
   dirty: false,
@@ -92,7 +96,7 @@ export function applyOpenResult(
       return {
         ...state,
         diagnostics: result.errors,
-        diagnosticsTitle: '无法打开设计稿',
+        diagnosticsTitle: OPEN_FAILURE_TITLE,
       };
     case 'imported':
       return withDocument(state, result.document, {
@@ -103,7 +107,6 @@ export function applyOpenResult(
     case 'opened':
       return withDocument(state, result.document, {
         filePath: result.filePath,
-        sourcePath: null,
       });
   }
 }
@@ -116,13 +119,12 @@ export function applyCreateResult(
     return {
       ...state,
       diagnostics: result.errors,
-      diagnosticsTitle: '无法新建设计稿',
+      diagnosticsTitle: CREATE_FAILURE_TITLE,
       pendingAction: null,
     };
   }
   return withDocument(state, result.document, {
     filePath: result.filePath,
-    sourcePath: null,
   });
 }
 
@@ -130,13 +132,16 @@ export function applyOpenError(
   state: EditorState,
   error: unknown,
 ): EditorState {
-  const message = error instanceof Error ? error.message : String(error);
   return {
     ...state,
     diagnostics: [
-      createDiagnostic(DesktopDiagnosticCodes.openFailed, '$', message),
+      createDiagnostic(
+        DesktopDiagnosticCodes.openFailed,
+        '$',
+        errorMessage(error),
+      ),
     ],
-    diagnosticsTitle: '无法打开设计稿',
+    diagnosticsTitle: OPEN_FAILURE_TITLE,
   };
 }
 
@@ -144,13 +149,16 @@ export function applyCreateError(
   state: EditorState,
   error: unknown,
 ): EditorState {
-  const message = error instanceof Error ? error.message : String(error);
   return {
     ...state,
     diagnostics: [
-      createDiagnostic(DesktopDiagnosticCodes.fileWriteError, '$', message),
+      createDiagnostic(
+        DesktopDiagnosticCodes.fileWriteError,
+        '$',
+        errorMessage(error),
+      ),
     ],
-    diagnosticsTitle: '无法新建设计稿',
+    diagnosticsTitle: CREATE_FAILURE_TITLE,
     pendingAction: null,
   };
 }
@@ -167,7 +175,6 @@ export function editDocument(
     selectionId,
     dirty: true,
     editVersion: state.editVersion + 1,
-    saveStatus: state.saveStatus === 'idle' ? 'idle' : state.saveStatus,
   };
 }
 
@@ -204,7 +211,7 @@ export function applySaveResult(
     ...state,
     document,
     filePath: result.filePath,
-    dirty: state.editVersion === savedVersion ? false : state.dirty,
+    dirty: state.dirty && state.editVersion !== savedVersion,
     saveStatus: 'idle',
     saveErrors: [],
   };

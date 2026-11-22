@@ -15,7 +15,6 @@ import {
   it,
   vi,
 } from 'vitest';
-import { addElement, createBlankDocument } from '@design-ai/editor-core';
 import { App } from '../src/renderer/App';
 import { createDesignFile as createBlankDesignFile } from '../src/main/create-design-file';
 import { readDesignFile } from '../src/main/read-design-file';
@@ -717,16 +716,4 @@ describe('desktop editing workflow', () => {
       text: '导入后修改',
     });
   });
-});
-
-// Keep the editor-core import exercised here: the workflow must start from a
-// document shape that validates through the same public entry as the app.
-it('uses the editor core blank document contract', () => {
-  expect(
-    addElement(createBlankDocument(), null, {
-      id: 'text-1',
-      type: 'text',
-      text: '标题',
-    }).children,
-  ).toHaveLength(1);
 });
