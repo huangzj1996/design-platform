@@ -18,9 +18,9 @@ import {
   type VariableValue,
 } from './types';
 import {
-  escapedVariableReference,
   indexVariables,
   isVariableName,
+  unescapeVariableReference,
   variableReferenceName,
 } from './variables';
 
@@ -37,7 +37,7 @@ const VARIABLE_TYPES: readonly VariableType[] = [
 interface ValidationState {
   errors: Diagnostic[];
   ids: Map<string, string>;
-  variables: Map<string, DesignVariable>;
+  variablesByName: Map<string, DesignVariable>;
 }
 
 function fail(path: string, message: string): Diagnostic {
@@ -92,13 +92,13 @@ export function validateDesignDocument(input: unknown): ValidationResult {
   const state: ValidationState = {
     errors: [],
     ids: new Map(),
-    variables: new Map(),
+    variablesByName: new Map(),
   };
   validateVersion(input, state);
   validateRootFields(input, state);
   const filePath = validateFilePath(input, state);
   const variables = validateVariables(input, state);
-  state.variables = indexVariables(variables);
+  state.variablesByName = indexVariables(variables);
   const children = validateChildren(input, state);
 
   if (state.errors.length > 0) {
@@ -406,7 +406,7 @@ function validateElement(
           element[field],
           validateField,
           fieldPath(path, field),
-          state.variables,
+          state.variablesByName,
         ),
       );
     }
@@ -425,11 +425,11 @@ function validateBoundField(
   value: unknown,
   validator: FieldValidator,
   path: string,
-  variables: ReadonlyMap<string, DesignVariable>,
+  variablesByName: ReadonlyMap<string, DesignVariable>,
 ): Diagnostic[] {
-  const escaped = escapedVariableReference(value);
-  if (escaped !== undefined) {
-    return validator(escaped, path);
+  const literal = unescapeVariableReference(value);
+  if (literal !== undefined) {
+    return validator(literal, path);
   }
 
   const name = variableReferenceName(value);
@@ -437,7 +437,7 @@ function validateBoundField(
     return validator(value, path);
   }
 
-  const variable = variables.get(name);
+  const variable = variablesByName.get(name);
   if (variable === undefined) {
     return [
       createDiagnostic(

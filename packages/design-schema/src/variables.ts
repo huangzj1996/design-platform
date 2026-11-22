@@ -6,22 +6,32 @@ import type { DesignDocument, DesignElement, DesignVariable } from './types';
  */
 const VARIABLE_NAME_PATTERN = /^--[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-/** A whole-value reference such as `$${--color-brand}`. */
-const VARIABLE_REFERENCE_PATTERN = /^\$\$\{(--[a-z0-9]+(?:-[a-z0-9]+)*)\}$/;
+const VARIABLE_REFERENCE_PREFIX = '$${';
+const VARIABLE_REFERENCE_SUFFIX = '}';
 
 export function isVariableName(value: unknown): value is string {
   return typeof value === 'string' && VARIABLE_NAME_PATTERN.test(value);
 }
 
 /**
- * Returns the referenced variable name when the whole value is a variable
- * reference. Characters embedded in a longer string are not references.
+ * Returns the referenced variable name when the whole value is wrapped in
+ * `$${...}`. A reference embedded in a longer string is not resolved, and the
+ * inner name must follow the same pattern as a variable definition.
  */
 export function variableReferenceName(value: unknown): string | undefined {
-  if (typeof value !== 'string') {
+  if (
+    typeof value !== 'string' ||
+    !value.startsWith(VARIABLE_REFERENCE_PREFIX) ||
+    !value.endsWith(VARIABLE_REFERENCE_SUFFIX)
+  ) {
     return undefined;
   }
-  return VARIABLE_REFERENCE_PATTERN.exec(value)?.[1];
+
+  const name = value.slice(
+    VARIABLE_REFERENCE_PREFIX.length,
+    -VARIABLE_REFERENCE_SUFFIX.length,
+  );
+  return isVariableName(name) ? name : undefined;
 }
 
 /**
@@ -29,7 +39,7 @@ export function variableReferenceName(value: unknown): string | undefined {
  * with a leading backslash, for example `\$${--color-brand}`. The backslash is
  * removed so the canvas shows the reference as literal text.
  */
-export function escapedVariableReference(value: unknown): string | undefined {
+export function unescapeVariableReference(value: unknown): string | undefined {
   if (typeof value !== 'string' || !value.startsWith('\\')) {
     return undefined;
   }
@@ -44,13 +54,13 @@ export function escapedVariableReference(value: unknown): string | undefined {
 export function indexVariables(
   variables: readonly DesignVariable[],
 ): Map<string, DesignVariable> {
-  const index = new Map<string, DesignVariable>();
+  const variablesByName = new Map<string, DesignVariable>();
   for (const variable of variables) {
-    if (!index.has(variable.name)) {
-      index.set(variable.name, variable);
+    if (!variablesByName.has(variable.name)) {
+      variablesByName.set(variable.name, variable);
     }
   }
-  return index;
+  return variablesByName;
 }
 
 /**
@@ -60,15 +70,15 @@ export function indexVariables(
  */
 export function resolveVariableValue(
   value: unknown,
-  variables: ReadonlyMap<string, DesignVariable>,
+  variablesByName: ReadonlyMap<string, DesignVariable>,
 ): unknown {
   if (typeof value !== 'string') {
     return value;
   }
 
-  const escaped = escapedVariableReference(value);
-  if (escaped !== undefined) {
-    return escaped;
+  const literal = unescapeVariableReference(value);
+  if (literal !== undefined) {
+    return literal;
   }
 
   const name = variableReferenceName(value);
@@ -76,7 +86,7 @@ export function resolveVariableValue(
     return value;
   }
 
-  return variables.get(name)?.value ?? value;
+  return variablesByName.get(name)?.value ?? value;
 }
 
 /**
@@ -88,30 +98,31 @@ export function resolveVariableValue(
 export function resolveDesignDocument(
   document: DesignDocument,
 ): DesignDocument {
-  const variables = indexVariables(document.variables);
+  const variablesByName = indexVariables(document.variables);
   return {
     ...document,
     children: document.children.map((element) =>
-      resolveElement(element, variables),
+      resolveElement(element, variablesByName),
     ),
   };
 }
 
 function resolveElement(
   element: DesignElement,
-  variables: ReadonlyMap<string, DesignVariable>,
+  variablesByName: ReadonlyMap<string, DesignVariable>,
 ): DesignElement {
   const resolved: Record<string, unknown> = {};
 
   for (const [key, value] of Object.entries(element)) {
     if (key === 'children' && Array.isArray(value)) {
       resolved[key] = value.map((child) =>
-        resolveElement(child as DesignElement, variables),
+        resolveElement(child as DesignElement, variablesByName),
       );
     } else if (key === 'id' || key === 'type') {
+      // Identity fields are never bindings, so keep their literal value.
       resolved[key] = value;
     } else {
-      resolved[key] = resolveVariableValue(value, variables);
+      resolved[key] = resolveVariableValue(value, variablesByName);
     }
   }
 
