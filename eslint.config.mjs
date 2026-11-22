@@ -4,7 +4,13 @@ import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
 export default defineConfig(
-  globalIgnores(['**/.vite/', '**/dist/', '**/out/', '.husky/_/']),
+  globalIgnores([
+    '**/.vite/',
+    '**/dist/',
+    '**/out/',
+    '.husky/_/',
+    '.agents/',
+  ]),
   {
     files: ['**/*.{cjs,js,mjs,cts,mts,ts,tsx}'],
     extends: [js.configs.recommended],
