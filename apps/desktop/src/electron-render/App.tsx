@@ -346,11 +346,17 @@ export function App({
     return false;
   };
 
-  /** Reads a restored tab's file the first time the user selects it. */
-  const loadProject = async (projectId: string, filePath: string) => {
+  /** Reads a known design file and applies its result to the workspace. */
+  const openDesignAt = async (
+    filePath: string,
+    apply: (
+      workspace: WorkspaceState,
+      result: OpenDesignFileResult,
+    ) => WorkspaceState,
+  ) => {
     try {
       const result = await openAtRef.current(filePath);
-      setWorkspace((current) => applyOpenToProject(current, projectId, result));
+      setWorkspace((current) => apply(current, result));
     } catch (error) {
       setWorkspace((current) => showHomeOpenError(current, error));
     }
@@ -369,7 +375,9 @@ export function App({
     }
     // A restored tab stays unloaded until the user selects it.
     if (target?.state.document === null && filePath !== null) {
-      await loadProject(projectId, filePath);
+      await openDesignAt(filePath, (latest, result) =>
+        applyOpenToProject(latest, target.id, result),
+      );
       return;
     }
     // Coming from home counts as reopening, so a created design adopts its
@@ -396,10 +404,7 @@ export function App({
 
     setOpening(true);
     try {
-      const result = await openAtRef.current(filePath);
-      setWorkspace((current) => applyOpenToWorkspace(current, result));
-    } catch (error) {
-      setWorkspace((current) => showHomeOpenError(current, error));
+      await openDesignAt(filePath, applyOpenToWorkspace);
     } finally {
       setOpening(false);
     }

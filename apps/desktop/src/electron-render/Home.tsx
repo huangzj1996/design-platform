@@ -17,7 +17,7 @@ import {
 type ViewMode = 'grid' | 'list';
 
 export interface HomeProps {
-  /** Designs the user can reopen, most recently opened first. */
+  /** Designs the user can reopen; the home page orders them by category. */
   records: SessionProject[];
   opening: boolean;
   creating: boolean;

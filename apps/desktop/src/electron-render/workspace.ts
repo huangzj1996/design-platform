@@ -109,18 +109,34 @@ export function restoreWorkspace(session: AppSession): WorkspaceState {
   };
 }
 
-function mergeRecent(session: AppSession): SessionProject[] {
-  const records = [...session.recent];
-  for (const project of session.projects) {
-    if (!records.some((record) => record.filePath === project.filePath)) {
-      records.push(project);
+/** Appends any candidate whose file path is not in `records` yet. */
+function appendMissingRecords(
+  records: readonly SessionProject[],
+  candidates: readonly SessionProject[],
+): SessionProject[] {
+  const merged = [...records];
+  for (const candidate of candidates) {
+    if (!merged.some((record) => record.filePath === candidate.filePath)) {
+      merged.push(candidate);
     }
   }
-  return records
+  return merged;
+}
+
+function mergeRecent(session: AppSession): SessionProject[] {
+  return appendMissingRecords(session.recent, session.projects)
     .sort(
       (left, right) => Date.parse(right.openedAt) - Date.parse(left.openedAt),
     )
     .slice(0, MAX_RECENT_PROJECTS);
+}
+
+/** Session records for open tabs that have a file to reopen. */
+function projectRecords(projects: readonly ProjectTab[]): SessionProject[] {
+  return projects.flatMap((project) => {
+    const filePath = projectPath(project);
+    return filePath === null ? [] : [{ filePath, openedAt: project.openedAt }];
+  });
 }
 
 /** The session snapshot written on close and after workspace changes. */
@@ -129,12 +145,7 @@ export function workspaceToSession(workspace: WorkspaceState): AppSession {
   return {
     activeTab:
       active === null ? HOME_TAB_ID : (projectPath(active) ?? HOME_TAB_ID),
-    projects: workspace.projects.flatMap((project) => {
-      const filePath = projectPath(project);
-      return filePath === null
-        ? []
-        : [{ filePath, openedAt: project.openedAt }];
-    }),
+    projects: projectRecords(workspace.projects),
     recent: workspace.recent,
   };
 }
@@ -162,22 +173,15 @@ export function projectFileName(project: ProjectTab): string | null {
  * tab the capped recent list no longer holds.
  */
 export function homeRecords(workspace: WorkspaceState): SessionProject[] {
-  const records = [...workspace.recent];
-  for (const project of workspace.projects) {
-    const filePath = projectPath(project);
-    if (
-      filePath !== null &&
-      !records.some((record) => record.filePath === filePath)
-    ) {
-      records.push({ filePath, openedAt: project.openedAt });
-    }
-  }
-  return records;
+  return appendMissingRecords(
+    workspace.recent,
+    projectRecords(workspace.projects),
+  );
 }
 
 /** Points a renamed design's record at its new save target. */
 function renameRecentPath(
-  recent: SessionProject[],
+  recent: readonly SessionProject[],
   fromPath: string,
   toPath: string,
 ): SessionProject[] {
@@ -363,9 +367,9 @@ export function applyCreateToWorkspace(
 }
 
 /**
- * Applies a successful save to the active project. The first save of an
- * imported draft moves the tab from the Pencil source name to the assigned
- * file name.
+ * Applies a successful save to the active project. Saving an imported draft
+ * moves its tab label and home record from the Pencil source to the assigned
+ * design file.
  */
 export function applySaveToActiveProject(
   workspace: WorkspaceState,

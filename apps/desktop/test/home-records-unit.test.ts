@@ -1,14 +1,32 @@
 import { describe, expect, it } from 'vitest';
 import type { SessionProject } from '../src/electron-preload/contract';
+import { initialEditorState } from '../src/electron-render/editor-state';
 import {
   formatOpenedAt,
   sortRecords,
   splitFilePath,
 } from '../src/electron-render/home-records';
+import {
+  homeRecords,
+  initialWorkspaceState,
+  type ProjectTab,
+  type WorkspaceState,
+} from '../src/electron-render/workspace';
 
 const record = (filePath: string, openedAt: string): SessionProject => ({
   filePath,
   openedAt,
+});
+
+const openProject = (
+  id: string,
+  filePath: string,
+  openedAt: string,
+): ProjectTab => ({
+  id,
+  label: filePath,
+  openedAt,
+  state: { ...initialEditorState, filePath },
 });
 
 describe('home records', () => {
@@ -45,5 +63,22 @@ describe('home records', () => {
     expect(sortRecords(records, 'files')).toEqual([earlier, later]);
     expect(sortRecords(records, 'recent')).toEqual([later, earlier]);
     expect(records[0]).toBe(earlier);
+  });
+
+  it('adds open tabs the recent list no longer holds, without duplicates', () => {
+    const openedAt = '2026-11-22T10:00:00.000Z';
+    const workspace: WorkspaceState = {
+      ...initialWorkspaceState,
+      recent: [record('/design/recent.json', openedAt)],
+      projects: [
+        openProject('project-1', '/design/recent.json', openedAt),
+        openProject('project-2', '/design/open-only.json', openedAt),
+      ],
+    };
+
+    expect(homeRecords(workspace)).toEqual([
+      { filePath: '/design/recent.json', openedAt },
+      { filePath: '/design/open-only.json', openedAt },
+    ]);
   });
 });
