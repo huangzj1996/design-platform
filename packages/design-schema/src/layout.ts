@@ -577,9 +577,6 @@ export function measureElementSize(
   const issues: LayoutIssue[] = [];
   const parent: ParentLayout = { kind: 'root' };
   const width = resolveSize(element, 'width', parent, '$', issues);
-  if (issues.length > 0) {
-    return undefined;
-  }
   const height = resolveSize(element, 'height', parent, '$', issues);
   if (issues.length > 0) {
     return undefined;

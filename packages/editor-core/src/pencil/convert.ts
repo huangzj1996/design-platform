@@ -600,6 +600,27 @@ export function collectIdUsage(node: unknown, ctx: ConversionContext): void {
   }
 }
 
+/**
+ * Converts an optional Pencil `children` array, dropping nodes that could not
+ * be converted. A non-array value is reported and treated as no children.
+ */
+function convertChildren(
+  node: Record<string, unknown>,
+  path: string,
+  ctx: ConversionContext,
+): DesignElement[] {
+  if (node.children === undefined) {
+    return [];
+  }
+  if (!Array.isArray(node.children)) {
+    warnInvalidField(ctx, path, 'children');
+    return [];
+  }
+  return node.children
+    .map((child, index) => convertNode(child, childPath(path, index), ctx))
+    .filter((child): child is DesignElement => child !== null);
+}
+
 function convertFrame(
   node: Record<string, unknown>,
   path: string,
@@ -653,17 +674,9 @@ function convertFrame(
     warnInvalidField(ctx, path, 'clip');
   }
 
-  if (node.children !== undefined) {
-    if (!Array.isArray(node.children)) {
-      warnInvalidField(ctx, path, 'children');
-    } else {
-      const children = node.children
-        .map((child, index) => convertNode(child, childPath(path, index), ctx))
-        .filter((child): child is DesignElement => child !== null);
-      if (children.length > 0) {
-        frame.children = children;
-      }
-    }
+  const children = convertChildren(node, path, ctx);
+  if (children.length > 0) {
+    frame.children = children;
   }
 
   return frame;
@@ -681,9 +694,9 @@ interface GroupBounds {
 
 /**
  * Bounds of a group's convertible children, measured with the shared layout
- * and text rules. The group origin stays the frame origin; children that
- * extend beyond the origin on the left or top shift the frame and are
- * re-anchored so their canvas positions stay unchanged.
+ * and text rules. Bounds are anchored at the group origin but grow to include
+ * children that extend left or above it; the returned offsets describe how
+ * far the origin must move to cover those children.
  */
 function measureGroupBounds(
   children: DesignElement[],
@@ -692,14 +705,14 @@ function measureGroupBounds(
   let minY = 0;
   let maxX = 0;
   let maxY = 0;
-  let measured = 0;
+  let hasMeasuredChild = false;
 
   for (const child of children) {
     const size = measureElementSize(child);
     if (size === undefined) {
       continue;
     }
-    measured += 1;
+    hasMeasuredChild = true;
     const x = child.x ?? 0;
     const y = child.y ?? 0;
     minX = Math.min(minX, x);
@@ -708,7 +721,7 @@ function measureGroupBounds(
     maxY = Math.max(maxY, y + size.height);
   }
 
-  if (measured === 0) {
+  if (!hasMeasuredChild) {
     return undefined;
   }
 
@@ -741,33 +754,25 @@ function convertGroup(
   ctx.sourcePaths.set(frame, path);
   applyEntityFields(node, path, ctx, frame);
 
-  if (node.children !== undefined) {
-    if (!Array.isArray(node.children)) {
-      warnInvalidField(ctx, path, 'children');
-    } else {
-      const children = node.children
-        .map((child, index) => convertNode(child, childPath(path, index), ctx))
-        .filter((child): child is DesignElement => child !== null);
-      if (children.length > 0) {
-        frame.children = children;
-      }
+  const children = convertChildren(node, path, ctx);
+  if (children.length > 0) {
+    frame.children = children;
+  }
 
-      const bounds = measureGroupBounds(children);
-      if (bounds !== undefined) {
-        frame.width = bounds.width;
-        frame.height = bounds.height;
-        if (bounds.offsetX !== 0) {
-          frame.x = (frame.x ?? 0) + bounds.offsetX;
-          for (const child of children) {
-            child.x = (child.x ?? 0) - bounds.offsetX;
-          }
-        }
-        if (bounds.offsetY !== 0) {
-          frame.y = (frame.y ?? 0) + bounds.offsetY;
-          for (const child of children) {
-            child.y = (child.y ?? 0) - bounds.offsetY;
-          }
-        }
+  const bounds = measureGroupBounds(children);
+  if (bounds !== undefined) {
+    frame.width = bounds.width;
+    frame.height = bounds.height;
+    if (bounds.offsetX !== 0) {
+      frame.x = (frame.x ?? 0) + bounds.offsetX;
+      for (const child of children) {
+        child.x = (child.x ?? 0) - bounds.offsetX;
+      }
+    }
+    if (bounds.offsetY !== 0) {
+      frame.y = (frame.y ?? 0) + bounds.offsetY;
+      for (const child of children) {
+        child.y = (child.y ?? 0) - bounds.offsetY;
       }
     }
   }
