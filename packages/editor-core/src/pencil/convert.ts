@@ -1,6 +1,7 @@
 import {
   createDiagnostic,
   isHexColor,
+  isOneOf,
   isPlainObject,
   type DesignElement,
   type Diagnostic,
@@ -114,7 +115,8 @@ interface NumberRule {
 }
 
 interface SolidColorResult {
-  converted: boolean;
+  /** Whether the value is a form this importer understands at all. */
+  supported: boolean;
   color?: string;
 }
 
@@ -126,7 +128,6 @@ export interface ConversionContext {
   warnings: Diagnostic[];
   reservedIds: Set<string>;
   assignedIds: Set<string>;
-  idOccurrences: Map<string, number>;
   keptSourceIds: Set<string>;
   idCounters: Map<string, number>;
   /** Source Pencil path of every converted element, for later diagnostics. */
@@ -138,7 +139,6 @@ export function createConversionContext(): ConversionContext {
     warnings: [],
     reservedIds: new Set(),
     assignedIds: new Set(),
-    idOccurrences: new Map(),
     keptSourceIds: new Set(),
     idCounters: new Map(),
     sourcePaths: new WeakMap(),
@@ -234,6 +234,10 @@ function normalizeNumber(value: unknown, rule: NumberRule): number | undefined {
   return value;
 }
 
+function isDefinedNumber(value: number | undefined): value is number {
+  return value !== undefined;
+}
+
 function readNumberField(
   node: Record<string, unknown>,
   field: string,
@@ -285,11 +289,8 @@ function readEnumField<T extends string>(
   if (value === undefined) {
     return undefined;
   }
-  if (
-    typeof value === 'string' &&
-    (allowed as readonly string[]).includes(value)
-  ) {
-    return value as T;
+  if (isOneOf(value, allowed)) {
+    return value;
   }
   warnInvalidField(ctx, path, field);
   return undefined;
@@ -338,31 +339,31 @@ function assignDimension(
 function solidColorValue(value: unknown): SolidColorResult {
   if (typeof value === 'string') {
     return isHexColor(value)
-      ? { converted: true, color: value }
-      : { converted: false };
+      ? { supported: true, color: value }
+      : { supported: false };
   }
 
   if (Array.isArray(value)) {
     if (value.length === 0) {
-      return { converted: true };
+      return { supported: true };
     }
     if (value.length === 1) {
       return solidColorValue(value[0]);
     }
-    return { converted: false };
+    return { supported: false };
   }
 
   if (isPlainObject(value)) {
     if (value.enabled === false) {
-      return { converted: true };
+      return { supported: true };
     }
     if (value.type === 'color') {
       return solidColorValue(value.color);
     }
-    return { converted: false };
+    return { supported: false };
   }
 
-  return { converted: false };
+  return { supported: false };
 }
 
 function applyColorField(
@@ -377,7 +378,7 @@ function applyColorField(
     return;
   }
   const result = solidColorValue(value);
-  if (!result.converted) {
+  if (!result.supported) {
     warnInvalidField(ctx, path, field);
     return;
   }
@@ -398,10 +399,10 @@ function cornerRadiusValue(value: unknown): number | undefined {
   const radii = value.map((entry) =>
     normalizeNumber(entry, { nonNegative: true }),
   );
-  if (radii.some((radius) => radius === undefined)) {
+  if (!radii.every(isDefinedNumber)) {
     return undefined;
   }
-  const [first] = radii as number[];
+  const [first] = radii;
   return radii.every((radius) => radius === first) ? first : undefined;
 }
 
@@ -419,10 +420,10 @@ function paddingValue(
   const entries = value.map((entry) =>
     normalizeNumber(entry, { nonNegative: true }),
   );
-  if (entries.some((entry) => entry === undefined)) {
+  if (!entries.every(isDefinedNumber)) {
     return undefined;
   }
-  const [top, right, bottom, left] = entries as number[];
+  const [top, right, bottom, left] = entries;
 
   if (value.length === 2) {
     return [top, right, top, right];
@@ -492,39 +493,55 @@ function applyCommonFields(
   }
 }
 
+/** Applies the style and size fields shared by every sized element type. */
+function applySizedFields(
+  node: Record<string, unknown>,
+  path: string,
+  ctx: ConversionContext,
+  element: SizedElement,
+): void {
+  applyCommonFields(node, path, ctx, element);
+  assignDimension(node, 'width', path, ctx, element);
+  assignDimension(node, 'height', path, ctx, element);
+}
+
+function sourceId(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0
+    ? value
+    : undefined;
+}
+
 function resolveId(
   node: Record<string, unknown>,
   type: string,
   path: string,
   ctx: ConversionContext,
 ): string {
-  const rawId = node.id;
-  if (typeof rawId === 'string' && rawId.trim().length > 0) {
-    const occurrences = ctx.idOccurrences.get(rawId) ?? 0;
-    const firstUse = !ctx.keptSourceIds.has(rawId);
-    if (occurrences <= 1 || firstUse) {
-      ctx.keptSourceIds.add(rawId);
-      ctx.assignedIds.add(rawId);
-      return rawId;
-    }
-
+  const rawId = sourceId(node.id);
+  if (rawId === undefined) {
     const generated = generateId(type, ctx);
     ctx.warnings.push(
       createDiagnostic(
-        PencilDiagnosticCodes.duplicateId,
+        PencilDiagnosticCodes.missingId,
         fieldPath(path, 'id'),
-        `Pencil 节点 ID "${rawId}" 重复，已分配新 ID "${generated}"`,
+        `Pencil 节点缺少有效 ID，已分配新 ID "${generated}"`,
       ),
     );
     return generated;
   }
 
+  if (!ctx.keptSourceIds.has(rawId)) {
+    ctx.keptSourceIds.add(rawId);
+    ctx.assignedIds.add(rawId);
+    return rawId;
+  }
+
   const generated = generateId(type, ctx);
   ctx.warnings.push(
     createDiagnostic(
-      PencilDiagnosticCodes.missingId,
+      PencilDiagnosticCodes.duplicateId,
       fieldPath(path, 'id'),
-      `Pencil 节点缺少有效 ID，已分配新 ID "${generated}"`,
+      `Pencil 节点 ID "${rawId}" 重复，已分配新 ID "${generated}"`,
     ),
   );
   return generated;
@@ -550,10 +567,9 @@ export function collectIdUsage(node: unknown, ctx: ConversionContext): void {
   if (!isPlainObject(node)) {
     return;
   }
-  const id = node.id;
-  if (typeof id === 'string' && id.trim().length > 0) {
+  const id = sourceId(node.id);
+  if (id !== undefined) {
     ctx.reservedIds.add(id);
-    ctx.idOccurrences.set(id, (ctx.idOccurrences.get(id) ?? 0) + 1);
   }
   if (Array.isArray(node.children)) {
     for (const child of node.children) {
@@ -574,9 +590,7 @@ function convertFrame(
     type: 'frame',
   };
   ctx.sourcePaths.set(frame, path);
-  applyCommonFields(node, path, ctx, frame);
-  assignDimension(node, 'width', path, ctx, frame);
-  assignDimension(node, 'height', path, ctx, frame);
+  applySizedFields(node, path, ctx, frame);
 
   const layout = readEnumField(node, 'layout', path, ctx, FRAME_LAYOUTS);
   if (layout !== undefined) {
@@ -645,9 +659,7 @@ function convertRectangle(
     type: 'rectangle',
   };
   ctx.sourcePaths.set(rectangle, path);
-  applyCommonFields(node, path, ctx, rectangle);
-  assignDimension(node, 'width', path, ctx, rectangle);
-  assignDimension(node, 'height', path, ctx, rectangle);
+  applySizedFields(node, path, ctx, rectangle);
   return rectangle;
 }
 
@@ -663,9 +675,7 @@ function convertEllipse(
     type: 'ellipse',
   };
   ctx.sourcePaths.set(ellipse, path);
-  applyCommonFields(node, path, ctx, ellipse);
-  assignDimension(node, 'width', path, ctx, ellipse);
-  assignDimension(node, 'height', path, ctx, ellipse);
+  applySizedFields(node, path, ctx, ellipse);
   return ellipse;
 }
 
@@ -778,18 +788,9 @@ function convertIcon(
     return null;
   }
 
-  let library = DEFAULT_ICON_LIBRARY;
-  if (node.library !== undefined) {
-    if (
-      typeof node.library === 'string' &&
-      node.library.length > 0 &&
-      !node.library.startsWith('$')
-    ) {
-      library = node.library;
-    } else {
-      warnInvalidField(ctx, path, 'library');
-    }
-  }
+  const library =
+    readStringField(node, 'library', path, ctx, { nonEmpty: true }) ??
+    DEFAULT_ICON_LIBRARY;
 
   if (node.weight !== undefined) {
     warnUnsupportedField(ctx, path, 'weight');
@@ -802,9 +803,7 @@ function convertIcon(
     icon: iconName,
   };
   ctx.sourcePaths.set(icon, path);
-  applyCommonFields(node, path, ctx, icon);
-  assignDimension(node, 'width', path, ctx, icon);
-  assignDimension(node, 'height', path, ctx, icon);
+  applySizedFields(node, path, ctx, icon);
   return icon;
 }
 

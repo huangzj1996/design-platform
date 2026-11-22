@@ -1,5 +1,6 @@
 import {
   createDiagnostic,
+  DESIGN_DOCUMENT_VERSION,
   DiagnosticCodes,
   isPlainObject,
   validateDesignDocument,
@@ -13,12 +14,16 @@ import {
   createConversionContext,
   type ConversionContext,
 } from './convert';
-import { PencilDiagnosticCodes } from './diagnostics';
+import {
+  PencilDiagnosticCodes,
+  type PencilDiagnosticCode,
+} from './diagnostics';
 import { stripJsonComments } from './json-comments';
 
 const PENCIL_VERSION = '2.25';
 const ROOT_PATH = '$';
 const ROOT_FIELDS = new Set(['version', 'children']);
+/** Safety cap; each pass removes at least one element, so this is ample. */
 const MAX_PRUNE_PASSES = 100;
 
 export interface PencilImportSuccess {
@@ -35,7 +40,7 @@ export interface PencilImportFailure {
 export type PencilImportResult = PencilImportSuccess | PencilImportFailure;
 
 function failure(
-  code: string,
+  code: PencilDiagnosticCode,
   path: string,
   message: string,
 ): PencilImportFailure {
@@ -131,7 +136,7 @@ export function importPencilDocument(text: string): PencilImportResult {
   }
 
   const document: DesignDocument = {
-    version: 1,
+    version: DESIGN_DOCUMENT_VERSION,
     children,
     variables: [],
   };
@@ -250,55 +255,57 @@ function comparePathsDescending(left: string, right: string): number {
   return 0;
 }
 
-function elementAtPath(
+interface ElementLocation {
+  siblings: DesignElement[];
+  index: number;
+}
+
+/**
+ * Resolves a validation path such as `$.children[0].children[2]` to the array
+ * that holds the element and its index inside that array.
+ */
+function locateElement(
   document: DesignDocument,
   path: string,
-): DesignElement | undefined {
+): ElementLocation | undefined {
   const indexes = elementIndexes(path);
   if (indexes.length === 0) {
     return undefined;
   }
 
-  let children = document.children;
-  let element: DesignElement | undefined;
-  for (let index = 0; index < indexes.length; index += 1) {
-    element = children[indexes[index]];
-    if (element === undefined) {
-      return undefined;
-    }
-    if (index < indexes.length - 1) {
-      if (element.type !== 'frame' || element.children === undefined) {
-        return undefined;
-      }
-      children = element.children;
-    }
-  }
-  return element;
-}
-
-function removeElementAtPath(document: DesignDocument, path: string): boolean {
-  const indexes = elementIndexes(path);
-  if (indexes.length === 0) {
-    return false;
-  }
-
-  let children = document.children;
-  for (let index = 0; index < indexes.length - 1; index += 1) {
-    const node = children[indexes[index]];
+  let siblings = document.children;
+  for (const index of indexes.slice(0, -1)) {
+    const node = siblings[index];
     if (
       node === undefined ||
       node.type !== 'frame' ||
       node.children === undefined
     ) {
-      return false;
+      return undefined;
     }
-    children = node.children;
+    siblings = node.children;
   }
 
-  const target = indexes[indexes.length - 1];
-  if (target === undefined || target < 0 || target >= children.length) {
+  const index = indexes.at(-1);
+  if (index === undefined || index < 0 || index >= siblings.length) {
+    return undefined;
+  }
+  return { siblings, index };
+}
+
+function elementAtPath(
+  document: DesignDocument,
+  path: string,
+): DesignElement | undefined {
+  const location = locateElement(document, path);
+  return location?.siblings[location.index];
+}
+
+function removeElementAtPath(document: DesignDocument, path: string): boolean {
+  const location = locateElement(document, path);
+  if (location === undefined) {
     return false;
   }
-  children.splice(target, 1);
+  location.siblings.splice(location.index, 1);
   return true;
 }

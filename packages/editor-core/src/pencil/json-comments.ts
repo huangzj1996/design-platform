@@ -5,7 +5,7 @@
  * and line structure intact; string contents are never modified.
  */
 export function stripJsonComments(text: string): string {
-  const input = text.startsWith('﻿') ? text.slice(1) : text;
+  const input = text.startsWith('\uFEFF') ? text.slice(1) : text;
   const output: string[] = [];
   let inString = false;
   let escaped = false;
