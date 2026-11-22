@@ -9,6 +9,7 @@
     "package": "pnpm --filter @design-ai/desktop package",
     "make": "pnpm --filter @design-ai/desktop make",
     "release": "pnpm --filter @design-ai/desktop release",
+    "sandcastle": "tsx .sandcastle/main.mts",
     "lint": "eslint . && pnpm --filter @design-ai/desktop lint",
     "lint:fix": "eslint . --fix && pnpm --filter @design-ai/desktop lint:fix",
     "format": "prettier --write .",
@@ -22,6 +23,7 @@
   },
   "packageManager": "pnpm@12.21.0+sha512.66fd8278ee28935ce951792d34367ff3af5c432a2756445823029533835b8da529bbe0be5130afd56ed0713fb8789e47bad82d93bd5ae2fe54b15562d6276ef0",
   "devDependencies": {
+    "@ai-hero/sandcastle": "^0.14.0",
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.6.6",
     "cspell": "^10.5.2",
@@ -30,8 +32,10 @@
     "husky": "^9.1.7",
     "jsdom": "^31.0.1",
     "prettier": "^3.10.1",
+    "tsx": "^4.23.15",
     "typescript": "6.0.3",
     "typescript-eslint": "^8.73.0",
-    "vitest": "^5.1.1"
+    "vitest": "^5.1.1",
+    "zod": "^4.6.7"
   }
 }

@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "skills": {
+    "leaferjs": {
+      "source": "leaferjs/leafer-ai",
+      "commit": "be8808f860abe9e4f1a8f37093830148b17d960c",
+      "sourceType": "github",
+      "skillPath": "skills/leaferjs/SKILL.md",
+      "computedHash": "621c85ff8116a616ce99cca666c12d164031b8f483d93945de7a353e2950582f"
+    }
+  }
+}
