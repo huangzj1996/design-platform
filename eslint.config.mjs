@@ -17,16 +17,14 @@ export default defineConfig(
     files: [
       '**/*.config.{cjs,js,mjs,cts,mts,ts}',
       '**/scripts/**/*.{cjs,js,mjs,cts,mts,ts}',
-      'apps/desktop/src/main.ts',
-      'apps/desktop/src/main/**/*.ts',
-      'apps/desktop/src/preload.ts',
+      'apps/desktop/src/electron-main/**/*.ts',
+      'apps/desktop/src/electron-preload/**/*.ts',
     ],
     languageOptions: { globals: globals.node },
   },
   {
     files: [
-      'apps/desktop/src/renderer.tsx',
-      'apps/desktop/src/renderer/**/*.{ts,tsx}',
+      'apps/desktop/src/electron-render/**/*.{ts,tsx}',
     ],
     languageOptions: { globals: globals.browser },
   },

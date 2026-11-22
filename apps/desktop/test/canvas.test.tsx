@@ -15,7 +15,7 @@ import {
   expect,
   it,
 } from 'vitest';
-import { Canvas } from '../src/renderer/Canvas';
+import { Canvas } from '../src/electron-render/Canvas';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean;

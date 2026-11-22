@@ -3,13 +3,16 @@ import {
   type DesignDocument,
   type Diagnostic,
 } from '@design-ai/design-schema';
-import { errorMessage } from '../shared/error-message';
-import {
-  DesktopDiagnosticCodes,
-  type CreateDesignFileResult,
-  type OpenDesignFileResult,
-  type SaveDesignFileResult,
-} from '../shared/open-design-file';
+import { errorMessage } from './error-message';
+import type {
+  CreateDesignFileResult,
+  OpenDesignFileResult,
+  SaveDesignFileResult,
+} from '../electron-preload/contract';
+
+/** Diagnostic codes for failures detected in the renderer. */
+const OPEN_FAILED_CODE = 'open_failed';
+const FILE_WRITE_ERROR_CODE = 'file_write_error';
 
 export type PendingAction = 'open' | 'create' | 'close';
 
@@ -147,13 +150,7 @@ export function applyOpenError(
 ): EditorState {
   return {
     ...state,
-    diagnostics: [
-      createDiagnostic(
-        DesktopDiagnosticCodes.openFailed,
-        '$',
-        errorMessage(error),
-      ),
-    ],
+    diagnostics: [createDiagnostic(OPEN_FAILED_CODE, '$', errorMessage(error))],
     diagnosticsTitle: OPEN_FAILURE_TITLE,
   };
 }
@@ -165,11 +162,7 @@ export function applyCreateError(
   return {
     ...state,
     diagnostics: [
-      createDiagnostic(
-        DesktopDiagnosticCodes.fileWriteError,
-        '$',
-        errorMessage(error),
-      ),
+      createDiagnostic(FILE_WRITE_ERROR_CODE, '$', errorMessage(error)),
     ],
     diagnosticsTitle: CREATE_FAILURE_TITLE,
     pendingAction: null,

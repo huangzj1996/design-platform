@@ -19,7 +19,7 @@ import type {
   OpenDesignFileResult,
   SaveDesignFileInput,
   SaveDesignFileResult,
-} from '../shared/open-design-file';
+} from '../electron-preload/contract';
 import { Canvas } from './Canvas';
 import {
   applyCreateError,

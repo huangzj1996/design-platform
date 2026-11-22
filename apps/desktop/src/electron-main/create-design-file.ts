@@ -2,11 +2,11 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createDiagnostic } from '@design-ai/design-schema';
 import { createBlankDocument } from '@design-ai/editor-core';
-import { errorMessage } from '../shared/error-message';
+import { errorMessage } from './error-message';
 import {
   DesktopDiagnosticCodes,
   type CreateDesignFileResult,
-} from '../shared/open-design-file';
+} from '../electron-preload/contract';
 
 const DEFAULT_FILE_BASE = '未命名';
 const MAX_FILE_ATTEMPTS = 10_000;

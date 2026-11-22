@@ -4,11 +4,11 @@ import {
   parseDesignDocument,
 } from '@design-ai/design-schema';
 import { importPencilDocument } from '@design-ai/editor-core';
-import { errorMessage } from '../shared/error-message';
+import { errorMessage } from './error-message';
 import {
   DesktopDiagnosticCodes,
   type OpenDesignFileResult,
-} from '../shared/open-design-file';
+} from '../electron-preload/contract';
 
 const PENCIL_FILE_EXTENSION = /\.pen$/i;
 

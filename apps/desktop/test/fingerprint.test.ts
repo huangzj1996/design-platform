@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { canonicalizeJson, fingerprintSnapshot } from '../src/main/fingerprint';
+import {
+  canonicalizeJson,
+  fingerprintSnapshot,
+} from '../src/electron-main/fingerprint';
 
 describe('canonicalizeJson', () => {
   it('produces the same text for equivalent objects regardless of key order', () => {

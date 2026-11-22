@@ -14,9 +14,9 @@ import {
   expect,
   it,
 } from 'vitest';
-import { App } from '../src/renderer/App';
-import { readDesignFile } from '../src/main/read-design-file';
-import type { OpenDesignFileResult } from '../src/shared/open-design-file';
+import { App } from '../src/electron-render/App';
+import { readDesignFile } from '../src/electron-main/read-design-file';
+import type { OpenDesignFileResult } from '../src/electron-preload/contract';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean;

@@ -4,11 +4,11 @@ import {
   type Diagnostic,
 } from '@design-ai/design-schema';
 import { useCallback, useEffect, useRef } from 'react';
-import { errorMessage } from '../shared/error-message';
+import { errorMessage } from './error-message';
 import type {
   SaveDesignFileInput,
   SaveDesignFileResult,
-} from '../shared/open-design-file';
+} from '../electron-preload/contract';
 
 export const DEFAULT_SAVE_DELAY_MS = 2000;
 

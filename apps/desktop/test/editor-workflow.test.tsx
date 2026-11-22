@@ -23,16 +23,16 @@ import {
   it,
   vi,
 } from 'vitest';
-import { App } from '../src/renderer/App';
-import { createDesignFile as createBlankDesignFile } from '../src/main/create-design-file';
-import { readDesignFile } from '../src/main/read-design-file';
-import { DesignFileSaver } from '../src/main/save-design-file';
+import { App } from '../src/electron-render/App';
+import { createDesignFile as createBlankDesignFile } from '../src/electron-main/create-design-file';
+import { readDesignFile } from '../src/electron-main/read-design-file';
+import { DesignFileSaver } from '../src/electron-main/save-design-file';
 import type {
   CreateDesignFileResult,
   OpenDesignFileResult,
   SaveDesignFileInput,
   SaveDesignFileResult,
-} from '../src/shared/open-design-file';
+} from '../src/electron-preload/contract';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean;

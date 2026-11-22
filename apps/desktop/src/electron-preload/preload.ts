@@ -6,7 +6,7 @@ import {
   OPEN_DESIGN_FILE_CHANNEL,
   SAVE_DESIGN_FILE_CHANNEL,
   type DesignAiApi,
-} from './shared/open-design-file';
+} from './contract';
 
 const api: DesignAiApi = {
   openDesignFile: () => ipcRenderer.invoke(OPEN_DESIGN_FILE_CHANNEL),

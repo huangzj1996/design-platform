@@ -4,12 +4,12 @@ import {
   type DesignDocument,
   type Diagnostic,
 } from '@design-ai/design-schema';
-import { errorMessage } from '../shared/error-message';
+import { errorMessage } from './error-message';
 import {
   DesktopDiagnosticCodes,
   type SaveDesignFileInput,
   type SaveDesignFileResult,
-} from '../shared/open-design-file';
+} from '../electron-preload/contract';
 import { createDesignFile, type WriteTextOptions } from './create-design-file';
 import { canonicalizeJson, fingerprintSnapshot } from './fingerprint';
 

@@ -9,8 +9,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   DesignFileSaver,
   type SaveFileDependencies,
-} from '../src/main/save-design-file';
-import { fingerprintSnapshot } from '../src/main/fingerprint';
+} from '../src/electron-main/save-design-file';
+import { fingerprintSnapshot } from '../src/electron-main/fingerprint';
 
 let directory: string;
 

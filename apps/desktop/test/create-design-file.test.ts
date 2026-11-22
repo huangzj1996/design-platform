@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { validateDesignDocument } from '@design-ai/design-schema';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createDesignFile } from '../src/main/create-design-file';
+import { createDesignFile } from '../src/electron-main/create-design-file';
 
 let directory: string;
 

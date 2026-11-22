@@ -8,9 +8,9 @@ import {
 import path from 'node:path';
 import { createDiagnostic } from '@design-ai/design-schema';
 import started from 'electron-squirrel-startup';
-import { createDesignFile } from './main/create-design-file';
-import { readDesignFile } from './main/read-design-file';
-import { DesignFileSaver } from './main/save-design-file';
+import { createDesignFile } from './create-design-file';
+import { readDesignFile } from './read-design-file';
+import { DesignFileSaver } from './save-design-file';
 import {
   CLOSE_REQUEST_CHANNEL,
   CONFIRM_CLOSE_CHANNEL,
@@ -22,7 +22,7 @@ import {
   type OpenDesignFileResult,
   type SaveDesignFileInput,
   type SaveDesignFileResult,
-} from './shared/open-design-file';
+} from '../electron-preload/contract';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
