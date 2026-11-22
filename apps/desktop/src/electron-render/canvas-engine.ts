@@ -18,6 +18,13 @@ export interface CanvasViewport {
   y: number;
 }
 
+/** The scene at 100% with no drag offset. */
+export const DEFAULT_CANVAS_VIEWPORT: CanvasViewport = {
+  scale: 1,
+  x: 0,
+  y: 0,
+};
+
 /** Drawing surface shared by the LeaferJS engine and test doubles. */
 export interface CanvasEngine {
   /** Rebuilds the drawing when the scene changes, and always updates the selection. */

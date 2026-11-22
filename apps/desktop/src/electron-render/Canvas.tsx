@@ -6,20 +6,14 @@ import {
   useRef,
   type PointerEventHandler,
 } from 'react';
-import type {
-  CanvasEngine,
-  CanvasEngineFactory,
-  CanvasViewport,
+import {
+  DEFAULT_CANVAS_VIEWPORT,
+  type CanvasEngine,
+  type CanvasEngineFactory,
+  type CanvasViewport,
 } from './canvas-engine';
 import { buildCanvasScene, findCanvasSelection } from './canvas-scene';
 import { createLeaferEngine } from './leafer-canvas';
-
-/** Default viewport: the scene at 100% with no drag offset. */
-export const DEFAULT_CANVAS_VIEWPORT: CanvasViewport = {
-  scale: 1,
-  x: 0,
-  y: 0,
-};
 
 export interface CanvasProps {
   document: DesignDocument | null;

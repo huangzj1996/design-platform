@@ -2,14 +2,17 @@ import type { DesignDocument, ElementType } from '@design-ai/design-schema';
 import { findElement, type ElementPatch } from '@design-ai/editor-core';
 import { CircleUser, Menu, PanelLeft, Play } from 'lucide-react';
 import {
-  useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
 import { Canvas } from './Canvas';
-import type { CanvasEngineFactory } from './canvas-engine';
+import {
+  DEFAULT_CANVAS_VIEWPORT,
+  type CanvasEngineFactory,
+  type CanvasViewport,
+} from './canvas-engine';
 import { CanvasToolbar, type CanvasTool } from './CanvasToolbar';
 import { elementLabel } from './element-labels';
 import { LayerTree } from './LayerTree';
@@ -25,6 +28,31 @@ export function nextZoom(scale: number, direction: -1 | 1): number {
     return ZOOM_LEVELS.find((level) => level > scale) ?? scale;
   }
   return ZOOM_LEVELS.findLast((level) => level < scale) ?? scale;
+}
+
+const SIDEBAR_TOGGLE_CLASS =
+  'flex size-7 cursor-pointer items-center justify-center rounded-lg text-[#6B7280] transition-colors hover:bg-[#ECEDEF]';
+
+interface SidebarToggleProps {
+  open: boolean;
+  onToggle: () => void;
+  /** Extra positioning, e.g. when the button floats over the canvas. */
+  className?: string;
+}
+
+function SidebarToggle({ open, onToggle, className = '' }: SidebarToggleProps) {
+  return (
+    <button
+      type="button"
+      aria-label="切换图层面板"
+      aria-pressed={open}
+      title="切换图层面板"
+      onClick={onToggle}
+      className={`${SIDEBAR_TOGGLE_CLASS} ${className}`}
+    >
+      <PanelLeft size={16} strokeWidth={2} />
+    </button>
+  );
 }
 
 interface PanStart {
@@ -75,20 +103,24 @@ export function Editor({
   createCanvasEngine,
 }: EditorProps) {
   const [tool, setTool] = useState<CanvasTool>('pointer');
-  const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [viewport, setViewport] = useState<CanvasViewport>(
+    DEFAULT_CANVAS_VIEWPORT,
+  );
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const panStart = useRef<PanStart | null>(null);
 
-  const viewport = useMemo(
-    () => ({ scale: zoom, x: pan.x, y: pan.y }),
-    [zoom, pan],
-  );
   const selected =
     document !== null && selectionId !== null
       ? findElement(document, selectionId)
       : undefined;
-  const zoomPercent = Math.round(zoom * 100);
+  const zoomPercent = Math.round(viewport.scale * 100);
+
+  const zoomBy = (direction: -1 | 1) => {
+    setViewport((current) => ({
+      ...current,
+      scale: nextZoom(current.scale, direction),
+    }));
+  };
 
   const startPan = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (tool !== 'hand' || event.button !== 0) {
@@ -99,8 +131,8 @@ export function Editor({
       pointerId: event.pointerId,
       clientX: event.clientX,
       clientY: event.clientY,
-      x: pan.x,
-      y: pan.y,
+      x: viewport.x,
+      y: viewport.y,
     };
   };
 
@@ -109,10 +141,11 @@ export function Editor({
     if (start === null || start.pointerId !== event.pointerId) {
       return;
     }
-    setPan({
+    setViewport((current) => ({
+      ...current,
       x: start.x + event.clientX - start.clientX,
       y: start.y + event.clientY - start.clientY,
-    });
+    }));
   };
 
   const endPan = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -133,16 +166,10 @@ export function Editor({
           className="flex w-[300px] shrink-0 flex-col"
         >
           <div className="flex h-12 shrink-0 items-center gap-2 px-5">
-            <button
-              type="button"
-              aria-label="切换图层面板"
-              aria-pressed={sidebarOpen}
-              title="切换图层面板"
-              onClick={() => setSidebarOpen(false)}
-              className="flex size-7 cursor-pointer items-center justify-center rounded-lg text-[#6B7280] transition-colors hover:bg-[#ECEDEF]"
-            >
-              <PanelLeft size={16} strokeWidth={2} />
-            </button>
+            <SidebarToggle
+              open={sidebarOpen}
+              onToggle={() => setSidebarOpen(false)}
+            />
             <button
               type="button"
               aria-label="更多操作（暂不可用）"
@@ -227,16 +254,11 @@ export function Editor({
           className="relative flex h-12 shrink-0 items-center justify-center"
         >
           {!sidebarOpen ? (
-            <button
-              type="button"
-              aria-label="切换图层面板"
-              aria-pressed={sidebarOpen}
-              title="切换图层面板"
-              onClick={() => setSidebarOpen(true)}
-              className="absolute left-3 flex size-7 cursor-pointer items-center justify-center rounded-lg text-[#6B7280] transition-colors hover:bg-[#ECEDEF]"
-            >
-              <PanelLeft size={16} strokeWidth={2} />
-            </button>
+            <SidebarToggle
+              open={sidebarOpen}
+              onToggle={() => setSidebarOpen(true)}
+              className="absolute left-3"
+            />
           ) : null}
           {tabBar}
         </header>
@@ -269,8 +291,8 @@ export function Editor({
               aria-label="缩小"
               title="缩小"
               data-testid="zoom-out"
-              disabled={zoom <= ZOOM_LEVELS[0]}
-              onClick={() => setZoom((current) => nextZoom(current, -1))}
+              disabled={viewport.scale <= ZOOM_LEVELS[0]}
+              onClick={() => zoomBy(-1)}
               className="cursor-pointer text-[24px] leading-none font-light text-[#666971] transition-colors hover:text-[#1A1A1A] disabled:cursor-not-allowed disabled:text-[#C2C3C9]"
             >
               −
@@ -286,8 +308,8 @@ export function Editor({
               aria-label="放大"
               title="放大"
               data-testid="zoom-in"
-              disabled={zoom >= ZOOM_LEVELS[ZOOM_LEVELS.length - 1]}
-              onClick={() => setZoom((current) => nextZoom(current, 1))}
+              disabled={viewport.scale >= ZOOM_LEVELS[ZOOM_LEVELS.length - 1]}
+              onClick={() => zoomBy(1)}
               className="cursor-pointer text-[20px] leading-none font-normal text-[#666971] transition-colors hover:text-[#1A1A1A] disabled:cursor-not-allowed disabled:text-[#C2C3C9]"
             >
               +

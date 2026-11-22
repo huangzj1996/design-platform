@@ -1,8 +1,9 @@
 import type { UI as LeaferElement } from 'leafer-ui';
-import type {
-  CanvasEngine,
-  CanvasEngineOptions,
-  CanvasViewport,
+import {
+  DEFAULT_CANVAS_VIEWPORT,
+  type CanvasEngine,
+  type CanvasEngineOptions,
+  type CanvasViewport,
 } from './canvas-engine';
 import {
   CANVAS_STAGE_PADDING,
@@ -63,7 +64,7 @@ export async function createLeaferEngine(
   let content: LeaferElement | null = null;
   let overlay: LeaferElement | null = null;
   let lastScene: CanvasScene | null = null;
-  let viewport: CanvasViewport = { scale: 1, x: 0, y: 0 };
+  let viewport: CanvasViewport = DEFAULT_CANVAS_VIEWPORT;
 
   /**
    * Centers the scene in the host and applies the UI viewport on top. The

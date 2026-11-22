@@ -26,6 +26,7 @@ const ACTIVE_BUTTON =
   'border border-[#E5E7EB] bg-[#F7F8FA] shadow-[0_1px_4px_#1118270D]';
 
 interface ToolButtonProps {
+  /** Present for mode buttons; omitted by one-shot creation actions. */
   active?: boolean;
   label: string;
   testId: string;
@@ -34,7 +35,7 @@ interface ToolButtonProps {
 }
 
 function ToolButton({
-  active = false,
+  active,
   label,
   testId,
   onClick,
@@ -56,12 +57,11 @@ function ToolButton({
 }
 
 interface ShapeMenuItem {
-  /** Null for the unsupported polygon entry. */
+  /** Null for the unsupported polygon entry, which renders disabled. */
   type: ElementType | null;
   label: string;
   testId: string;
   icon: ReactNode;
-  disabled?: boolean;
 }
 
 const SHAPE_MENU_ITEMS: readonly ShapeMenuItem[] = [
@@ -82,7 +82,6 @@ const SHAPE_MENU_ITEMS: readonly ShapeMenuItem[] = [
     label: '多边形',
     testId: 'shape-polygon',
     icon: <Triangle size={18} strokeWidth={2} />,
-    disabled: true,
   },
   {
     type: 'icon',
@@ -189,7 +188,7 @@ export function CanvasToolbar({
                 key={item.testId}
                 type="button"
                 role="menuitem"
-                disabled={item.disabled}
+                disabled={item.type === null}
                 data-testid={item.testId}
                 onClick={() => {
                   if (item.type !== null) {
