@@ -111,7 +111,10 @@ describe('readDesignFile', () => {
       ],
       [
         'unknown-field.json',
-        { version: 1, children: [{ id: 'a', type: 'text', text: 'Hi', x: 1 }] },
+        {
+          version: 1,
+          children: [{ id: 'a', type: 'text', text: 'Hi', shadow: {} }],
+        },
         'unknown_field',
       ],
       [

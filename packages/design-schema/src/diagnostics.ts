@@ -24,6 +24,7 @@ export const DiagnosticCodes = {
   invalidChildren: 'invalid_children',
   missingField: 'missing_field',
   invalidValue: 'invalid_value',
+  missingSizeBasis: 'missing_size_basis',
 } as const;
 
 export type DiagnosticCode =

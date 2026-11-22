@@ -14,6 +14,8 @@ import {
 import type { ElementType, NodeInspector } from './types';
 
 const commonFields = {
+  x: numberField,
+  y: numberField,
   visible: booleanField,
   opacity: opacityField,
   rotation: numberField,
@@ -37,6 +39,14 @@ const frameInspector: NodeInspector = {
     layout: enumField(['none', 'horizontal', 'vertical']),
     gap: nonNegativeNumberField,
     padding: paddingField,
+    justifyContent: enumField([
+      'start',
+      'center',
+      'end',
+      'space_between',
+      'space_around',
+    ]),
+    alignItems: enumField(['start', 'center', 'end']),
   },
 };
 

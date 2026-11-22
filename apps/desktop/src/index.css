@@ -127,41 +127,40 @@ body {
   color: #8c959f;
 }
 
-.canvas-frame {
-  align-items: flex-start;
-  justify-content: flex-start;
-  min-width: 32px;
-  min-height: 32px;
-  padding: 8px;
-  border: 1px dashed #afb8c1;
-  border-radius: 6px;
+.canvas-stage {
+  position: relative;
 }
 
-.canvas-frame-none {
-  display: block;
+.canvas-frame {
+  outline: 1px dashed #afb8c1;
+  outline-offset: -1px;
 }
 
 .canvas-text {
-  display: inline-block;
-  white-space: pre-wrap;
+  display: block;
+  overflow: visible;
 }
 
 .canvas-shape,
 .canvas-icon {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
-  min-width: 8px;
-  min-height: 8px;
+  overflow: hidden;
 }
 
 .canvas-ellipse {
   border-radius: 50%;
 }
 
-.canvas-icon {
+.canvas-icon-placeholder {
   border: 1px dashed #8250df;
   border-radius: 4px;
   color: #8250df;
+  background: #faf5ff;
   font-size: 11px;
+}
+
+.canvas-icon svg {
+  display: block;
 }

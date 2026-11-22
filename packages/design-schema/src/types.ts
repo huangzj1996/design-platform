@@ -15,6 +15,11 @@ export type Dimension =
 
 export type FrameLayout = 'none' | 'horizontal' | 'vertical';
 
+export type FrameJustifyContent =
+  'start' | 'center' | 'end' | 'space_between' | 'space_around';
+
+export type FrameAlignItems = 'start' | 'center' | 'end';
+
 export type TextAlign = 'left' | 'center' | 'right' | 'justify';
 
 export type TextWrap = 'wrap' | 'none';
@@ -34,6 +39,10 @@ export interface DesignVariable {
  */
 export interface ElementStyle {
   id: string;
+  /** Horizontal offset; used by free-positioning parents and the document root. */
+  x?: number;
+  /** Vertical offset; used by free-positioning parents and the document root. */
+  y?: number;
   visible?: boolean;
   opacity?: number;
   rotation?: number;
@@ -53,6 +62,8 @@ export interface FrameElement extends SizedElement {
   layout?: FrameLayout;
   gap?: number;
   padding?: [number, number, number, number];
+  justifyContent?: FrameJustifyContent;
+  alignItems?: FrameAlignItems;
   children?: DesignElement[];
 }
 

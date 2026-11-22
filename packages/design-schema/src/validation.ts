@@ -4,6 +4,7 @@ import {
   type Diagnostic,
 } from './diagnostics';
 import { isHexColor, isOneOf, isPlainObject } from './fields';
+import { layoutDesignDocument, layoutIssueToDiagnostic } from './layout';
 import { getNodeInspector } from './node-inspectors';
 import { isSystemAbsolutePath } from './path';
 import {
@@ -97,6 +98,14 @@ export function validateDesignDocument(input: unknown): ValidationResult {
     variables,
     ...(filePath === undefined ? {} : { filePath }),
   };
+
+  const layout = layoutDesignDocument(document);
+  if (layout.issues.length > 0) {
+    return {
+      ok: false,
+      errors: layout.issues.map(layoutIssueToDiagnostic),
+    };
+  }
 
   return { ok: true, document };
 }

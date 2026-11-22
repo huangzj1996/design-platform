@@ -1,27 +1,18 @@
-import type {
-  DesignDocument,
-  DesignElement,
-  Dimension,
-  EllipseElement,
-  FrameElement,
-  FrameLayout,
-  IconElement,
-  RectangleElement,
-  SizedElement,
-  TextElement,
+import {
+  layoutDesignDocument,
+  type DesignDocument,
+  type DesignElement,
+  type EllipseElement,
+  type FrameElement,
+  type IconElement,
+  type LayoutNode,
+  type RectangleElement,
+  type TextElement,
 } from '@design-ai/design-schema';
-import type { CSSProperties } from 'react';
+import { icons, type LucideIcon } from 'lucide-react';
+import type { CSSProperties, ReactNode } from 'react';
 
 type ShapeElement = RectangleElement | EllipseElement;
-
-const FRAME_FLEX_DIRECTIONS: Record<
-  FrameLayout,
-  CSSProperties['flexDirection']
-> = {
-  none: undefined,
-  horizontal: 'row',
-  vertical: 'column',
-};
 
 export interface CanvasProps {
   document: DesignDocument | null;
@@ -40,129 +31,62 @@ export function Canvas({ document }: CanvasProps) {
     );
   }
 
+  const layout = layoutDesignDocument(document);
+
   return (
     <div className="canvas" data-testid="canvas">
-      {document.children.map((element) => (
-        <CanvasElement key={element.id} element={element} />
-      ))}
+      <div
+        className="canvas-stage"
+        style={{ width: `${layout.width}px`, height: `${layout.height}px` }}
+      >
+        {layout.roots.map((node) => (
+          <CanvasNode key={node.element.id} node={node} />
+        ))}
+      </div>
     </div>
   );
 }
 
-function CanvasElement({ element }: { element: DesignElement }) {
+function CanvasNode({ node }: { node: LayoutNode }) {
+  const { element } = node;
+
   switch (element.type) {
     case 'frame':
-      return <FrameView element={element} />;
-    case 'text':
-      return <TextView element={element} />;
-    case 'icon':
-      return <IconView element={element} />;
+      return (
+        <FrameView element={element} node={node}>
+          {node.children.map((child) => (
+            <CanvasNode key={child.element.id} node={child} />
+          ))}
+        </FrameView>
+      );
     case 'rectangle':
     case 'ellipse':
-      return <ShapeView element={element} />;
+      return <ShapeView element={element} node={node} />;
+    case 'text':
+      return <TextView element={element} node={node} />;
+    case 'icon':
+      return <IconView element={element} node={node} />;
   }
 }
 
-function FrameView({ element }: { element: FrameElement }) {
-  const layout = element.layout ?? 'horizontal';
-  const style: CSSProperties = {
-    ...sizedStyle(element),
-    ...commonStyle(element),
-    display: 'flex',
-    flexDirection: FRAME_FLEX_DIRECTIONS[layout],
-    gap: element.gap === undefined ? undefined : `${element.gap}px`,
-    padding:
-      element.padding === undefined
-        ? undefined
-        : element.padding.map((value) => `${value}px`).join(' '),
-    background: element.fill,
-  };
-
-  return (
-    <div
-      className={`canvas-frame canvas-frame-${layout}`}
-      data-element-id={element.id}
-      data-element-type="frame"
-      data-layout={layout}
-      style={style}
-    >
-      {element.children?.map((child) => (
-        <CanvasElement key={child.id} element={child} />
-      ))}
-    </div>
-  );
-}
-
-function TextView({ element }: { element: TextElement }) {
-  const style: CSSProperties = {
-    ...sizedStyle(element),
-    ...stateStyle(element),
-    color: element.fill,
-    fontFamily: element.fontFamily,
-    fontSize:
-      element.fontSize === undefined ? undefined : `${element.fontSize}px`,
-    fontWeight: element.fontWeight,
-    lineHeight: element.lineHeight,
-    textAlign: element.textAlign,
-    whiteSpace: element.textWrap === 'none' ? 'nowrap' : 'pre-wrap',
-  };
-
-  return (
-    <span
-      className="canvas-text"
-      data-element-id={element.id}
-      data-element-type="text"
-      style={style}
-    >
-      {element.text}
-    </span>
-  );
-}
-
-function ShapeView({ element }: { element: ShapeElement }) {
-  const shape = element.type;
-  const style: CSSProperties = {
-    ...sizedStyle(element),
-    ...commonStyle(element),
-    background: element.fill,
-    borderRadius: shape === 'ellipse' ? '50%' : element.cornerRadius,
-  };
-
-  return (
-    <div
-      className={`canvas-shape canvas-${shape}`}
-      data-element-id={element.id}
-      data-element-type={shape}
-      style={style}
-    />
-  );
-}
-
-function IconView({ element }: { element: IconElement }) {
-  const style: CSSProperties = {
-    ...sizedStyle(element),
-    ...commonStyle(element),
-    background: element.fill,
-  };
-
-  return (
-    <span
-      className="canvas-icon"
-      data-element-id={element.id}
-      data-element-type="icon"
-      data-icon-library={element.library}
-      data-icon-name={element.icon}
-      style={style}
-    >
-      {element.icon}
-    </span>
-  );
-}
-
-function sizedStyle(element: SizedElement): CSSProperties {
+function boxStyle(node: LayoutNode): CSSProperties {
   return {
-    width: cssDimension(element.width),
-    height: cssDimension(element.height),
+    position: 'absolute',
+    left: `${node.box.x}px`,
+    top: `${node.box.y}px`,
+    width: `${node.box.width}px`,
+    height: `${node.box.height}px`,
+  };
+}
+
+function elementAttributes(node: LayoutNode) {
+  return {
+    'data-element-id': node.element.id,
+    'data-element-type': node.element.type,
+    'data-box-x': String(node.box.x),
+    'data-box-y': String(node.box.y),
+    'data-box-width': String(node.box.width),
+    'data-box-height': String(node.box.height),
   };
 }
 
@@ -177,28 +101,158 @@ function stateStyle(element: DesignElement): CSSProperties {
   };
 }
 
-function commonStyle(element: DesignElement): CSSProperties {
-  return {
-    ...stateStyle(element),
-    border: element.stroke
-      ? `${element.strokeWidth ?? 1}px solid ${element.stroke}`
-      : undefined,
-    borderRadius: element.cornerRadius,
-  };
-}
-
-function cssDimension(value: Dimension | undefined): string | undefined {
-  if (value === undefined) {
+function strokeShadow(element: DesignElement): string | undefined {
+  if (element.stroke === undefined) {
     return undefined;
   }
-  if (typeof value === 'number') {
-    return `${value}px`;
+  return `inset 0 0 0 ${element.strokeWidth ?? 1}px ${element.stroke}`;
+}
+
+interface FrameViewProps {
+  element: FrameElement;
+  node: LayoutNode;
+  children: ReactNode;
+}
+
+function FrameView({ element, node, children }: FrameViewProps) {
+  const layout = element.layout ?? 'horizontal';
+  const style: CSSProperties = {
+    ...boxStyle(node),
+    ...stateStyle(element),
+    backgroundColor: element.fill,
+    borderRadius: element.cornerRadius,
+    boxShadow: strokeShadow(element),
+  };
+
+  return (
+    <div
+      className={`canvas-frame canvas-frame-${layout}`}
+      {...elementAttributes(node)}
+      data-layout={layout}
+      data-justify-content={element.justifyContent ?? 'start'}
+      data-align-items={element.alignItems ?? 'start'}
+      style={style}
+    >
+      {children}
+    </div>
+  );
+}
+
+function ShapeView({
+  element,
+  node,
+}: {
+  element: ShapeElement;
+  node: LayoutNode;
+}) {
+  const style: CSSProperties = {
+    ...boxStyle(node),
+    ...stateStyle(element),
+    backgroundColor: element.fill,
+    borderRadius: element.type === 'ellipse' ? '50%' : element.cornerRadius,
+    boxShadow: strokeShadow(element),
+  };
+
+  return (
+    <div
+      className={`canvas-shape canvas-${element.type}`}
+      {...elementAttributes(node)}
+      style={style}
+    />
+  );
+}
+
+function TextView({
+  element,
+  node,
+}: {
+  element: TextElement;
+  node: LayoutNode;
+}) {
+  const style: CSSProperties = {
+    ...boxStyle(node),
+    ...stateStyle(element),
+    color: element.fill,
+    fontFamily: element.fontFamily,
+    fontSize:
+      element.fontSize === undefined ? undefined : `${element.fontSize}px`,
+    fontWeight: element.fontWeight,
+    lineHeight: element.lineHeight,
+    textAlign: element.textAlign,
+    whiteSpace: element.textWrap === 'none' ? 'nowrap' : 'pre-wrap',
+    overflowWrap: element.textWrap === 'none' ? undefined : 'anywhere',
+    WebkitTextStroke:
+      element.stroke === undefined
+        ? undefined
+        : `${element.strokeWidth ?? 1}px ${element.stroke}`,
+  };
+
+  return (
+    <span className="canvas-text" {...elementAttributes(node)} style={style}>
+      {element.text}
+    </span>
+  );
+}
+
+function IconView({
+  element,
+  node,
+}: {
+  element: IconElement;
+  node: LayoutNode;
+}) {
+  const icon = resolveLucideIcon(element);
+  const style: CSSProperties = {
+    ...boxStyle(node),
+    ...stateStyle(element),
+    color: element.fill ?? element.stroke ?? undefined,
+    borderRadius: element.cornerRadius,
+  };
+
+  const attributes = {
+    ...elementAttributes(node),
+    className: `canvas-icon${icon === null ? ' canvas-icon-placeholder' : ''}`,
+    'data-icon-library': element.library,
+    'data-icon-name': element.icon,
+    'data-icon-resolved': icon === null ? 'false' : 'true',
+    style,
+  };
+
+  if (icon === null) {
+    return (
+      <span {...attributes} title={`${element.library}/${element.icon}`}>
+        ?
+      </span>
+    );
   }
 
-  switch (value.mode) {
-    case 'fill_container':
-      return '100%';
-    case 'fit_content':
-      return value.fallback === undefined ? undefined : `${value.fallback}px`;
+  const Icon = icon;
+  return (
+    <span {...attributes} aria-label={element.icon}>
+      <Icon
+        width="100%"
+        height="100%"
+        strokeWidth={element.strokeWidth ?? 2}
+        aria-hidden="true"
+      />
+    </span>
+  );
+}
+
+function resolveLucideIcon(element: IconElement): LucideIcon | null {
+  if (element.library.toLowerCase() !== 'lucide') {
+    return null;
   }
+  const key = toPascalCase(element.icon);
+  const icon = (icons as Record<string, LucideIcon | undefined>)[key];
+  return icon ?? null;
+}
+
+function toPascalCase(name: string): string {
+  return name
+    .trim()
+    .split(/[^a-zA-Z0-9]+/)
+    .filter((segment) => segment.length > 0)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join('');
 }

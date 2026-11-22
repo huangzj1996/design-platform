@@ -27,6 +27,7 @@
     "@design-ai/design-schema": "workspace:*",
     "@design-ai/editor-core": "workspace:*",
     "electron-squirrel-startup": "^1.0.1",
+    "lucide-react": "^1.77.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },

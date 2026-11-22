@@ -141,6 +141,80 @@ describe('desktop open flow', () => {
     expect(directChildIds).toEqual(['title', 'caption']);
   });
 
+  it('opens a document containing all five element types and preserves icon identifiers', async () => {
+    const filePath = await writeJson('elements.json', {
+      version: 1,
+      children: [
+        {
+          id: 'frame-all',
+          type: 'frame',
+          layout: 'vertical',
+          width: 360,
+          height: 280,
+          padding: [12, 12, 12, 12],
+          gap: 6,
+          children: [
+            {
+              id: 'rect-all',
+              type: 'rectangle',
+              width: 80,
+              height: 30,
+              fill: '#ff0000',
+            },
+            {
+              id: 'ellipse-all',
+              type: 'ellipse',
+              width: 30,
+              height: 30,
+              fill: '#00ff00',
+            },
+            {
+              id: 'text-all',
+              type: 'text',
+              text: '五种元素',
+              fontSize: 18,
+            },
+            {
+              id: 'icon-all',
+              type: 'icon',
+              library: 'lucide',
+              icon: 'arrow-right',
+              width: 20,
+              height: 20,
+            },
+          ],
+        },
+      ],
+    });
+    await showOpenResult(filePath);
+    renderApp();
+
+    await clickOpen();
+
+    const frame = elementById('frame-all');
+    if (frame === null) {
+      throw new Error('Expected the frame to render');
+    }
+    expect(frame.getAttribute('data-element-type')).toBe('frame');
+    expect(elementById('rect-all')?.getAttribute('data-element-type')).toBe(
+      'rectangle',
+    );
+    expect(elementById('ellipse-all')?.getAttribute('data-element-type')).toBe(
+      'ellipse',
+    );
+    expect(elementById('text-all')?.textContent).toBe('五种元素');
+    expect(elementById('icon-all')?.getAttribute('data-icon-library')).toBe(
+      'lucide',
+    );
+    expect(elementById('icon-all')?.getAttribute('data-icon-name')).toBe(
+      'arrow-right',
+    );
+    expect(elementById('icon-all')?.querySelector('svg')).not.toBeNull();
+    expect(
+      [...frame.children].map((child) => child.getAttribute('data-element-id')),
+    ).toEqual(['rect-all', 'ellipse-all', 'text-all', 'icon-all']);
+  });
+
   it('keeps the current design and disk file after a failed open, then opens a valid file again', async () => {
     const validPath = await writeJson('valid.json', frameWithText);
     const invalidContents = '{ not json';
