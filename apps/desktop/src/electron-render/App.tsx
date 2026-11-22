@@ -51,6 +51,7 @@ import {
   applySaveToActiveProject,
   emptySession,
   hasSessionContent,
+  homeRecords,
   initialWorkspaceState,
   projectPath,
   restoreWorkspace,
@@ -347,11 +348,17 @@ export function App({
     return false;
   };
 
-  /** Reads a restored tab's file the first time the user selects it. */
-  const loadProject = async (projectId: string, filePath: string) => {
+  /** Reads a known design file and applies its result to the workspace. */
+  const openDesignAt = async (
+    filePath: string,
+    apply: (
+      workspace: WorkspaceState,
+      result: OpenDesignFileResult,
+    ) => WorkspaceState,
+  ) => {
     try {
       const result = await openAtRef.current(filePath);
-      setWorkspace((current) => applyOpenToProject(current, projectId, result));
+      setWorkspace((current) => apply(current, result));
     } catch (error) {
       setWorkspace((current) => showHomeOpenError(current, error));
     }
@@ -370,7 +377,9 @@ export function App({
     }
     // A restored tab stays unloaded until the user selects it.
     if (target?.state.document === null && filePath !== null) {
-      await loadProject(projectId, filePath);
+      await openDesignAt(filePath, (latest, result) =>
+        applyOpenToProject(latest, target.id, result),
+      );
       return;
     }
     // Coming from home counts as reopening, so a created design adopts its
@@ -380,6 +389,27 @@ export function App({
         preferFileName: latest.activeTabId === HOME_TAB_ID,
       }),
     );
+  };
+
+  /**
+   * Reopens a design from a home record. An open tab is reused; a record for
+   * another file is loaded from its saved path.
+   */
+  const handleOpenRecord = async (filePath: string) => {
+    const target = workspaceRef.current.projects.find(
+      (project) => projectPath(project) === filePath,
+    );
+    if (target !== undefined) {
+      await handleSelectProject(target.id);
+      return;
+    }
+
+    setOpening(true);
+    try {
+      await openDesignAt(filePath, applyOpenToWorkspace);
+    } finally {
+      setOpening(false);
+    }
   };
 
   const runPendingAction = async (action: PendingAction) => {
@@ -573,12 +603,12 @@ export function App({
             </div>
           </header>
           <Home
-            projects={workspace.projects}
+            records={homeRecords(workspace)}
             opening={opening}
             creating={creating}
             onOpen={handleOpen}
             onCreate={handleCreate}
-            onSelectProject={handleSelectProject}
+            onOpenRecord={handleOpenRecord}
           />
         </>
       ) : (
