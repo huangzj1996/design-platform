@@ -44,7 +44,7 @@ describe('fingerprintSnapshot', () => {
       version: 1,
       filePath: '/tmp/未命名.json',
       children: [],
-      variables: [],
+      variables: {},
     };
 
     const fingerprint = fingerprintSnapshot(snapshot);
@@ -52,7 +52,7 @@ describe('fingerprintSnapshot', () => {
     expect(fingerprint).toMatch(/^[0-9a-f]{64}$/);
     expect(
       fingerprintSnapshot({
-        variables: [],
+        variables: {},
         children: [],
         filePath: '/tmp/未命名.json',
         version: 1,

@@ -5,6 +5,7 @@ import {
   layoutDesignDocument,
   resolveDesignDocument,
   validateDesignDocument,
+  type DesignDocument,
   type DesignElement,
   type Diagnostic,
   type FrameElement,
@@ -255,25 +256,25 @@ describe('importPencilDocument', () => {
     );
 
     expect(warnings).toEqual([]);
-    expect(document.variables).toEqual([
-      { name: '--color-brand', type: 'color', value: '#3366FF' },
-      { name: '--space-gap', type: 'number', value: 12 },
-      { name: '--label-title', type: 'string', value: '欢迎' },
-      { name: '--show-title', type: 'boolean', value: false },
-    ]);
+    expect(document.variables).toEqual({
+      'color-brand': { type: 'color', value: '#3366FF' },
+      'space-gap': { type: 'number', value: 12 },
+      'label-title': { type: 'string', value: '欢迎' },
+      'show-title': { type: 'boolean', value: false },
+    });
 
     const card = frameOf(document.children, 'card');
-    expect(card.gap).toBe('$${--space-gap}');
-    expect(card.fill).toBe('$${--color-brand}');
+    expect(card.gap).toBe('$space-gap');
+    expect(card.fill).toBe('$color-brand');
     expect(elementOf(card.children, 'title')).toMatchObject({
-      text: '$${--label-title}',
-      visible: '$${--show-title}',
-      fill: '$${--color-brand}',
+      text: '$label-title',
+      visible: '$show-title',
+      fill: '$color-brand',
     });
     expect(elementOf(card.children, 'block')).toMatchObject({
-      width: '$${--space-gap}',
-      height: '$${--space-gap}',
-      fill: '$${--color-brand}',
+      width: '$space-gap',
+      height: '$space-gap',
+      fill: '$color-brand',
     });
     expectValid(document);
 
@@ -291,13 +292,12 @@ describe('importPencilDocument', () => {
       fill: '#3366FF',
     });
 
-    const changed = {
+    const changed: DesignDocument = {
       ...document,
-      variables: document.variables.map((variable) =>
-        variable.name === '--color-brand'
-          ? { ...variable, value: '#FF5500' }
-          : variable,
-      ),
+      variables: {
+        ...document.variables,
+        'color-brand': { type: 'color', value: '#FF5500' },
+      },
     };
     const changedCard = frameOf(
       resolveDesignDocument(changed).children,
@@ -332,25 +332,20 @@ describe('importPencilDocument', () => {
     );
 
     expect(warnings).toEqual([]);
-    expect(document.variables).toEqual([
-      { name: '--color-brand', type: 'color', value: '#111111' },
-      { name: '--color-brand-2', type: 'color', value: '#222222' },
-    ]);
-    expect(elementOf(document.children, 'first').fill).toBe(
-      '$${--color-brand}',
-    );
-    expect(elementOf(document.children, 'second').fill).toBe(
-      '$${--color-brand-2}',
-    );
+    expect(document.variables).toEqual({
+      'color-brand': { type: 'color', value: '#111111' },
+      'color-brand-2': { type: 'color', value: '#222222' },
+    });
+    expect(elementOf(document.children, 'first').fill).toBe('$color-brand');
+    expect(elementOf(document.children, 'second').fill).toBe('$color-brand-2');
     expectValid(document);
 
-    const changed = {
+    const changed: DesignDocument = {
       ...document,
-      variables: document.variables.map((variable) =>
-        variable.name === '--color-brand'
-          ? { ...variable, value: '#ABCDEF' }
-          : variable,
-      ),
+      variables: {
+        ...document.variables,
+        'color-brand': { type: 'color', value: '#ABCDEF' },
+      },
     };
     const resolved = resolveDesignDocument(changed);
     expect(elementOf(resolved.children, 'first').fill).toBe('#ABCDEF');
@@ -384,9 +379,9 @@ describe('importPencilDocument', () => {
       }`),
     );
 
-    expect(document.variables).toEqual([
-      { name: '--color-base', type: 'color', value: '#ABCDEF' },
-    ]);
+    expect(document.variables).toEqual({
+      'color-base': { type: 'color', value: '#ABCDEF' },
+    });
     expect(
       warningFor(
         warnings,
@@ -428,7 +423,7 @@ describe('importPencilDocument', () => {
     expect(elementOf(document.children, 'themed')).not.toHaveProperty('fill');
     expect(elementOf(document.children, 'alias')).not.toHaveProperty('fill');
     expect(elementOf(document.children, 'missing')).not.toHaveProperty('fill');
-    expect(elementOf(document.children, 'valid').fill).toBe('$${--color-base}');
+    expect(elementOf(document.children, 'valid').fill).toBe('$color-base');
     expect(document.children.map((child) => child.id)).toEqual([
       'themed',
       'alias',
@@ -462,8 +457,8 @@ describe('importPencilDocument', () => {
     );
 
     const card = frameOf(document.children, 'card');
-    expect(card.gap).toBe('$${--space-gap}');
-    expect(card.cornerRadius).toBe('$${--radius-card}');
+    expect(card.gap).toBe('$space-gap');
+    expect(card.cornerRadius).toBe('$radius-card');
     expect(card).not.toHaveProperty('padding');
     expect(
       warningFor(warnings, 'unsupported_property', '$.children[0].padding'),
@@ -498,7 +493,7 @@ describe('importPencilDocument', () => {
     );
 
     const frame = frameOf(document.children, 'frame');
-    expect(frame.gap).toBe('$${--range-value}');
+    expect(frame.gap).toBe('$range-value');
     expect(frame).not.toHaveProperty('opacity');
     expect(
       warningFor(warnings, 'unsupported_property', '$.children[0].opacity'),
@@ -534,8 +529,8 @@ describe('importPencilDocument', () => {
     const group = frameOf(document.children, 'group');
     expect(group).toMatchObject({ width: 20, height: 20 });
     expect(elementOf(group.children, 'child')).toMatchObject({
-      width: '$${--size-child}',
-      height: '$${--size-child}',
+      width: '$size-child',
+      height: '$size-child',
     });
     expectValid(document);
   });
@@ -942,7 +937,7 @@ describe('importPencilDocument', () => {
     expect(result.document).toEqual({
       version: 1,
       children: [],
-      variables: [],
+      variables: {},
     });
     expect(result.document.filePath).toBeUndefined();
     expect(result.warnings).toEqual([]);

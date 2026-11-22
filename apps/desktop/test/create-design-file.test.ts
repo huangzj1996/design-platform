@@ -27,7 +27,7 @@ describe('createDesignFile', () => {
     expect(result.document).toMatchObject({
       version: 1,
       children: [],
-      variables: [],
+      variables: {},
       filePath: result.filePath,
     });
     expect(validateDesignDocument(result.document).ok).toBe(true);
@@ -36,10 +36,12 @@ describe('createDesignFile', () => {
       version: number;
       filePath: string;
       children: unknown[];
+      variables: unknown;
     };
     expect(written.version).toBe(1);
     expect(written.filePath).toBe(result.filePath);
     expect(written.children).toEqual([]);
+    expect(written.variables).toEqual({});
   });
 
   it('uses the next free default name and keeps existing files intact', async () => {

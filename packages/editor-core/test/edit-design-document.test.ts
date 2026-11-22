@@ -26,7 +26,7 @@ describe('createBlankDocument', () => {
   it('creates an empty version 1 document that validates', () => {
     const document = createBlankDocument();
 
-    expect(document).toEqual({ version: 1, children: [], variables: [] });
+    expect(document).toEqual({ version: 1, children: [], variables: {} });
     expect(validate(document)).toEqual(document);
   });
 });

@@ -8,7 +8,7 @@ import {
   measureElementSize,
   resolveDesignDocument,
   type DesignElement,
-  type DesignVariable,
+  type DesignVariables,
   type Diagnostic,
   type Dimension,
   type DimensionMode,
@@ -26,6 +26,7 @@ import {
   type TextElement,
 } from '@design-ai/design-schema';
 import { PencilDiagnosticCodes } from './diagnostics';
+import type { ConvertedVariables } from './variables';
 
 const FRAME_LAYOUTS: readonly FrameLayout[] = [
   'none',
@@ -145,9 +146,9 @@ export interface ConversionContext {
   /** Source Pencil path of every converted element, for later diagnostics. */
   sourcePaths: WeakMap<DesignElement, string>;
   /** Native variables converted from the Pencil document. */
-  variables: DesignVariable[];
+  variables: DesignVariables;
   /** Native variables indexed by their original Pencil name. */
-  variablesBySourceName: Map<string, DesignVariable>;
+  variablesBySourceName: ConvertedVariables['bySourceName'];
 }
 
 export function createConversionContext(): ConversionContext {
@@ -158,7 +159,7 @@ export function createConversionContext(): ConversionContext {
     keptSourceIds: new Set(),
     idCounters: new Map(),
     sourcePaths: new WeakMap(),
-    variables: [],
+    variables: {},
     variablesBySourceName: new Map(),
   };
 }
@@ -257,13 +258,9 @@ function isPencilVariableReference(value: unknown): value is string {
   return typeof value === 'string' && value.length > 1 && value.startsWith('$');
 }
 
-function nativeVariableReference(name: string): string {
-  return '$${' + name + '}';
-}
-
 /**
  * Resolves a Pencil `$name` reference against the converted document
- * variables. Returns the native `$${--name}` binding when the source variable
+ * variables. Returns the native `$name` binding when the source variable
  * was converted, accepts the target field's variable types and resolves to a
  * legal value for that field. Unsupported references are reported at the
  * property and dropped so the rest of the element can stay.
@@ -277,8 +274,8 @@ function bindVariableReference(
   ctx: ConversionContext,
 ): string | undefined {
   const sourceName = value.slice(1);
-  const variable = ctx.variablesBySourceName.get(sourceName);
-  if (variable === undefined) {
+  const binding = ctx.variablesBySourceName.get(sourceName);
+  if (binding === undefined) {
     warnUnsupportedProperty(
       ctx,
       path,
@@ -288,6 +285,7 @@ function bindVariableReference(
     return undefined;
   }
 
+  const { name, definition: variable } = binding;
   const validator = getNodeInspector(elementType)?.fields[nativeField];
   if (
     validator?.variableTypes === undefined ||
@@ -312,7 +310,7 @@ function bindVariableReference(
     return undefined;
   }
 
-  return nativeVariableReference(variable.name);
+  return `$${name}`;
 }
 
 /**
@@ -333,14 +331,14 @@ function containsPencilVariableReference(value: unknown): boolean {
   return false;
 }
 
-/** Assigns converted values, including native `$${...}` binding strings. */
+/** Assigns converted values, including native variable references. */
 function assignField(element: object, field: string, value: unknown): void {
   Reflect.set(element, field, value);
 }
 
 /**
  * When `value` is a Pencil variable reference, binds it to a native field and
- * assigns the resulting `$${...}` reference to the element. Returns true for
+ * assigns the resulting reference to the element. Returns true for
  * any reference, including one that was reported and dropped, so callers know
  * not to parse the value as a literal.
  */

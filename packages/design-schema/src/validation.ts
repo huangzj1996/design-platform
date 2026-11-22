@@ -11,14 +11,13 @@ import {
   DESIGN_DOCUMENT_VERSION,
   type DesignDocument,
   type DesignElement,
-  type DesignVariable,
+  type DesignVariables,
   type FieldValidator,
   type ValidationResult,
   type VariableType,
   type VariableValue,
 } from './types';
 import {
-  indexVariables,
   isVariableName,
   unescapeVariableReference,
   variableReferenceName,
@@ -26,7 +25,7 @@ import {
 
 const ROOT_PATH = '$';
 const ROOT_FIELDS = new Set(['version', 'children', 'filePath', 'variables']);
-const VARIABLE_FIELDS = new Set(['name', 'type', 'value']);
+const VARIABLE_FIELDS = new Set(['type', 'value']);
 const VARIABLE_TYPES: readonly VariableType[] = [
   'color',
   'string',
@@ -37,7 +36,7 @@ const VARIABLE_TYPES: readonly VariableType[] = [
 interface ValidationState {
   errors: Diagnostic[];
   ids: Map<string, string>;
-  variablesByName: Map<string, DesignVariable>;
+  variables: DesignVariables;
 }
 
 function fail(path: string, message: string): Diagnostic {
@@ -92,13 +91,12 @@ export function validateDesignDocument(input: unknown): ValidationResult {
   const state: ValidationState = {
     errors: [],
     ids: new Map(),
-    variablesByName: new Map(),
+    variables: {},
   };
   validateVersion(input, state);
   validateRootFields(input, state);
   const filePath = validateFilePath(input, state);
-  const variables = validateVariables(input, state);
-  state.variablesByName = indexVariables(variables);
+  state.variables = validateVariables(input, state);
   const children = validateChildren(input, state);
 
   if (state.errors.length > 0) {
@@ -108,7 +106,7 @@ export function validateDesignDocument(input: unknown): ValidationResult {
   const document: DesignDocument = {
     version: DESIGN_DOCUMENT_VERSION,
     children,
-    variables,
+    variables: state.variables,
     ...(filePath === undefined ? {} : { filePath }),
   };
 
@@ -206,24 +204,23 @@ function validateFilePath(
 function validateVariables(
   input: Record<string, unknown>,
   state: ValidationState,
-): DesignVariable[] {
+): DesignVariables {
   if (input.variables === undefined) {
-    return [];
+    return {};
   }
 
   const path = fieldPath(ROOT_PATH, 'variables');
-  if (!Array.isArray(input.variables)) {
-    state.errors.push(fail(path, 'variables 必须是数组'));
-    return [];
+  if (!isPlainObject(input.variables)) {
+    state.errors.push(fail(path, 'variables 必须是对象'));
+    return {};
   }
 
-  const variables: DesignVariable[] = [];
-  const firstPathByName = new Map<string, string>();
-  input.variables.forEach((entry, index) => {
-    const entryPath = `${path}[${index}]`;
+  const variables: DesignVariables = {};
+  for (const [name, entry] of Object.entries(input.variables)) {
+    const entryPath = fieldPath(path, name);
     if (!isPlainObject(entry)) {
       state.errors.push(fail(entryPath, '变量必须是对象'));
-      return;
+      continue;
     }
 
     for (const key of Object.keys(entry)) {
@@ -238,7 +235,7 @@ function validateVariables(
       }
     }
 
-    const { name, type, value } = entry;
+    const { type, value } = entry;
     const nameIsValid = isVariableName(name);
     const typeIsValid = isVariableType(type);
     const valueIsValid = typeIsValid && isValidVariableValue(type, value);
@@ -247,23 +244,10 @@ function validateVariables(
       state.errors.push(
         createDiagnostic(
           DiagnosticCodes.invalidVariableName,
-          fieldPath(entryPath, 'name'),
-          '变量名必须以双连字符开头，后接由单连字符连接的小写字母或数字分段',
+          entryPath,
+          '变量名必须由小写字母或数字分段组成，分段之间用单连字符连接',
         ),
       );
-    } else {
-      const firstPath = firstPathByName.get(name);
-      if (firstPath === undefined) {
-        firstPathByName.set(name, fieldPath(entryPath, 'name'));
-      } else {
-        state.errors.push(
-          createDiagnostic(
-            DiagnosticCodes.duplicateVariableName,
-            fieldPath(entryPath, 'name'),
-            `重复的变量名 "${name}"，首次出现在 ${firstPath}`,
-          ),
-        );
-      }
     }
 
     if (!typeIsValid) {
@@ -285,9 +269,9 @@ function validateVariables(
     }
 
     if (nameIsValid && typeIsValid && valueIsValid) {
-      variables.push({ name, type, value });
+      variables[name] = { type, value };
     }
-  });
+  }
 
   return variables;
 }
@@ -406,7 +390,7 @@ function validateElement(
           element[field],
           validateField,
           fieldPath(path, field),
-          state.variablesByName,
+          state.variables,
         ),
       );
     }
@@ -425,7 +409,7 @@ function validateBoundField(
   value: unknown,
   validator: FieldValidator,
   path: string,
-  variablesByName: ReadonlyMap<string, DesignVariable>,
+  variables: Readonly<DesignVariables>,
 ): Diagnostic[] {
   const literal = unescapeVariableReference(value);
   if (literal !== undefined) {
@@ -437,7 +421,7 @@ function validateBoundField(
     return validator(value, path);
   }
 
-  const variable = variablesByName.get(name);
+  const variable = Object.hasOwn(variables, name) ? variables[name] : undefined;
   if (variable === undefined) {
     return [
       createDiagnostic(

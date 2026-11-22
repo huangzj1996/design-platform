@@ -81,7 +81,7 @@ describe('readDesignFile', () => {
     expect(result).toEqual({
       status: 'opened',
       filePath,
-      document: { version: 1, children: [], variables: [] },
+      document: { version: 1, children: [], variables: {} },
     });
     await expect(readFile(filePath, 'utf8')).resolves.toContain('"version":1');
   });

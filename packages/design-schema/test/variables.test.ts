@@ -14,12 +14,12 @@ function errorAt(input: unknown, path: string): Diagnostic | undefined {
   return errorsOf(input).find((error) => error.path === path);
 }
 
-const fourTypeVariables = [
-  { name: '--color-brand', type: 'color', value: '#3366ff' },
-  { name: '--label-title', type: 'string', value: '欢迎' },
-  { name: '--space-gap', type: 'number', value: 8 },
-  { name: '--is-visible', type: 'boolean', value: false },
-];
+const fourTypeVariables = {
+  'color-brand': { type: 'color', value: '#3366ff' },
+  'label-title': { type: 'string', value: '欢迎' },
+  'space-gap': { type: 'number', value: 8 },
+  'is-visible': { type: 'boolean', value: false },
+};
 
 describe('document variables', () => {
   it('accepts color, string, number and boolean definitions in whole-value references', () => {
@@ -32,20 +32,20 @@ describe('document variables', () => {
           type: 'frame',
           width: 200,
           height: 120,
-          gap: '$${--space-gap}',
+          gap: '$space-gap',
           children: [
             {
               id: 'rectangle',
               type: 'rectangle',
               width: 80,
               height: 40,
-              fill: '$${--color-brand}',
+              fill: '$color-brand',
             },
             {
               id: 'title',
               type: 'text',
-              text: '$${--label-title}',
-              visible: '$${--is-visible}',
+              text: '$label-title',
+              visible: '$is-visible',
             },
           ],
         },
@@ -63,79 +63,73 @@ describe('document variables', () => {
 
   it('enforces the documented variable name pattern', () => {
     for (const name of [
-      '--color-brand',
-      '--bg-error-normal',
-      '--a1-b2',
-      '--2fa',
-      '--x',
+      'color-brand',
+      'bg-error-normal',
+      'a1-b2',
+      '2fa',
+      'x',
     ]) {
       const result = validateDesignDocument({
         version: 1,
-        variables: [{ name, type: 'string', value: 'ok' }],
+        variables: { [name]: { type: 'string', value: 'ok' } },
         children: [],
       });
       expect(result.ok, name).toBe(true);
     }
 
     for (const name of [
-      '--',
-      'color-brand',
+      '',
+      '--color-brand',
       '-color-brand',
-      '---color-brand',
-      '--Color-brand',
-      '--color_brand',
-      '--color--brand',
-      '--color-',
-      '--color brand',
+      'Color-brand',
+      'color_brand',
+      'color--brand',
+      'color-',
+      'color brand',
     ]) {
       const error = errorAt(
         {
           version: 1,
-          variables: [{ name, type: 'string', value: 'ok' }],
+          variables: { [name]: { type: 'string', value: 'ok' } },
           children: [],
         },
-        '$.variables[0].name',
+        `$.variables.${name}`,
       );
       expect(error?.code, name).toBe('invalid_variable_name');
     }
   });
 
-  it('requires variable names to be unique within the document', () => {
+  it('requires variables to be an object keyed by name', () => {
     const error = errorAt(
       {
         version: 1,
-        variables: [
-          { name: '--color-brand', type: 'color', value: '#112233' },
-          { name: '--color-brand', type: 'color', value: '#445566' },
-        ],
+        variables: [{ name: '--color-brand', type: 'color', value: '#112233' }],
         children: [],
       },
-      '$.variables[1].name',
+      '$.variables',
     );
 
-    expect(error?.code).toBe('duplicate_variable_name');
-    expect(error?.message).toContain('--color-brand');
-    expect(error?.message).toContain('$.variables[0].name');
+    expect(error?.code).toBe('invalid_structure');
   });
 
   it('requires each variable value to be a literal of its declared type', () => {
     const errors = errorsOf({
       version: 1,
-      variables: [
-        { name: '--color-brand', type: 'color', value: 'blue' },
-        { name: '--label-title', type: 'string', value: 7 },
-        { name: '--space-gap', type: 'number', value: '8' },
-        { name: '--is-visible', type: 'boolean', value: 'false' },
-      ],
+      variables: {
+        'color-brand': { type: 'color', value: 'blue' },
+        'label-title': { type: 'string', value: 7 },
+        'space-gap': { type: 'number', value: '8' },
+        'is-visible': { type: 'boolean', value: 'false' },
+      },
       children: [],
     });
 
     expect(errors.map((error) => error.path)).toEqual(
       expect.arrayContaining([
-        '$.variables[0].value',
-        '$.variables[1].value',
-        '$.variables[2].value',
-        '$.variables[3].value',
+        '$.variables.color-brand.value',
+        '$.variables.label-title.value',
+        '$.variables.space-gap.value',
+        '$.variables.is-visible.value',
       ]),
     );
   });
@@ -148,17 +142,17 @@ describe('document variables', () => {
         {
           id: 'embedded',
           type: 'text',
-          text: 'Say $${--label-title}',
+          text: 'Say $label-title',
         },
         {
           id: 'escaped',
           type: 'text',
-          text: '\\$${--label-title}',
+          text: '\\$label-title',
         },
         {
           id: 'unknown-embedded',
           type: 'text',
-          text: 'Hello $${--missing-label}',
+          text: 'Hello $missing-label',
         },
       ],
     });
@@ -166,33 +160,35 @@ describe('document variables', () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.document.children[0]).toMatchObject({
-        text: 'Say $${--label-title}',
+        text: 'Say $label-title',
       });
       expect(result.document.children[1]).toMatchObject({
-        text: '\\$${--label-title}',
+        text: '\\$label-title',
       });
     }
   });
 
   it('reports references to missing variables at the referencing property', () => {
-    const error = errorAt(
-      {
-        version: 1,
-        variables: [],
-        children: [
-          {
-            id: 'rectangle',
-            type: 'rectangle',
-            width: '$${--missing-size}',
-            height: 10,
-          },
-        ],
-      },
-      '$.children[0].width',
-    );
+    for (const name of ['missing-size', 'constructor']) {
+      const error = errorAt(
+        {
+          version: 1,
+          variables: {},
+          children: [
+            {
+              id: 'rectangle',
+              type: 'rectangle',
+              width: `$${name}`,
+              height: 10,
+            },
+          ],
+        },
+        '$.children[0].width',
+      );
 
-    expect(error?.code).toBe('missing_variable');
-    expect(error?.message).toContain('--missing-size');
+      expect(error?.code).toBe('missing_variable');
+      expect(error?.message).toContain(name);
+    }
   });
 
   it('reports reference type mismatches at the referencing property', () => {
@@ -203,14 +199,14 @@ describe('document variables', () => {
         {
           id: 'wrong-color',
           type: 'text',
-          text: '$${--color-brand}',
+          text: '$color-brand',
         },
         {
           id: 'wrong-fill',
           type: 'rectangle',
           width: 10,
           height: 10,
-          fill: '$${--label-title}',
+          fill: '$label-title',
         },
       ],
     });
@@ -232,15 +228,15 @@ describe('document variables', () => {
   it('validates resolved values against the referencing property range', () => {
     const errors = errorsOf({
       version: 1,
-      variables: [{ name: '--over-opacity', type: 'number', value: 1.5 }],
+      variables: { 'over-opacity': { type: 'number', value: 1.5 } },
       children: [
         {
           id: 'frame',
           type: 'frame',
           width: 100,
           height: 100,
-          gap: '$${--over-opacity}',
-          opacity: '$${--over-opacity}',
+          gap: '$over-opacity',
+          opacity: '$over-opacity',
         },
       ],
     });

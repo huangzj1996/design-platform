@@ -653,24 +653,24 @@ describe('layoutDesignDocument', () => {
   it('resolves variable bindings for sizes, spacing, styles and text measurement', () => {
     const layout = layoutOf({
       version: 1,
-      variables: [
-        { name: '--frame-width', type: 'number', value: 200 },
-        { name: '--space-gap', type: 'number', value: 10 },
-        { name: '--label-title', type: 'string', value: '标题' },
-        { name: '--title-size', type: 'number', value: 20 },
-        { name: '--color-brand', type: 'color', value: '#3366ff' },
-      ],
+      variables: {
+        'frame-width': { type: 'number', value: 200 },
+        'space-gap': { type: 'number', value: 10 },
+        'label-title': { type: 'string', value: '标题' },
+        'title-size': { type: 'number', value: 20 },
+        'color-brand': { type: 'color', value: '#3366ff' },
+      },
       children: [
         {
           id: 'frame',
           type: 'frame',
-          width: '$${--frame-width}',
+          width: '$frame-width',
           height: 100,
-          gap: '$${--space-gap}',
+          gap: '$space-gap',
           children: [
-            text('title', '$${--label-title}', {
-              fontSize: '$${--title-size}',
-              fill: '$${--color-brand}',
+            text('title', '$label-title', {
+              fontSize: '$title-size',
+              fill: '$color-brand',
             }),
             rectangle('block', { width: 20, height: 20 }),
           ],

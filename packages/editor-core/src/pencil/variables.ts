@@ -4,6 +4,7 @@ import {
   isOneOf,
   isPlainObject,
   type DesignVariable,
+  type DesignVariables,
   type Diagnostic,
   type VariableType,
   type VariableValue,
@@ -13,10 +14,15 @@ import { PencilDiagnosticCodes } from './diagnostics';
 const VARIABLE_TYPES = ['color', 'string', 'number', 'boolean'] as const;
 const VARIABLES_PATH = '$.variables';
 
+interface ConvertedVariable {
+  name: string;
+  definition: DesignVariable;
+}
+
 export interface ConvertedVariables {
-  variables: DesignVariable[];
+  variables: DesignVariables;
   /** Converted native variables indexed by their original Pencil name. */
-  bySourceName: Map<string, DesignVariable>;
+  bySourceName: Map<string, ConvertedVariable>;
 }
 
 function variablePath(sourceName: string): string {
@@ -61,7 +67,7 @@ function isLiteralValue(
 
 /**
  * Normalizes a Pencil variable name such as `color.brand` into a native
- * double-hyphen name such as `--color-brand`. Characters outside lowercase
+ * name such as `color-brand`. Characters outside lowercase
  * ASCII letters and digits become single hyphens. Returns undefined when no
  * usable name segment remains.
  */
@@ -70,7 +76,7 @@ export function normalizeVariableName(sourceName: string): string | undefined {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
-  return base.length === 0 ? undefined : `--${base}`;
+  return base.length === 0 ? undefined : base;
 }
 
 /**
@@ -79,13 +85,13 @@ export function normalizeVariableName(sourceName: string): string | undefined {
  */
 function uniqueVariableName(
   normalized: string,
-  usedNames: ReadonlySet<string>,
+  variables: DesignVariables,
 ): string {
-  if (!usedNames.has(normalized)) {
+  if (!Object.hasOwn(variables, normalized)) {
     return normalized;
   }
   let suffix = 2;
-  while (usedNames.has(`${normalized}-${suffix}`)) {
+  while (Object.hasOwn(variables, `${normalized}-${suffix}`)) {
     suffix += 1;
   }
   return `${normalized}-${suffix}`;
@@ -94,9 +100,9 @@ function uniqueVariableName(
 function convertVariable(
   sourceName: string,
   entry: unknown,
-  usedNames: ReadonlySet<string>,
+  variables: DesignVariables,
   warnings: Diagnostic[],
-): DesignVariable | undefined {
+): ConvertedVariable | undefined {
   if (!isPlainObject(entry)) {
     warnSkippedVariable(
       warnings,
@@ -172,9 +178,8 @@ function convertVariable(
   }
 
   return {
-    name: uniqueVariableName(normalized, usedNames),
-    type,
-    value,
+    name: uniqueVariableName(normalized, variables),
+    definition: { type, value },
   };
 }
 
@@ -189,8 +194,8 @@ export function convertVariables(
   input: unknown,
   warnings: Diagnostic[],
 ): ConvertedVariables {
-  const variables: DesignVariable[] = [];
-  const bySourceName = new Map<string, DesignVariable>();
+  const variables: DesignVariables = {};
+  const bySourceName = new Map<string, ConvertedVariable>();
 
   if (input === undefined) {
     return { variables, bySourceName };
@@ -207,14 +212,12 @@ export function convertVariables(
     return { variables, bySourceName };
   }
 
-  const usedNames = new Set<string>();
   for (const [sourceName, entry] of Object.entries(input)) {
-    const variable = convertVariable(sourceName, entry, usedNames, warnings);
+    const variable = convertVariable(sourceName, entry, variables, warnings);
     if (variable === undefined) {
       continue;
     }
-    usedNames.add(variable.name);
-    variables.push(variable);
+    variables[variable.name] = variable.definition;
     bySourceName.set(sourceName, variable);
   }
 

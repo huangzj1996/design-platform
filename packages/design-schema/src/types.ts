@@ -29,10 +29,11 @@ export type VariableType = 'color' | 'string' | 'number' | 'boolean';
 export type VariableValue = string | number | boolean;
 
 export interface DesignVariable {
-  name: string;
   type: VariableType;
   value: VariableValue;
 }
+
+export type DesignVariables = Record<string, DesignVariable>;
 
 /**
  * Style properties shared by every native element.
@@ -99,7 +100,7 @@ export interface DesignDocument {
   version: typeof DESIGN_DOCUMENT_VERSION;
   children: DesignElement[];
   filePath?: string;
-  variables: DesignVariable[];
+  variables: DesignVariables;
 }
 
 export type ValidationResult =

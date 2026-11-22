@@ -244,12 +244,12 @@ describe('desktop open flow', () => {
   it('renders resolved variables after opening while the file keeps the references', async () => {
     const contents = {
       version: 1,
-      variables: [
-        { name: '--color-brand', type: 'color', value: '#3366ff' },
-        { name: '--label-title', type: 'string', value: '变量标题' },
-        { name: '--space-gap', type: 'number', value: 12 },
-        { name: '--show-title', type: 'boolean', value: false },
-      ],
+      variables: {
+        'color-brand': { type: 'color', value: '#3366ff' },
+        'label-title': { type: 'string', value: '变量标题' },
+        'space-gap': { type: 'number', value: 12 },
+        'show-title': { type: 'boolean', value: false },
+      },
       children: [
         {
           id: 'variable-frame',
@@ -257,21 +257,21 @@ describe('desktop open flow', () => {
           layout: 'vertical',
           width: 320,
           height: 200,
-          gap: '$${--space-gap}',
+          gap: '$space-gap',
           children: [
             {
               id: 'variable-title',
               type: 'text',
-              text: '$${--label-title}',
-              fill: '$${--color-brand}',
-              visible: '$${--show-title}',
+              text: '$label-title',
+              fill: '$color-brand',
+              visible: '$show-title',
             },
             {
               id: 'variable-block',
               type: 'rectangle',
               width: 40,
               height: 20,
-              fill: '$${--color-brand}',
+              fill: '$color-brand',
             },
           ],
         },
@@ -293,12 +293,12 @@ describe('desktop open flow', () => {
 
     const saved = JSON.parse(await readFile(filePath, 'utf8')) as {
       children: Array<{ gap: string; children: Array<{ text?: string }> }>;
-      variables: Array<{ name: string; value: unknown }>;
+      variables: Record<string, { type: string; value: unknown }>;
     };
-    expect(saved.children[0]?.gap).toBe('$${--space-gap}');
-    expect(saved.children[0]?.children[0]?.text).toBe('$${--label-title}');
-    expect(saved.variables[0]).toMatchObject({
-      name: '--color-brand',
+    expect(saved.children[0]?.gap).toBe('$space-gap');
+    expect(saved.children[0]?.children[0]?.text).toBe('$label-title');
+    expect(saved.variables['color-brand']).toEqual({
+      type: 'color',
       value: '#3366ff',
     });
   });

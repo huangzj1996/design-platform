@@ -564,10 +564,10 @@ describe('desktop editing workflow', () => {
   it('keeps variables and their bindings when another element is edited', async () => {
     const filePath = await writeJson('variables.json', {
       version: 1,
-      variables: [
-        { name: '--label-title', type: 'string', value: '变量标题' },
-        { name: '--color-brand', type: 'color', value: '#3366ff' },
-      ],
+      variables: {
+        'label-title': { type: 'string', value: '变量标题' },
+        'color-brand': { type: 'color', value: '#3366ff' },
+      },
       children: [
         {
           id: 'variables-frame',
@@ -580,8 +580,8 @@ describe('desktop editing workflow', () => {
             {
               id: 'bound-title',
               type: 'text',
-              text: '$${--label-title}',
-              fill: '$${--color-brand}',
+              text: '$label-title',
+              fill: '$color-brand',
             },
             { id: 'caption', type: 'text', text: '普通说明' },
           ],
@@ -602,18 +602,18 @@ describe('desktop editing workflow', () => {
     if (reopened.status !== 'opened') {
       return;
     }
-    expect(reopened.document.variables).toEqual([
-      { name: '--label-title', type: 'string', value: '变量标题' },
-      { name: '--color-brand', type: 'color', value: '#3366ff' },
-    ]);
+    expect(reopened.document.variables).toEqual({
+      'label-title': { type: 'string', value: '变量标题' },
+      'color-brand': { type: 'color', value: '#3366ff' },
+    });
     const frame = reopened.document.children[0];
     if (frame?.type !== 'frame') {
       throw new Error('Expected the variables frame');
     }
     expect(frame.children?.[0]).toMatchObject({
       id: 'bound-title',
-      text: '$${--label-title}',
-      fill: '$${--color-brand}',
+      text: '$label-title',
+      fill: '$color-brand',
     });
     expect(frame.children?.[1]).toMatchObject({
       id: 'caption',
@@ -621,7 +621,7 @@ describe('desktop editing workflow', () => {
     });
 
     await click(layerRow('bound-title'));
-    expect(propertyInput('文案').value).toBe('$${--label-title}');
+    expect(propertyInput('文案').value).toBe('$label-title');
     expect(elementById('bound-title')?.textContent).toBe('变量标题');
   });
 
@@ -632,10 +632,10 @@ describe('desktop editing workflow', () => {
     await mkdir(movedDirectory, { recursive: true });
     const originalPath = path.join(originalDirectory, 'moved.json');
     const movedPath = path.join(movedDirectory, 'moved.json');
-    const savedVariables = [
-      { name: '--label-title', type: 'string', value: '变量标题' },
-      { name: '--color-brand', type: 'color', value: '#3366ff' },
-    ];
+    const savedVariables = {
+      'label-title': { type: 'string', value: '变量标题' },
+      'color-brand': { type: 'color', value: '#3366ff' },
+    };
     await writeFile(
       originalPath,
       JSON.stringify({
@@ -654,8 +654,8 @@ describe('desktop editing workflow', () => {
               {
                 id: 'bound-title',
                 type: 'text',
-                text: '$${--label-title}',
-                fill: '$${--color-brand}',
+                text: '$label-title',
+                fill: '$color-brand',
               },
               { id: 'caption', type: 'text', text: '移动前说明' },
             ],
@@ -700,8 +700,8 @@ describe('desktop editing workflow', () => {
     expect(written.variables).toEqual(savedVariables);
     expect(written.children[0]?.children[0]).toMatchObject({
       id: 'bound-title',
-      text: '$${--label-title}',
-      fill: '$${--color-brand}',
+      text: '$label-title',
+      fill: '$color-brand',
     });
 
     // Reopening the saved file keeps elements and variable references usable.
@@ -827,14 +827,14 @@ describe('desktop editing workflow', () => {
     });
   });
 
-  it('keeps variables when an imported draft first saves to a new path', async () => {
+  it('writes named variable definitions and references when an imported draft first saves', async () => {
     const penPath = path.join(directory, 'variable-draft.pen');
     await writeFile(
       penPath,
       JSON.stringify({
         version: '2.25',
         variables: {
-          'color.brand': { type: 'color', value: '#3366FF' },
+          'board-bg': { type: 'color', value: '#0E0E11' },
           'label.title': { type: 'string', value: '导入变量标题' },
         },
         children: [
@@ -844,13 +844,13 @@ describe('desktop editing workflow', () => {
             layout: 'vertical',
             width: 320,
             height: 120,
-            fill: '$color.brand',
+            fill: '$board-bg',
             children: [
               {
                 id: 'imported-title',
                 type: 'text',
                 content: '$label.title',
-                fill: '$color.brand',
+                fill: '$board-bg',
               },
               { id: 'imported-caption', type: 'text', content: '导入说明' },
             ],
@@ -876,14 +876,15 @@ describe('desktop editing workflow', () => {
       children: Array<{ children: Array<Record<string, unknown>> }>;
     };
     expect(saved.filePath).toBe(savedPath);
-    expect(saved.variables).toEqual([
-      { name: '--color-brand', type: 'color', value: '#3366FF' },
-      { name: '--label-title', type: 'string', value: '导入变量标题' },
-    ]);
+    expect(saved.variables).toEqual({
+      'board-bg': { type: 'color', value: '#0E0E11' },
+      'label-title': { type: 'string', value: '导入变量标题' },
+    });
+    expect(saved.children[0]).toMatchObject({ fill: '$board-bg' });
     expect(saved.children[0]?.children[0]).toMatchObject({
       id: 'imported-title',
-      text: '$${--label-title}',
-      fill: '$${--color-brand}',
+      text: '$label-title',
+      fill: '$board-bg',
     });
     expect(saved.children[0]?.children[1]).toMatchObject({
       id: 'imported-caption',
@@ -895,7 +896,7 @@ describe('desktop editing workflow', () => {
     await clickButton('打开设计稿');
     expect(elementById('imported-title')?.textContent).toBe('导入变量标题');
     expect(elementById('imported-frame')?.style.backgroundColor).toBe(
-      'rgb(51, 102, 255)',
+      'rgb(14, 14, 17)',
     );
   });
 });

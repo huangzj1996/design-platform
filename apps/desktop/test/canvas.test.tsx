@@ -400,13 +400,13 @@ describe('Canvas', () => {
   it('renders resolved variable values and updates every reference together', () => {
     const input = {
       version: 1,
-      variables: [
-        { name: '--color-brand', type: 'color', value: '#3366ff' },
-        { name: '--label-title', type: 'string', value: '欢迎' },
-        { name: '--space-gap', type: 'number', value: 8 },
-        { name: '--size-width', type: 'number', value: 120 },
-        { name: '--show-caption', type: 'boolean', value: true },
-      ],
+      variables: {
+        'color-brand': { type: 'color', value: '#3366ff' },
+        'label-title': { type: 'string', value: '欢迎' },
+        'space-gap': { type: 'number', value: 8 },
+        'size-width': { type: 'number', value: 120 },
+        'show-caption': { type: 'boolean', value: true },
+      },
       children: [
         {
           id: 'variable-frame',
@@ -415,38 +415,38 @@ describe('Canvas', () => {
           width: 240,
           height: 200,
           padding: [10, 10, 10, 10],
-          gap: '$${--space-gap}',
+          gap: '$space-gap',
           children: [
             {
               id: 'brand-block-a',
               type: 'rectangle',
-              width: '$${--size-width}',
+              width: '$size-width',
               height: 20,
-              fill: '$${--color-brand}',
+              fill: '$color-brand',
             },
             {
               id: 'brand-block-b',
               type: 'rectangle',
               width: 40,
               height: 20,
-              fill: '$${--color-brand}',
+              fill: '$color-brand',
             },
             {
               id: 'variable-title',
               type: 'text',
-              text: '$${--label-title}',
-              fill: '$${--color-brand}',
-              visible: '$${--show-caption}',
+              text: '$label-title',
+              fill: '$color-brand',
+              visible: '$show-caption',
             },
             {
               id: 'escaped-title',
               type: 'text',
-              text: '\\$${--label-title}',
+              text: '\\$label-title',
             },
             {
               id: 'embedded-title',
               type: 'text',
-              text: 'See $${--label-title}',
+              text: 'See $label-title',
             },
           ],
         },
@@ -474,31 +474,29 @@ describe('Canvas', () => {
     });
     expect(boxOf('brand-block-b').y).toBe(38);
 
-    expect(elementById('escaped-title').textContent).toBe('$${--label-title}');
-    expect(elementById('embedded-title').textContent).toBe(
-      'See $${--label-title}',
-    );
+    expect(elementById('escaped-title').textContent).toBe('$label-title');
+    expect(elementById('embedded-title').textContent).toBe('See $label-title');
 
     const originalFrame = document.children[0];
     expect(originalFrame).toMatchObject({
-      gap: '$${--space-gap}',
+      gap: '$space-gap',
     });
     if (originalFrame?.type === 'frame') {
       expect(originalFrame.children?.[0]).toMatchObject({
-        width: '$${--size-width}',
-        fill: '$${--color-brand}',
+        width: '$size-width',
+        fill: '$color-brand',
       });
     }
 
     const changed = documentFrom({
       ...input,
-      variables: [
-        { name: '--color-brand', type: 'color', value: '#ff0000' },
-        { name: '--label-title', type: 'string', value: '已更新' },
-        { name: '--space-gap', type: 'number', value: 16 },
-        { name: '--size-width', type: 'number', value: 80 },
-        { name: '--show-caption', type: 'boolean', value: false },
-      ],
+      variables: {
+        'color-brand': { type: 'color', value: '#ff0000' },
+        'label-title': { type: 'string', value: '已更新' },
+        'space-gap': { type: 'number', value: 16 },
+        'size-width': { type: 'number', value: 80 },
+        'show-caption': { type: 'boolean', value: false },
+      },
     });
     act(() => {
       root.render(<Canvas document={changed} />);

@@ -16,7 +16,7 @@ export function createBlankDocument(): DesignDocument {
   return {
     version: DESIGN_DOCUMENT_VERSION,
     children: [],
-    variables: [],
+    variables: {},
   };
 }
 

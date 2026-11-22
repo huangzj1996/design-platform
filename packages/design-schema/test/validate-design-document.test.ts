@@ -70,12 +70,12 @@ function findError(input: unknown, code: string): Diagnostic | undefined {
 }
 
 describe('validateDesignDocument', () => {
-  it('accepts a blank version 1 document and defaults variables to an empty list', () => {
+  it('accepts a blank version 1 document and defaults variables to an empty object', () => {
     const result = validate({ version: 1, children: [] });
 
     expect(result).toEqual({
       ok: true,
-      document: { version: 1, children: [], variables: [] },
+      document: { version: 1, children: [], variables: {} },
     });
   });
 
@@ -86,7 +86,7 @@ describe('validateDesignDocument', () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.document.children).toEqual(input.children);
-      expect(result.document.variables).toEqual([]);
+      expect(result.document.variables).toEqual({});
     }
   });
 
@@ -104,9 +104,9 @@ describe('validateDesignDocument', () => {
     }
   });
 
-  it('accepts omitted and empty variable lists', () => {
+  it('accepts omitted variables and empty variable objects', () => {
     expect(validate({ version: 1, children: [] }).ok).toBe(true);
-    expect(validate({ version: 1, children: [], variables: [] }).ok).toBe(true);
+    expect(validate({ version: 1, children: [], variables: {} }).ok).toBe(true);
   });
 
   it('reports unparsable JSON with a structural diagnostic', () => {
@@ -156,7 +156,7 @@ describe('validateDesignDocument', () => {
       version: 1,
       title: 'Document',
       children: [{ id: 'text-1', type: 'text', text: 'Hi', fontSize: 12 }],
-      variables: [],
+      variables: {},
       filePath: '/tmp/design.json',
     });
     expect(diagnostics.some((error) => error.path === '$.title')).toBe(true);
