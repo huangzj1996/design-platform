@@ -11,7 +11,7 @@ import {
 } from '../src/electron-preload/contract';
 
 const electron = vi.hoisted(() => ({
-  exposeInMainWorld: vi.fn(),
+  exposeInMainWorld: vi.fn<(name: string, api: DesignAiApi) => void>(),
   invoke: vi.fn(),
   on: vi.fn(),
   send: vi.fn(),
@@ -28,17 +28,14 @@ vi.mock('electron', () => ({
   },
 }));
 
-let exposedName: unknown;
+let exposedName: string;
 let exposedApi: DesignAiApi;
 let exposeCalls: number;
 
 beforeAll(async () => {
   await import('../src/electron-preload/preload');
   exposeCalls = electron.exposeInMainWorld.mock.calls.length;
-  [exposedName, exposedApi] = electron.exposeInMainWorld.mock.calls[0] as [
-    unknown,
-    DesignAiApi,
-  ];
+  [exposedName, exposedApi] = electron.exposeInMainWorld.mock.calls[0];
 });
 
 describe('preload bridge', () => {

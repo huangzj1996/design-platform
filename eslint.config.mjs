@@ -23,9 +23,7 @@ export default defineConfig(
     languageOptions: { globals: globals.node },
   },
   {
-    files: [
-      'apps/desktop/src/electron-render/**/*.{ts,tsx}',
-    ],
+    files: ['apps/desktop/src/electron-render/**/*.{ts,tsx}'],
     languageOptions: { globals: globals.browser },
   },
   {

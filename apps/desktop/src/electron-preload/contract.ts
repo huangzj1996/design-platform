@@ -12,6 +12,9 @@ export const DesktopDiagnosticCodes = {
   openFailed: 'open_failed',
 } as const;
 
+export type DesktopDiagnosticCode =
+  (typeof DesktopDiagnosticCodes)[keyof typeof DesktopDiagnosticCodes];
+
 export type OpenDesignFileResult =
   | { status: 'opened'; filePath: string; document: DesignDocument }
   | {

@@ -6,13 +6,14 @@ import {
 import { errorMessage } from './error-message';
 import type {
   CreateDesignFileResult,
+  DesktopDiagnosticCode,
   OpenDesignFileResult,
   SaveDesignFileResult,
 } from '../electron-preload/contract';
 
 /** Diagnostic codes for failures detected in the renderer. */
-const OPEN_FAILED_CODE = 'open_failed';
-const FILE_WRITE_ERROR_CODE = 'file_write_error';
+const OPEN_FAILED_CODE: DesktopDiagnosticCode = 'open_failed';
+const FILE_WRITE_ERROR_CODE: DesktopDiagnosticCode = 'file_write_error';
 
 export type PendingAction = 'open' | 'create' | 'close';
 

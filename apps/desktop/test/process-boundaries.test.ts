@@ -13,7 +13,7 @@ const PROCESS_DIRECTORIES = [
 
 type ProcessDirectory = (typeof PROCESS_DIRECTORIES)[number];
 
-interface SourceImport {
+interface ModuleReference {
   specifier: string;
   typeOnly: boolean;
 }
@@ -37,8 +37,11 @@ function isTypeOnlyImport(node: ts.ImportDeclaration): boolean {
   if (clause.isTypeOnly) {
     return true;
   }
+  // A default binding is a runtime value even when every named binding is
+  // marked `type`.
   const bindings = clause.namedBindings;
   return (
+    clause.name === undefined &&
     bindings !== undefined &&
     ts.isNamedImports(bindings) &&
     bindings.elements.length > 0 &&
@@ -46,7 +49,23 @@ function isTypeOnlyImport(node: ts.ImportDeclaration): boolean {
   );
 }
 
-function importsOf(filePath: string, source: string): SourceImport[] {
+function isTypeOnlyExport(node: ts.ExportDeclaration): boolean {
+  if (node.isTypeOnly) {
+    return true;
+  }
+  const clause = node.exportClause;
+  return (
+    clause !== undefined &&
+    ts.isNamedExports(clause) &&
+    clause.elements.length > 0 &&
+    clause.elements.every((element) => element.isTypeOnly)
+  );
+}
+
+function moduleReferencesOf(
+  filePath: string,
+  source: string,
+): ModuleReference[] {
   const scriptKind = filePath.endsWith('.tsx')
     ? ts.ScriptKind.TSX
     : ts.ScriptKind.TS;
@@ -57,21 +76,32 @@ function importsOf(filePath: string, source: string): SourceImport[] {
     true,
     scriptKind,
   );
-  const imports: SourceImport[] = [];
+  const references: ModuleReference[] = [];
 
   sourceFile.forEachChild((node) => {
     if (
       ts.isImportDeclaration(node) &&
       ts.isStringLiteral(node.moduleSpecifier)
     ) {
-      imports.push({
+      references.push({
         specifier: node.moduleSpecifier.text,
         typeOnly: isTypeOnlyImport(node),
+      });
+      return;
+    }
+    if (
+      ts.isExportDeclaration(node) &&
+      node.moduleSpecifier !== undefined &&
+      ts.isStringLiteral(node.moduleSpecifier)
+    ) {
+      references.push({
+        specifier: node.moduleSpecifier.text,
+        typeOnly: isTypeOnlyExport(node),
       });
     }
   });
 
-  return imports;
+  return references;
 }
 
 function processDirectoryOf(filePath: string): ProcessDirectory | null {
@@ -102,12 +132,15 @@ async function boundaryViolations(
     const files = await listSourceFiles(path.join(SOURCE_ROOT, source));
     for (const file of files) {
       const contents = await readFile(file, 'utf8');
-      for (const imported of importsOf(file, contents)) {
-        const target = importedProcess(file, imported.specifier);
-        if (target !== null && isViolation(source, target, imported.typeOnly)) {
-          const kind = imported.typeOnly ? 'type import' : 'import';
+      for (const reference of moduleReferencesOf(file, contents)) {
+        const target = importedProcess(file, reference.specifier);
+        if (
+          target !== null &&
+          isViolation(source, target, reference.typeOnly)
+        ) {
+          const kind = reference.typeOnly ? 'type-only' : 'runtime';
           violations.push(
-            `${path.relative(SOURCE_ROOT, file)}: ${kind} '${imported.specifier}'`,
+            `${path.relative(SOURCE_ROOT, file)}: ${kind} reference '${reference.specifier}'`,
           );
         }
       }
@@ -191,13 +224,13 @@ describe('IPC boundary', () => {
 
     for (const file of files) {
       const contents = await readFile(file, 'utf8');
-      for (const imported of importsOf(file, contents)) {
+      for (const reference of moduleReferencesOf(file, contents)) {
         if (
-          imported.specifier === 'electron' ||
-          imported.specifier.startsWith('electron/')
+          reference.specifier === 'electron' ||
+          reference.specifier.startsWith('electron/')
         ) {
           violations.push(
-            `${path.relative(SOURCE_ROOT, file)}: import '${imported.specifier}'`,
+            `${path.relative(SOURCE_ROOT, file)}: reference '${reference.specifier}'`,
           );
         }
       }
