@@ -1,5 +1,9 @@
 import type { UI as LeaferElement } from 'leafer-ui';
-import type { CanvasEngine, CanvasEngineOptions } from './canvas-engine';
+import type {
+  CanvasEngine,
+  CanvasEngineOptions,
+  CanvasViewport,
+} from './canvas-engine';
 import {
   CANVAS_STAGE_PADDING,
   MIN_CANVAS_SIZE,
@@ -46,11 +50,11 @@ export async function createLeaferEngine(
   const leaferModule = await import('leafer-ui');
   const { Leafer, Box, Rect, Ellipse, Text, Path, Group } = leaferModule;
 
+  // Without an explicit size the canvas follows the host element, so the
+  // viewport can pan and zoom the scene inside the editor area.
   const leafer = new Leafer({
     view: host,
-    width: MIN_CANVAS_SIZE,
-    height: MIN_CANVAS_SIZE,
-    fill: '#ffffff',
+    fill: '#f6f6f6',
   });
   leafer.on('tap', (event) => {
     options.onSelect(selectedElementId(event.target));
@@ -59,6 +63,30 @@ export async function createLeaferEngine(
   let content: LeaferElement | null = null;
   let overlay: LeaferElement | null = null;
   let lastScene: CanvasScene | null = null;
+  let viewport: CanvasViewport = { scale: 1, x: 0, y: 0 };
+
+  /**
+   * Centers the scene in the host and applies the UI viewport on top. The
+   * editor owns zoom and pan as UI state; applying them through Leafer's
+   * viewport properties keeps rendering and hit testing at the actual scale.
+   */
+  function applyViewport(): void {
+    const stage =
+      lastScene === null
+        ? { width: MIN_CANVAS_SIZE, height: MIN_CANVAS_SIZE }
+        : canvasStageSize(lastScene);
+    const hostWidth = host.clientWidth || stage.width;
+    const hostHeight = host.clientHeight || stage.height;
+    leafer.scale = viewport.scale;
+    leafer.x = (hostWidth - stage.width * viewport.scale) / 2 + viewport.x;
+    leafer.y = (hostHeight - stage.height * viewport.scale) / 2 + viewport.y;
+  }
+
+  const resizeObserver =
+    typeof ResizeObserver === 'function'
+      ? new ResizeObserver(() => applyViewport())
+      : null;
+  resizeObserver?.observe(host);
 
   function elementInput(node: CanvasSceneNode) {
     return {
@@ -280,17 +308,23 @@ export async function createLeaferEngine(
     setScene(scene: CanvasScene, selection: CanvasSelection | null): void {
       if (scene !== lastScene) {
         lastScene = scene;
-        leafer.resize(canvasStageSize(scene));
         if (content !== null) {
           content.destroy();
         }
         content = buildContent(scene);
         leafer.add(content);
+        applyViewport();
       }
       showSelection(selection);
     },
 
+    setViewport(next: CanvasViewport): void {
+      viewport = next;
+      applyViewport();
+    },
+
     destroy(): void {
+      resizeObserver?.disconnect();
       leafer.destroy(true);
     },
   };

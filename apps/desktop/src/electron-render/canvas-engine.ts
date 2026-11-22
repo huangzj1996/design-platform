@@ -5,10 +5,25 @@ export interface CanvasEngineOptions {
   onSelect: (id: string | null) => void;
 }
 
+/**
+ * Canvas viewport in UI state: the scale and the screen offset of the scene
+ * from its centered position. Never part of the saved design document.
+ */
+export interface CanvasViewport {
+  /** 1 renders the scene at 100%. */
+  scale: number;
+  /** Horizontal drag offset in screen pixels. */
+  x: number;
+  /** Vertical drag offset in screen pixels. */
+  y: number;
+}
+
 /** Drawing surface shared by the LeaferJS engine and test doubles. */
 export interface CanvasEngine {
   /** Rebuilds the drawing when the scene changes, and always updates the selection. */
   setScene(scene: CanvasScene, selection: CanvasSelection | null): void;
+  /** Applies a viewport change without rebuilding the scene. */
+  setViewport(viewport: CanvasViewport): void;
   destroy(): void;
 }
 

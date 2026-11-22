@@ -227,6 +227,16 @@ function sceneNode(id: string) {
   return findSceneNode(canvas.engine?.scene ?? null, id);
 }
 
+function toolButton(testId: string): HTMLElement {
+  const button = container.querySelector<HTMLElement>(
+    `[data-testid="${testId}"]`,
+  );
+  if (button === null) {
+    throw new Error(`Tool button "${testId}" not found`);
+  }
+  return button;
+}
+
 async function tapCanvas(id: string | null): Promise<void> {
   await act(async () => {
     canvas.tap(id);
@@ -332,9 +342,9 @@ describe('desktop editing workflow', () => {
     expect(sceneNode('main').fill).toBe('#00ff00');
 
     // New title at the root, a new container, and a child inside it.
-    await clickButton('新建标题');
+    await click(toolButton('tool-text'));
     expect(sceneNode('text-1').text?.content).toBe('标题');
-    await clickButton('新建容器');
+    await click(toolButton('tool-frame'));
     await click(layerRow('frame-1'));
     await clickButton('添加文字');
     expect(layerRow('text-2') !== null).toBe(true);
