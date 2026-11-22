@@ -11,13 +11,17 @@ import started from 'electron-squirrel-startup';
 import { createDesignFile } from './create-design-file';
 import { readDesignFile } from './read-design-file';
 import { DesignFileSaver } from './save-design-file';
+import { SessionStore } from './session-store';
 import {
   CLOSE_REQUEST_CHANNEL,
   CONFIRM_CLOSE_CHANNEL,
   CREATE_DESIGN_FILE_CHANNEL,
   DesktopDiagnosticCodes,
+  LOAD_SESSION_CHANNEL,
   OPEN_DESIGN_FILE_CHANNEL,
+  OPEN_DESIGN_FILE_PATH_CHANNEL,
   SAVE_DESIGN_FILE_CHANNEL,
+  SAVE_SESSION_CHANNEL,
   type CreateDesignFileResult,
   type OpenDesignFileResult,
   type SaveDesignFileInput,
@@ -67,6 +71,16 @@ const createWindow = () => {
 const registerDesignFileHandlers = (projectDirectory: string) => {
   const saver = new DesignFileSaver({ projectDirectory });
 
+  /** The validated snapshot read from disk becomes the saved baseline. */
+  const rememberOpened = (
+    result: OpenDesignFileResult,
+  ): OpenDesignFileResult => {
+    if (result.status === 'opened') {
+      saver.rememberSaved(result.filePath, result.document);
+    }
+    return result;
+  };
+
   ipcMain.handle(
     OPEN_DESIGN_FILE_CHANNEL,
     async (event): Promise<OpenDesignFileResult> => {
@@ -88,12 +102,28 @@ const registerDesignFileHandlers = (projectDirectory: string) => {
         return { status: 'cancelled' };
       }
 
-      const result = await readDesignFile(selection.filePaths[0]);
-      if (result.status === 'opened') {
-        // The validated snapshot read from disk becomes the saved baseline.
-        saver.rememberSaved(result.filePath, result.document);
+      return rememberOpened(await readDesignFile(selection.filePaths[0]));
+    },
+  );
+
+  ipcMain.handle(
+    OPEN_DESIGN_FILE_PATH_CHANNEL,
+    async (_event, filePath: unknown): Promise<OpenDesignFileResult> => {
+      if (typeof filePath !== 'string' || filePath.trim() === '') {
+        return {
+          status: 'failed',
+          filePath: typeof filePath === 'string' ? filePath : '',
+          errors: [
+            createDiagnostic(
+              DesktopDiagnosticCodes.openFailed,
+              '$',
+              '无效的设计稿路径',
+            ),
+          ],
+        };
       }
-      return result;
+
+      return rememberOpened(await readDesignFile(filePath));
     },
   );
 
@@ -145,6 +175,15 @@ const registerDesignFileHandlers = (projectDirectory: string) => {
   });
 };
 
+const registerSessionHandlers = (sessionFilePath: string) => {
+  const store = new SessionStore({ filePath: sessionFilePath });
+
+  ipcMain.handle(LOAD_SESSION_CHANNEL, () => store.load());
+  ipcMain.handle(SAVE_SESSION_CHANNEL, (_event, session: unknown) =>
+    store.save(session),
+  );
+};
+
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
@@ -153,6 +192,9 @@ app.whenReady().then(() => {
     process.env.DESIGN_AI_PROJECT_DIR ??
     path.join(app.getPath('documents'), 'design-ai');
   registerDesignFileHandlers(projectDirectory);
+  registerSessionHandlers(
+    path.join(app.getPath('userData'), 'design-session.json'),
+  );
   createWindow();
 
   // On OS X it's common to re-create a window in the app when the
