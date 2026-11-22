@@ -15,6 +15,7 @@ import {
 import { CircleUser, Play } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type {
+  AppSession,
   CreateDesignFileResult,
   DesignAiApi,
   OpenDesignFileResult,
@@ -29,6 +30,7 @@ import {
   editDocument,
   initialEditorState,
   markSaving,
+  OPEN_FAILURE_TITLE,
   selectElement,
   type EditorState,
   type PendingAction,
@@ -45,21 +47,33 @@ import {
   applyCreateErrorToWorkspace,
   applyCreateToWorkspace,
   applyOpenErrorToWorkspace,
+  applyOpenToProject,
   applyOpenToWorkspace,
   applySaveToActiveProject,
+  emptySession,
+  hasSessionContent,
   initialWorkspaceState,
+  projectPath,
+  restoreWorkspace,
   setPendingActionForActive,
   showHome,
+  showHomeOpenError,
+  showHomeWithDiagnostics,
   updateProjectState,
+  workspaceToSession,
   type WorkspaceState,
 } from './workspace';
 
 export interface AppProps {
   openDesignFile?: () => Promise<OpenDesignFileResult>;
+  /** Reads one known design, used to restore a persisted project tab. */
+  openDesignFileAt?: (filePath: string) => Promise<OpenDesignFileResult>;
   createDesignFile?: () => Promise<CreateDesignFileResult>;
   saveDesignFile?: (
     input: SaveDesignFileInput,
   ) => Promise<SaveDesignFileResult>;
+  loadSession?: () => Promise<AppSession>;
+  saveSession?: (session: AppSession) => Promise<void>;
   subscribeCloseRequest?: (listener: () => void) => () => void;
   confirmClose?: () => void;
   saveDelayMs?: number;
@@ -78,6 +92,12 @@ async function openThroughBridge(): Promise<OpenDesignFileResult> {
   return requireDesignAi('打开').openDesignFile();
 }
 
+async function openAtThroughBridge(
+  filePath: string,
+): Promise<OpenDesignFileResult> {
+  return requireDesignAi('打开').openDesignFileAt(filePath);
+}
+
 async function createThroughBridge(): Promise<CreateDesignFileResult> {
   return requireDesignAi('新建').createDesignFile();
 }
@@ -86,6 +106,17 @@ async function saveThroughBridge(
   input: SaveDesignFileInput,
 ): Promise<SaveDesignFileResult> {
   return requireDesignAi('保存').saveDesignFile(input);
+}
+
+async function loadSessionThroughBridge(): Promise<AppSession> {
+  if (window.designAi === undefined) {
+    return emptySession;
+  }
+  return window.designAi.loadSession();
+}
+
+async function saveSessionThroughBridge(session: AppSession): Promise<void> {
+  await window.designAi?.saveSession(session);
 }
 
 function subscribeThroughBridge(listener: () => void): () => void {
@@ -145,8 +176,11 @@ function commitEdit(
 
 export function App({
   openDesignFile = openThroughBridge,
+  openDesignFileAt = openAtThroughBridge,
   createDesignFile = createThroughBridge,
   saveDesignFile = saveThroughBridge,
+  loadSession = loadSessionThroughBridge,
+  saveSession = saveSessionThroughBridge,
   subscribeCloseRequest = subscribeThroughBridge,
   confirmClose = confirmThroughBridge,
   saveDelayMs,
@@ -164,6 +198,90 @@ export function App({
   editorStateRef.current = editorState;
   const workspaceRef = useRef(workspace);
   workspaceRef.current = workspace;
+  const loadSessionRef = useRef(loadSession);
+  loadSessionRef.current = loadSession;
+  const saveSessionRef = useRef(saveSession);
+  saveSessionRef.current = saveSession;
+  const openAtRef = useRef(openDesignFileAt);
+  openAtRef.current = openDesignFileAt;
+  /** Keeps the initial empty state from overwriting the stored session. */
+  const sessionReadyRef = useRef(false);
+  const lastSavedSessionRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const restore = async () => {
+      let session: AppSession;
+      try {
+        session = await loadSessionRef.current();
+      } catch {
+        sessionReadyRef.current = true;
+        return;
+      }
+      if (cancelled) {
+        return;
+      }
+
+      const restored = restoreWorkspace(session);
+      const restoredActive = activeProjectOf(restored);
+      const activePath =
+        restoredActive === null ? null : projectPath(restoredActive);
+      if (restoredActive !== null && activePath !== null) {
+        sessionReadyRef.current = true;
+        try {
+          const result = await openAtRef.current(activePath);
+          if (cancelled || workspaceRef.current !== initialWorkspaceState) {
+            return;
+          }
+          setWorkspace(
+            result.status === 'failed'
+              ? showHomeWithDiagnostics(
+                  restored,
+                  result.errors,
+                  OPEN_FAILURE_TITLE,
+                )
+              : applyOpenToProject(restored, restoredActive.id, result),
+          );
+        } catch (error) {
+          if (!cancelled && workspaceRef.current === initialWorkspaceState) {
+            setWorkspace(showHomeOpenError(restored, error));
+          }
+        }
+        return;
+      }
+
+      sessionReadyRef.current = true;
+      if (
+        hasSessionContent(session) &&
+        workspaceRef.current === initialWorkspaceState
+      ) {
+        setWorkspace(restored);
+      }
+    };
+
+    void restore();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!sessionReadyRef.current) {
+      return;
+    }
+    const session = workspaceToSession(workspace);
+    const serialized = JSON.stringify(session);
+    if (serialized === lastSavedSessionRef.current) {
+      return;
+    }
+    lastSavedSessionRef.current = serialized;
+    void saveSessionRef.current(session).catch(() => {
+      // A failed session write must not interrupt editing; the close flow
+      // writes the final position again.
+      lastSavedSessionRef.current = null;
+    });
+  }, [workspace]);
 
   const updateActiveEditor = (
     update: (current: EditorState) => EditorState,
@@ -213,26 +331,18 @@ export function App({
     }
   };
 
-  const runPendingAction = async (action: PendingAction) => {
-    switch (action.type) {
-      case 'close':
-        confirmClose();
-        return;
-      case 'create':
-        await runCreate();
-        return;
-      case 'open':
-        await openNow();
-        return;
-      case 'home':
-        setWorkspace(showHome);
-        return;
-      case 'project':
-        setWorkspace((current) =>
-          activateProjectTab(current, action.projectId),
-        );
-        return;
+  const persistSession = async () => {
+    try {
+      await saveSessionRef.current(workspaceToSession(workspaceRef.current));
+    } catch {
+      // A failed session write must not block a close whose design saved.
     }
+  };
+
+  /** A close only proceeds after the latest design and position persist. */
+  const finishClose = async () => {
+    await persistSession();
+    confirmClose();
   };
 
   /**
@@ -250,6 +360,68 @@ export function App({
     }
     setWorkspace((current) => setPendingActionForActive(current, action));
     return false;
+  };
+
+  /** Reads a restored tab's file the first time the user selects it. */
+  const loadProject = async (projectId: string, filePath: string) => {
+    try {
+      const result = await openAtRef.current(filePath);
+      setWorkspace((current) =>
+        result.status === 'failed'
+          ? showHomeWithDiagnostics(current, result.errors, OPEN_FAILURE_TITLE)
+          : applyOpenToProject(current, projectId, result),
+      );
+    } catch (error) {
+      setWorkspace((current) => showHomeOpenError(current, error));
+    }
+  };
+
+  const handleSelectProject = async (projectId: string) => {
+    const current = workspaceRef.current;
+    if (current.activeTabId === projectId) {
+      return;
+    }
+    const target = current.projects.find((project) => project.id === projectId);
+    const filePath = target === undefined ? null : projectPath(target);
+    const needsLoad =
+      target !== undefined &&
+      target.state.document === null &&
+      filePath !== null;
+
+    if (!(await saveBeforeAction({ type: 'project', projectId }))) {
+      return;
+    }
+    if (needsLoad && filePath !== null) {
+      await loadProject(projectId, filePath);
+      return;
+    }
+    // Coming from home counts as reopening, so a created design adopts its
+    // actual file name in the tab.
+    setWorkspace((latest) =>
+      activateProjectTab(latest, projectId, {
+        preferFileName: latest.activeTabId === HOME_TAB_ID,
+      }),
+    );
+  };
+
+  const runPendingAction = async (action: PendingAction) => {
+    switch (action.type) {
+      case 'close':
+        await finishClose();
+        return;
+      case 'create':
+        await runCreate();
+        return;
+      case 'open':
+        await openNow();
+        return;
+      case 'home':
+        setWorkspace(showHome);
+        return;
+      case 'project':
+        await handleSelectProject(action.projectId);
+        return;
+    }
   };
 
   const handleOpen = async () => {
@@ -275,25 +447,9 @@ export function App({
     }
   };
 
-  const handleSelectProject = async (projectId: string) => {
-    const current = workspaceRef.current;
-    if (current.activeTabId === projectId) {
-      return;
-    }
-    if (await saveBeforeAction({ type: 'project', projectId })) {
-      // Coming from home counts as reopening, so a created design adopts its
-      // actual file name in the tab.
-      setWorkspace((latest) =>
-        activateProjectTab(latest, projectId, {
-          preferFileName: latest.activeTabId === HOME_TAB_ID,
-        }),
-      );
-    }
-  };
-
   const handleCloseRequest = async () => {
     if (await saveBeforeAction({ type: 'close' })) {
-      confirmClose();
+      await finishClose();
     }
   };
 

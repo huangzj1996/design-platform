@@ -4,8 +4,12 @@ import {
   CLOSE_REQUEST_CHANNEL,
   CONFIRM_CLOSE_CHANNEL,
   CREATE_DESIGN_FILE_CHANNEL,
+  LOAD_SESSION_CHANNEL,
   OPEN_DESIGN_FILE_CHANNEL,
+  OPEN_DESIGN_FILE_PATH_CHANNEL,
   SAVE_DESIGN_FILE_CHANNEL,
+  SAVE_SESSION_CHANNEL,
+  type AppSession,
   type DesignAiApi,
   type SaveDesignFileInput,
 } from '../src/electron-preload/contract';
@@ -51,6 +55,17 @@ describe('preload bridge', () => {
     expect(electron.invoke).toHaveBeenCalledWith(OPEN_DESIGN_FILE_CHANNEL);
   });
 
+  it('opens a known design file through the path channel', async () => {
+    const filePath = '/tmp/上次的设计稿.json';
+
+    await exposedApi.openDesignFileAt(filePath);
+
+    expect(electron.invoke).toHaveBeenCalledWith(
+      OPEN_DESIGN_FILE_PATH_CHANNEL,
+      filePath,
+    );
+  });
+
   it('creates design files through the create channel', async () => {
     await exposedApi.createDesignFile();
 
@@ -69,6 +84,26 @@ describe('preload bridge', () => {
       SAVE_DESIGN_FILE_CHANNEL,
       input,
     );
+  });
+
+  it('loads the session through the session channel', async () => {
+    await exposedApi.loadSession();
+
+    expect(electron.invoke).toHaveBeenCalledWith(LOAD_SESSION_CHANNEL);
+  });
+
+  it('saves the session through the session channel', async () => {
+    const session: AppSession = {
+      activeTab: 'home',
+      projects: [
+        { filePath: '/tmp/设计稿.json', openedAt: '2026-11-22T10:30:00.000Z' },
+      ],
+      recent: [],
+    };
+
+    await exposedApi.saveSession(session);
+
+    expect(electron.invoke).toHaveBeenCalledWith(SAVE_SESSION_CHANNEL, session);
   });
 
   it('subscribes to and unsubscribes from close requests', () => {
