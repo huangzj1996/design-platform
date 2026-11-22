@@ -212,6 +212,20 @@ function warnInvalidField(
   );
 }
 
+/** Reports a reference nested in a field whose native form is literal-only. */
+function warnNestedVariableReference(
+  ctx: ConversionContext,
+  path: string,
+  field: string,
+): void {
+  warnUnsupportedProperty(
+    ctx,
+    path,
+    field,
+    `Pencil 属性 "${field}" 中的变量引用无法转换，已跳过该属性`,
+  );
+}
+
 function warnSkippedNode(
   ctx: ConversionContext,
   path: string,
@@ -324,6 +338,38 @@ function assignField(element: object, field: string, value: unknown): void {
   Reflect.set(element, field, value);
 }
 
+/**
+ * When `value` is a Pencil variable reference, binds it to a native field and
+ * assigns the resulting `$${...}` reference to the element. Returns true for
+ * any reference, including one that was reported and dropped, so callers know
+ * not to parse the value as a literal.
+ */
+function bindElementField(
+  value: unknown,
+  element: object,
+  elementType: ElementType,
+  nativeField: string,
+  path: string,
+  ctx: ConversionContext,
+  sourceField: string = nativeField,
+): boolean {
+  if (!isPencilVariableReference(value)) {
+    return false;
+  }
+  const reference = bindVariableReference(
+    value,
+    elementType,
+    nativeField,
+    path,
+    sourceField,
+    ctx,
+  );
+  if (reference !== undefined) {
+    assignField(element, nativeField, reference);
+  }
+  return true;
+}
+
 function normalizeNumber(value: unknown, rule: NumberRule): number | undefined {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return undefined;
@@ -369,7 +415,8 @@ function readStringField(
   ctx: ConversionContext,
   options: {
     nonEmpty?: boolean;
-    binding?: { elementType: ElementType; nativeField?: string };
+    /** Element type whose field may receive a variable binding. */
+    binding?: ElementType;
   } = {},
 ): string | undefined {
   const value = node[field];
@@ -388,8 +435,8 @@ function readStringField(
     }
     return bindVariableReference(
       value,
-      options.binding.elementType,
-      options.binding.nativeField ?? field,
+      options.binding,
+      field,
       path,
       field,
       ctx,
@@ -418,18 +465,10 @@ function readNumberOrBinding(
   ctx: ConversionContext,
   rule: NumberRule,
   elementType: ElementType,
-  nativeField: string = field,
 ): number | string | undefined {
   const value = node[field];
   if (isPencilVariableReference(value)) {
-    return bindVariableReference(
-      value,
-      elementType,
-      nativeField,
-      path,
-      field,
-      ctx,
-    );
+    return bindVariableReference(value, elementType, field, path, field, ctx);
   }
   return readNumberField(node, field, path, ctx, rule);
 }
@@ -483,18 +522,7 @@ function assignDimension(
   if (value === undefined) {
     return;
   }
-  if (isPencilVariableReference(value)) {
-    const reference = bindVariableReference(
-      value,
-      element.type,
-      field,
-      path,
-      field,
-      ctx,
-    );
-    if (reference !== undefined) {
-      assignField(element, field, reference);
-    }
+  if (bindElementField(value, element, element.type, field, path, ctx)) {
     return;
   }
   const dimension = dimensionValue(value);
@@ -555,17 +583,7 @@ function applyColorField(
     return;
   }
   if (result.reference !== undefined) {
-    const reference = bindVariableReference(
-      result.reference,
-      element.type,
-      field,
-      path,
-      field,
-      ctx,
-    );
-    if (reference !== undefined) {
-      element[field] = reference;
-    }
+    bindElementField(result.reference, element, element.type, field, path, ctx);
     return;
   }
   if (result.color !== undefined) {
@@ -641,19 +659,17 @@ function applyEntityFields(
       if (!node.enabled) {
         element.visible = false;
       }
-    } else if (isPencilVariableReference(node.enabled)) {
-      const reference = bindVariableReference(
+    } else if (
+      !bindElementField(
         node.enabled,
+        element,
         element.type,
         'visible',
         path,
-        'enabled',
         ctx,
-      );
-      if (reference !== undefined) {
-        assignField(element, 'visible', reference);
-      }
-    } else {
+        'enabled',
+      )
+    ) {
       warnInvalidField(ctx, path, 'enabled');
     }
   }
@@ -706,31 +722,18 @@ function applyPaintFields(
 
   if (node.cornerRadius !== undefined) {
     const value = node.cornerRadius;
-    if (isPencilVariableReference(value)) {
-      const reference = bindVariableReference(
-        value,
-        element.type,
-        'cornerRadius',
-        path,
-        'cornerRadius',
-        ctx,
-      );
-      if (reference !== undefined) {
-        assignField(element, 'cornerRadius', reference);
-      }
-    } else if (containsPencilVariableReference(value)) {
-      warnUnsupportedProperty(
-        ctx,
-        path,
-        'cornerRadius',
-        'Pencil 属性 "cornerRadius" 中的变量引用无法转换，已跳过该属性',
-      );
-    } else {
-      const cornerRadius = cornerRadiusValue(value);
-      if (cornerRadius === undefined) {
-        warnInvalidField(ctx, path, 'cornerRadius');
+    if (
+      !bindElementField(value, element, element.type, 'cornerRadius', path, ctx)
+    ) {
+      if (containsPencilVariableReference(value)) {
+        warnNestedVariableReference(ctx, path, 'cornerRadius');
       } else {
-        element.cornerRadius = cornerRadius;
+        const cornerRadius = cornerRadiusValue(value);
+        if (cornerRadius === undefined) {
+          warnInvalidField(ctx, path, 'cornerRadius');
+        } else {
+          element.cornerRadius = cornerRadius;
+        }
       }
     }
   }
@@ -885,12 +888,7 @@ function convertFrame(
 
   if (node.padding !== undefined) {
     if (containsPencilVariableReference(node.padding)) {
-      warnUnsupportedProperty(
-        ctx,
-        path,
-        'padding',
-        'Pencil 属性 "padding" 中的变量引用无法转换，已跳过该属性',
-      );
+      warnNestedVariableReference(ctx, path, 'padding');
     } else {
       const padding = paddingValue(node.padding);
       if (padding === undefined) {
@@ -1131,7 +1129,7 @@ function convertText(
 
   const fontFamily = readStringField(node, 'fontFamily', path, ctx, {
     nonEmpty: true,
-    binding: { elementType: 'text' },
+    binding: 'text',
   });
   if (fontFamily !== undefined) {
     text.fontFamily = fontFamily;
@@ -1150,19 +1148,9 @@ function convertText(
   }
 
   if (node.fontWeight !== undefined) {
-    if (isPencilVariableReference(node.fontWeight)) {
-      const reference = bindVariableReference(
-        node.fontWeight,
-        'text',
-        'fontWeight',
-        path,
-        'fontWeight',
-        ctx,
-      );
-      if (reference !== undefined) {
-        assignField(text, 'fontWeight', reference);
-      }
-    } else {
+    if (
+      !bindElementField(node.fontWeight, text, 'text', 'fontWeight', path, ctx)
+    ) {
       const fontWeight = fontWeightValue(node.fontWeight);
       if (fontWeight === undefined) {
         warnInvalidField(ctx, path, 'fontWeight');
@@ -1237,7 +1225,7 @@ function convertIcon(
   const library =
     readStringField(node, 'library', path, ctx, {
       nonEmpty: true,
-      binding: { elementType: 'icon' },
+      binding: 'icon',
     }) ?? DEFAULT_ICON_LIBRARY;
 
   if (node.weight !== undefined) {

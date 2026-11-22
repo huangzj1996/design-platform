@@ -1,6 +1,7 @@
 import {
   createDiagnostic,
   isHexColor,
+  isOneOf,
   isPlainObject,
   type DesignVariable,
   type Diagnostic,
@@ -9,12 +10,7 @@ import {
 } from '@design-ai/design-schema';
 import { PencilDiagnosticCodes } from './diagnostics';
 
-const VARIABLE_TYPES: readonly VariableType[] = [
-  'color',
-  'string',
-  'number',
-  'boolean',
-];
+const VARIABLE_TYPES = ['color', 'string', 'number', 'boolean'] as const;
 const VARIABLES_PATH = '$.variables';
 
 export interface ConvertedVariables {
@@ -44,10 +40,7 @@ function warnSkippedVariable(
 }
 
 function isVariableType(value: unknown): value is VariableType {
-  return (
-    typeof value === 'string' &&
-    (VARIABLE_TYPES as readonly string[]).includes(value)
-  );
+  return isOneOf(value, VARIABLE_TYPES);
 }
 
 function isLiteralValue(

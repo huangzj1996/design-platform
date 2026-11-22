@@ -111,9 +111,12 @@ export function importPencilDocument(text: string): PencilImportResult {
   }
 
   const ctx = createConversionContext();
-  const convertedVariables = convertVariables(input.variables, ctx.warnings);
-  ctx.variables = convertedVariables.variables;
-  ctx.variablesBySourceName = convertedVariables.bySourceName;
+  const { variables, bySourceName } = convertVariables(
+    input.variables,
+    ctx.warnings,
+  );
+  ctx.variables = variables;
+  ctx.variablesBySourceName = bySourceName;
 
   for (const child of sourceChildren) {
     collectIdUsage(child, ctx);
