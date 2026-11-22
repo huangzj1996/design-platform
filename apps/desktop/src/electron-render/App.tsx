@@ -45,7 +45,7 @@ import {
   applyCreateToWorkspace,
   applyOpenErrorToWorkspace,
   applyOpenToWorkspace,
-  applySaveToProject,
+  applySaveToActiveProject,
   initialWorkspaceState,
   setPendingActionForActive,
   showHome,
@@ -155,46 +155,34 @@ export function App({
   const [creating, setCreating] = useState(false);
 
   const activeProject = activeProjectOf(workspace);
-  const activeProjectId = activeProject?.id ?? null;
-  const state = activeProject?.state ?? initialEditorState;
-  const stateRef = useRef(state);
-  stateRef.current = state;
+  const editorState = activeProject?.state ?? initialEditorState;
+  const editorStateRef = useRef(editorState);
+  editorStateRef.current = editorState;
   const workspaceRef = useRef(workspace);
   workspaceRef.current = workspace;
 
+  const updateActiveEditor = (
+    update: (current: EditorState) => EditorState,
+  ) => {
+    setWorkspace((current) =>
+      updateProjectState(current, current.activeTabId, update),
+    );
+  };
+
   const { flush } = useAutosave({
-    document: state.document,
-    filePath: state.filePath,
-    dirty: state.dirty,
-    editVersion: state.editVersion,
+    document: editorState.document,
+    filePath: editorState.filePath,
+    dirty: editorState.dirty,
+    editVersion: editorState.editVersion,
     saveDesignFile,
     delayMs: saveDelayMs,
-    onSaving: () => {
-      if (activeProjectId === null) {
-        return;
-      }
+    onSaving: () => updateActiveEditor(markSaving),
+    onSaved: (result, savedVersion) =>
       setWorkspace((current) =>
-        updateProjectState(current, activeProjectId, markSaving),
-      );
-    },
-    onSaved: (result, savedVersion) => {
-      if (activeProjectId === null) {
-        return;
-      }
-      setWorkspace((current) =>
-        applySaveToProject(current, activeProjectId, result, savedVersion),
-      );
-    },
-    onFailed: (errors) => {
-      if (activeProjectId === null) {
-        return;
-      }
-      setWorkspace((current) =>
-        updateProjectState(current, activeProjectId, (projectState) =>
-          applySaveFailure(projectState, errors),
-        ),
-      );
-    },
+        applySaveToActiveProject(current, result, savedVersion),
+      ),
+    onFailed: (errors) =>
+      updateActiveEditor((current) => applySaveFailure(current, errors)),
   });
 
   const runCreate = async () => {
@@ -249,7 +237,7 @@ export function App({
    * for the retry entry.
    */
   const saveBeforeAction = async (action: PendingAction): Promise<boolean> => {
-    if (stateRef.current.document === null) {
+    if (editorStateRef.current.document === null) {
       return true;
     }
     const saved = await flush();
@@ -320,19 +308,11 @@ export function App({
     if (saved === 'failed') {
       return;
     }
-    const action = stateRef.current.pendingAction;
+    const action = editorStateRef.current.pendingAction;
     setWorkspace((current) => setPendingActionForActive(current, null));
     if (action !== null) {
       await runPendingAction(action);
     }
-  };
-
-  const updateActiveEditor = (
-    update: (projectState: EditorState) => EditorState,
-  ) => {
-    setWorkspace((current) =>
-      updateProjectState(current, current.activeTabId, update),
-    );
   };
 
   const handleSelect = (id: string | null) => {
@@ -398,14 +378,14 @@ export function App({
     });
   };
 
-  const document = state.document;
+  const document = editorState.document;
   const showingHome = workspace.activeTabId === HOME_TAB_ID;
   const diagnostics = showingHome
     ? workspace.homeDiagnostics
-    : state.diagnostics;
+    : editorState.diagnostics;
   const diagnosticsTitle = showingHome
     ? workspace.homeDiagnosticsTitle
-    : state.diagnosticsTitle;
+    : editorState.diagnosticsTitle;
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-[#F6F6F6] text-[#1A1A1A]">
@@ -452,11 +432,11 @@ export function App({
             <div className="document-summary">
               <strong className="app-name">Design AI</strong>
               <span className="document-name">
-                {documentName(state.filePath ?? state.sourcePath)}
+                {documentName(editorState.filePath ?? editorState.sourcePath)}
               </span>
               {document !== null ? (
                 <span className="save-status" data-testid="save-status">
-                  {saveStatusText(state)}
+                  {saveStatusText(editorState)}
                 </span>
               ) : null}
             </div>
@@ -488,7 +468,7 @@ export function App({
             </div>
           </header>
 
-          {state.saveStatus === 'error' ? (
+          {editorState.saveStatus === 'error' ? (
             <section
               className="diagnostics save-error"
               role="alert"
@@ -496,7 +476,7 @@ export function App({
               data-testid="save-error"
             >
               <h2>保存失败</h2>
-              <DiagnosticList diagnostics={state.saveErrors} />
+              <DiagnosticList diagnostics={editorState.saveErrors} />
               <p className="save-error-hint">
                 最近一次成功保存的文件保持不变，当前编辑仍在编辑器中。
               </p>
@@ -506,7 +486,7 @@ export function App({
             </section>
           ) : null}
 
-          {state.warnings.length > 0 ? (
+          {editorState.warnings.length > 0 ? (
             <section
               className="diagnostics import-warnings"
               role="status"
@@ -514,7 +494,7 @@ export function App({
               data-testid="import-warnings"
             >
               <h2>导入提示</h2>
-              <DiagnosticList diagnostics={state.warnings} />
+              <DiagnosticList diagnostics={editorState.warnings} />
             </section>
           ) : null}
 
@@ -523,20 +503,20 @@ export function App({
               <aside className="layers-panel">
                 <LayerTree
                   document={document}
-                  selectionId={state.selectionId}
+                  selectionId={editorState.selectionId}
                   onSelect={handleSelect}
                 />
               </aside>
               <section className="canvas-area">
                 <Canvas
                   document={document}
-                  selectionId={state.selectionId}
+                  selectionId={editorState.selectionId}
                   onSelect={handleSelect}
                 />
               </section>
               <PropertiesPanel
                 document={document}
-                selectionId={state.selectionId}
+                selectionId={editorState.selectionId}
                 onUpdate={handleUpdate}
                 onAddChild={handleAddChild}
                 onDelete={handleDelete}

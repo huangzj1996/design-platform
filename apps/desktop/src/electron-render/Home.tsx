@@ -27,6 +27,16 @@ interface CategoryTabProps {
   onClick?: () => void;
 }
 
+function categoryTabClassName(active: boolean, disabled: boolean): string {
+  if (active) {
+    return 'cursor-pointer bg-[#E7E8EB] font-medium text-[#1A1A1A]';
+  }
+  if (disabled) {
+    return 'cursor-not-allowed text-[#C2C3C9]';
+  }
+  return 'cursor-pointer text-[#8A8C93] hover:bg-[#EDEEF0]';
+}
+
 function CategoryTab({
   label,
   active = false,
@@ -39,13 +49,10 @@ function CategoryTab({
       aria-pressed={active}
       disabled={disabled}
       onClick={onClick}
-      className={`flex h-[30px] items-center rounded-[10px] px-3 text-[13px] transition-colors ${
-        active
-          ? 'cursor-pointer bg-[#E7E8EB] font-medium text-[#1A1A1A]'
-          : disabled
-            ? 'cursor-not-allowed text-[#C2C3C9]'
-            : 'cursor-pointer text-[#8A8C93] hover:bg-[#EDEEF0]'
-      }`}
+      className={`flex h-[30px] items-center rounded-[10px] px-3 text-[13px] transition-colors ${categoryTabClassName(
+        active,
+        disabled,
+      )}`}
     >
       {label}
     </button>

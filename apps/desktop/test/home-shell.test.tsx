@@ -207,6 +207,23 @@ async function clickTab(label: string): Promise<void> {
   await settle();
 }
 
+function tabCreateButton(): HTMLButtonElement {
+  const button = container.querySelector<HTMLButtonElement>(
+    '[data-testid="tab-create"]',
+  );
+  if (button === null) {
+    throw new Error('Tab add button not found');
+  }
+  return button;
+}
+
+async function readSavedTitle(filePath: string): Promise<unknown> {
+  const saved = JSON.parse(
+    await readFile(filePath, 'utf8'),
+  ) as typeof frameWithText;
+  return saved.children[0]?.children?.[0];
+}
+
 function elementById(id: string): HTMLElement | null {
   return container.querySelector<HTMLElement>(`[data-element-id="${id}"]`);
 }
@@ -319,13 +336,7 @@ describe('home shell and project tabs', () => {
   it('creates a design from the tab add button and shows its file name when reopened from home', async () => {
     await renderApp();
 
-    const addButton = container.querySelector<HTMLButtonElement>(
-      '[data-testid="tab-create"]',
-    );
-    if (addButton === null) {
-      throw new Error('Tab add button not found');
-    }
-    await click(addButton);
+    await click(tabCreateButton());
 
     const createdPath = path.join(directory, '未命名.json');
     expect(activeTab().textContent).toContain('新建聊天');
@@ -377,12 +388,9 @@ describe('home shell and project tabs', () => {
 
     expect(container.querySelector('[data-testid="home"]')).not.toBeNull();
     expect(writeLog).toHaveLength(1);
-    const saved = JSON.parse(
-      await readFile(filePath, 'utf8'),
-    ) as typeof frameWithText;
-    const main = saved.children[0];
-    const title = main && 'children' in main ? main.children?.[0] : undefined;
-    expect(title).toMatchObject({ text: '离开前保存' });
+    expect(await readSavedTitle(filePath)).toMatchObject({
+      text: '离开前保存',
+    });
 
     await clickTab('draft.json');
     expect(elementById('title')?.textContent).toBe('离开前保存');
@@ -395,24 +403,15 @@ describe('home shell and project tabs', () => {
     await clickButton('打开设计稿');
     await editTitle('新建前保存');
 
-    const addButton = container.querySelector<HTMLButtonElement>(
-      '[data-testid="tab-create"]',
-    );
-    if (addButton === null) {
-      throw new Error('Tab add button not found');
-    }
-    await click(addButton);
+    await click(tabCreateButton());
     await settle();
 
     expect(tabLabels()).toHaveLength(3);
     expect(activeTab().textContent).toContain('新建聊天');
     expect(writeLog).toHaveLength(1);
-    const saved = JSON.parse(
-      await readFile(filePath, 'utf8'),
-    ) as typeof frameWithText;
-    const main = saved.children[0];
-    const title = main && 'children' in main ? main.children?.[0] : undefined;
-    expect(title).toMatchObject({ text: '新建前保存' });
+    expect(await readSavedTitle(filePath)).toMatchObject({
+      text: '新建前保存',
+    });
   });
 
   it('stays in the editor when saving before home fails, then returns home after retry', async () => {
@@ -437,12 +436,9 @@ describe('home shell and project tabs', () => {
 
     expect(container.querySelector('[data-testid="home"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="save-error"]')).toBeNull();
-    const saved = JSON.parse(
-      await readFile(filePath, 'utf8'),
-    ) as typeof frameWithText;
-    const main = saved.children[0];
-    const title = main && 'children' in main ? main.children?.[0] : undefined;
-    expect(title).toMatchObject({ text: '失败后仍保留' });
+    expect(await readSavedTitle(filePath)).toMatchObject({
+      text: '失败后仍保留',
+    });
   });
 
   it('stays on the current project when a save before switching tabs fails, then switches after retry', async () => {
@@ -473,12 +469,9 @@ describe('home shell and project tabs', () => {
 
     expect(activeTab().textContent).toContain('second.json');
     expect(container.textContent).toContain('第二份标题');
-    const saved = JSON.parse(
-      await readFile(firstPath, 'utf8'),
-    ) as typeof frameWithText;
-    const main = saved.children[0];
-    const title = main && 'children' in main ? main.children?.[0] : undefined;
-    expect(title).toMatchObject({ text: '切换前保存' });
+    expect(await readSavedTitle(firstPath)).toMatchObject({
+      text: '切换前保存',
+    });
   });
 
   it('keeps the home tab and shows the reason when an open fails', async () => {

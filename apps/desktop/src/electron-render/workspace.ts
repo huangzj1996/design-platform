@@ -10,18 +10,17 @@ import {
   applyOpenError,
   applyOpenResult,
   applySaveResult,
+  CREATE_FAILURE_TITLE,
   documentName,
   initialEditorState,
+  OPEN_FAILURE_TITLE,
   setPendingAction,
   type EditorState,
   type PendingAction,
 } from './editor-state';
 
 export const HOME_TAB_ID = 'home';
-export const NEW_CHAT_TAB_LABEL = '新建聊天';
-
-const OPEN_FAILURE_TITLE = '无法打开设计稿';
-const CREATE_FAILURE_TITLE = '无法新建设计稿';
+const NEW_CHAT_TAB_LABEL = '新建聊天';
 
 /** One open design document and its tab in the top bar. */
 export interface ProjectTab {
@@ -77,6 +76,22 @@ function replaceProject(
     projects: workspace.projects.map((project) =>
       project.id === projectId ? update(project) : project,
     ),
+  };
+}
+
+/** Appends a project tab, selects it and clears any home diagnostics. */
+function addProject(
+  workspace: WorkspaceState,
+  label: string,
+  state: EditorState,
+): WorkspaceState {
+  const id = `project-${workspace.nextProjectNumber}`;
+  return {
+    ...workspace,
+    activeTabId: id,
+    nextProjectNumber: workspace.nextProjectNumber + 1,
+    homeDiagnostics: [],
+    projects: [...workspace.projects, { id, label, state }],
   };
 }
 
@@ -169,36 +184,21 @@ export function applyOpenToWorkspace(
 
   if (existing !== undefined) {
     return {
-      ...workspace,
+      ...replaceProject(workspace, existing.id, (project) => ({
+        ...project,
+        label: documentName(filePath),
+        state: applyOpenResult(project.state, result),
+      })),
       activeTabId: existing.id,
       homeDiagnostics: [],
-      projects: workspace.projects.map((project) =>
-        project.id === existing.id
-          ? {
-              ...project,
-              label: documentName(filePath),
-              state: applyOpenResult(project.state, result),
-            }
-          : project,
-      ),
     };
   }
 
-  const id = `project-${workspace.nextProjectNumber}`;
-  return {
-    ...workspace,
-    activeTabId: id,
-    nextProjectNumber: workspace.nextProjectNumber + 1,
-    homeDiagnostics: [],
-    projects: [
-      ...workspace.projects,
-      {
-        id,
-        label: documentName(filePath),
-        state: applyOpenResult(initialEditorState, result),
-      },
-    ],
-  };
+  return addProject(
+    workspace,
+    documentName(filePath),
+    applyOpenResult(initialEditorState, result),
+  );
 }
 
 /** Applies a create result; a new design always gets its own 新建聊天 tab. */
@@ -210,40 +210,34 @@ export function applyCreateToWorkspace(
     return withDiagnostics(workspace, result.errors, CREATE_FAILURE_TITLE);
   }
 
-  const id = `project-${workspace.nextProjectNumber}`;
-  return {
-    ...workspace,
-    activeTabId: id,
-    nextProjectNumber: workspace.nextProjectNumber + 1,
-    homeDiagnostics: [],
-    projects: [
-      ...workspace.projects,
-      {
-        id,
-        label: NEW_CHAT_TAB_LABEL,
-        state: applyCreateResult(initialEditorState, result),
-      },
-    ],
-  };
+  return addProject(
+    workspace,
+    NEW_CHAT_TAB_LABEL,
+    applyCreateResult(initialEditorState, result),
+  );
 }
 
 /**
- * Applies a successful save to its project. The first save of an imported
- * draft moves the tab from the Pencil source name to the assigned file name.
+ * Applies a successful save to the active project. The first save of an
+ * imported draft moves the tab from the Pencil source name to the assigned
+ * file name.
  */
-export function applySaveToProject(
+export function applySaveToActiveProject(
   workspace: WorkspaceState,
-  projectId: string,
   result: Extract<SaveDesignFileResult, { status: 'saved' | 'skipped' }>,
   savedVersion: number,
 ): WorkspaceState {
-  return replaceProject(workspace, projectId, (project) => ({
-    ...project,
+  const project = activeProjectOf(workspace);
+  if (project === null) {
+    return workspace;
+  }
+  return replaceProject(workspace, project.id, (active) => ({
+    ...active,
     label:
-      project.state.filePath === null
+      active.state.filePath === null
         ? documentName(result.filePath)
-        : project.label,
-    state: applySaveResult(project.state, result, savedVersion),
+        : active.label,
+    state: applySaveResult(active.state, result, savedVersion),
   }));
 }
 
@@ -261,14 +255,12 @@ export function activateProjectTab(
   }
   const fileName = options.preferFileName ? projectFileName(project) : null;
   return {
-    ...workspace,
+    ...replaceProject(workspace, project.id, (candidate) => ({
+      ...candidate,
+      label: fileName ?? candidate.label,
+    })),
     activeTabId: project.id,
     homeDiagnostics: [],
-    projects: workspace.projects.map((candidate) =>
-      candidate.id === project.id
-        ? { ...candidate, label: fileName ?? candidate.label }
-        : candidate,
-    ),
   };
 }
 

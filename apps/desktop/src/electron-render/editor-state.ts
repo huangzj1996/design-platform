@@ -24,8 +24,8 @@ export type PendingAction =
 
 export type SaveStatus = 'idle' | 'saving' | 'error';
 
-const OPEN_FAILURE_TITLE = '无法打开设计稿';
-const CREATE_FAILURE_TITLE = '无法新建设计稿';
+export const OPEN_FAILURE_TITLE = '无法打开设计稿';
+export const CREATE_FAILURE_TITLE = '无法新建设计稿';
 
 export interface EditorState {
   document: DesignDocument | null;
