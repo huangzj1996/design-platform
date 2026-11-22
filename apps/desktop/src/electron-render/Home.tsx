@@ -1,23 +1,29 @@
 import {
   FilePlus2,
-  FolderOpen,
+  Folder,
   LayoutGrid,
   List,
   LoaderCircle,
 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
-import { projectFileName, projectPath, type ProjectTab } from './workspace';
+import type { SessionProject } from '../electron-preload/contract';
+import {
+  formatOpenedAt,
+  sortRecords,
+  splitFilePath,
+  type BrowseCategory,
+} from './home-records';
 
-type BrowseCategory = 'files' | 'recent';
 type ViewMode = 'grid' | 'list';
 
 export interface HomeProps {
-  projects: ProjectTab[];
+  /** Designs the user can reopen, most recently opened first. */
+  records: SessionProject[];
   opening: boolean;
   creating: boolean;
   onOpen: () => void;
   onCreate: () => void;
-  onSelectProject: (projectId: string) => void;
+  onOpenRecord: (filePath: string) => void;
 }
 
 interface CategoryTabProps {
@@ -149,102 +155,172 @@ function EmptyState({ opening, creating, onOpen, onCreate }: EmptyStateProps) {
   );
 }
 
-interface ProjectListProps {
-  projects: ProjectTab[];
-  view: ViewMode;
-  opening: boolean;
-  onOpen: () => void;
-  onSelectProject: (projectId: string) => void;
+/** Decorative page thumbnails standing in for a file preview. */
+function FilePreview() {
+  return (
+    <span
+      aria-hidden="true"
+      className="relative block h-[214px] w-full shrink-0 overflow-hidden bg-[#F7F8F9]"
+    >
+      <span className="absolute left-1/2 top-1/2 block h-[170px] w-[278px] -translate-x-1/2 -translate-y-1/2">
+        <span className="absolute left-0 top-0 block h-[92px] w-[150px] rounded-[6px] bg-white" />
+        <span className="absolute left-[12px] top-[12px] block h-[6px] w-[52px] rounded-[3px] bg-[#D8DADE]" />
+        <span className="absolute left-[12px] top-[24px] block h-[4px] w-[88px] rounded-[2px] bg-[#EDEEF0]" />
+        <span className="absolute left-[162px] top-0 block h-[92px] w-[116px] rounded-[6px] bg-white" />
+        <span className="absolute left-[174px] top-[12px] block h-[6px] w-[52px] rounded-[3px] bg-[#D8DADE]" />
+        <span className="absolute left-[174px] top-[24px] block h-[4px] w-[88px] rounded-[2px] bg-[#EDEEF0]" />
+        <span className="absolute left-0 top-[104px] block h-[66px] w-[124px] rounded-[6px] bg-white" />
+        <span className="absolute left-[12px] top-[116px] block h-[6px] w-[52px] rounded-[3px] bg-[#D8DADE]" />
+        <span className="absolute left-[12px] top-[128px] block h-[4px] w-[88px] rounded-[2px] bg-[#EDEEF0]" />
+        <span className="absolute left-[136px] top-[104px] block h-[66px] w-[60px] rounded-[6px] bg-white" />
+        <span className="absolute left-[144px] top-[112px] block h-[50px] w-[44px] rounded-[4px] bg-[#111111]" />
+      </span>
+    </span>
+  );
 }
 
-function ProjectList({
-  projects,
-  view,
-  opening,
-  onOpen,
-  onSelectProject,
-}: ProjectListProps) {
+interface RecordMetaProps {
+  record: SessionProject;
+  now: Date;
+}
+
+/** File name, directory and last open time shared by both views. */
+function RecordMeta({ record, now }: RecordMetaProps) {
+  const { directory, fileName } = splitFilePath(record.filePath);
   return (
-    <section aria-label="打开的项目" className="min-h-0 flex-1 overflow-auto">
-      <div className="flex items-center justify-between">
-        <h1 className="text-[15px] font-semibold text-[#1A1A1A]">打开的项目</h1>
-        <button
-          type="button"
-          data-testid="home-open"
-          disabled={opening}
-          onClick={onOpen}
-          className="inline-flex h-8 cursor-pointer items-center justify-center gap-2 rounded-[10px] bg-[#1A1A1A] px-3.5 text-[13px] font-medium text-white transition-colors hover:bg-[#333333] disabled:cursor-progress disabled:opacity-60"
+    <>
+      <span className="flex min-w-0 items-center gap-1.5">
+        <Folder
+          aria-hidden="true"
+          size={13}
+          strokeWidth={1.8}
+          className="shrink-0 text-[#A0A2A8]"
+        />
+        {directory === null ? null : (
+          <span className="truncate text-[12px] text-[#9A9AA2]">
+            {directory} /
+          </span>
+        )}
+        <span className="truncate text-[13px] font-semibold text-[#1A1A1A]">
+          {fileName}
+        </span>
+      </span>
+      <span className="text-[12px] text-[#9A9AA2]">
+        打开于 {formatOpenedAt(record.openedAt, now)}
+      </span>
+    </>
+  );
+}
+
+interface RecordCardProps {
+  record: SessionProject;
+  view: ViewMode;
+  now: Date;
+  busy: boolean;
+  onOpenRecord: (filePath: string) => void;
+}
+
+function RecordCard({
+  record,
+  view,
+  now,
+  busy,
+  onOpenRecord,
+}: RecordCardProps) {
+  return (
+    <button
+      type="button"
+      data-testid="home-project"
+      data-file-path={record.filePath}
+      title={record.filePath}
+      disabled={busy}
+      onClick={() => onOpenRecord(record.filePath)}
+      className={`min-w-0 cursor-pointer border border-[#ECEDEF] bg-white text-left transition-colors hover:border-[#D8DADD] disabled:cursor-progress disabled:opacity-60 ${
+        view === 'grid'
+          ? 'flex h-[300px] flex-col overflow-hidden rounded-[14px]'
+          : 'flex items-center gap-4 rounded-[12px] px-4 py-3'
+      }`}
+    >
+      {view === 'grid' ? (
+        <FilePreview />
+      ) : (
+        <span
+          aria-hidden="true"
+          className="flex size-10 shrink-0 items-center justify-center rounded-[8px] bg-[#F7F8F9] text-[#A0A2A8]"
         >
-          {opening ? <LoaderCircle size={14} className="animate-spin" /> : null}
-          {opening ? '正在打开…' : '打开设计稿'}
-        </button>
-      </div>
+          <Folder size={16} strokeWidth={1.6} />
+        </span>
+      )}
+      <span
+        className={
+          view === 'grid'
+            ? 'flex min-h-0 flex-1 flex-col justify-center gap-1.5 px-3.5'
+            : 'flex min-w-0 flex-1 flex-col gap-1'
+        }
+      >
+        <RecordMeta record={record} now={now} />
+      </span>
+    </button>
+  );
+}
+
+interface RecordListProps {
+  records: SessionProject[];
+  view: ViewMode;
+  now: Date;
+  busy: boolean;
+  onOpenRecord: (filePath: string) => void;
+}
+
+function RecordList({
+  records,
+  view,
+  now,
+  busy,
+  onOpenRecord,
+}: RecordListProps) {
+  return (
+    <section
+      aria-label="设计稿记录"
+      className="min-h-0 flex-1 overflow-auto"
+      data-testid="home-records"
+    >
       <div
         className={
           view === 'grid'
-            ? 'mt-4 grid grid-cols-2 gap-5 lg:grid-cols-3 xl:grid-cols-4'
-            : 'mt-4 flex flex-col gap-2'
+            ? 'grid grid-cols-2 content-start gap-5 lg:grid-cols-3 2xl:grid-cols-4'
+            : 'flex flex-col gap-2'
         }
       >
-        {projects.map((project) => {
-          const name = projectFileName(project) ?? project.label;
-          const detail = projectPath(project) ?? '尚未保存';
-          return (
-            <button
-              key={project.id}
-              type="button"
-              data-testid="home-project"
-              data-project-id={project.id}
-              onClick={() => onSelectProject(project.id)}
-              className={`group cursor-pointer border border-[#ECEDEF] bg-white text-left transition-colors hover:border-[#D8DADD] ${
-                view === 'grid'
-                  ? 'rounded-[14px] p-3'
-                  : 'flex items-center gap-4 rounded-[12px] px-4 py-3'
-              }`}
-            >
-              <span
-                className={`flex items-center justify-center bg-[#F7F8F9] text-[#A0A2A8] ${
-                  view === 'grid'
-                    ? 'h-[104px] w-full rounded-[10px]'
-                    : 'size-10 shrink-0 rounded-[8px]'
-                }`}
-              >
-                <FolderOpen
-                  size={view === 'grid' ? 22 : 16}
-                  strokeWidth={1.6}
-                />
-              </span>
-              <span
-                className={`block ${
-                  view === 'grid' ? 'mt-3' : 'min-w-0 flex-1'
-                }`}
-              >
-                <span className="block truncate text-[13px] font-semibold text-[#1A1A1A]">
-                  {name}
-                </span>
-                <span className="mt-1 block truncate text-[12px] text-[#9A9AA2]">
-                  {detail}
-                </span>
-              </span>
-            </button>
-          );
-        })}
+        {records.map((record) => (
+          <RecordCard
+            key={record.filePath}
+            record={record}
+            view={view}
+            now={now}
+            busy={busy}
+            onOpenRecord={onOpenRecord}
+          />
+        ))}
       </div>
     </section>
   );
 }
 
-/** Home page shell: browse controls, empty state or open projects. */
+/** Home page shell: browse controls and the actual design records. */
 export function Home({
-  projects,
+  records,
   opening,
   creating,
   onOpen,
   onCreate,
-  onSelectProject,
+  onOpenRecord,
 }: HomeProps) {
   const [category, setCategory] = useState<BrowseCategory>('recent');
   const [view, setView] = useState<ViewMode>('grid');
+  const busy = opening || creating;
+  const now = new Date();
+  const sorted = sortRecords(records, category);
 
   return (
     <main
@@ -270,29 +346,43 @@ export function Home({
           <CategoryTab label="草稿" disabled />
           <CategoryTab label="设计系统" disabled />
         </div>
-        <div
-          role="group"
-          aria-label="视图"
-          className="flex items-center gap-[2px] rounded-[10px] bg-white p-[3px]"
-        >
-          <ViewButton
-            label="网格视图"
-            active={view === 'grid'}
-            onClick={() => setView('grid')}
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            data-testid="home-open"
+            disabled={busy}
+            onClick={onOpen}
+            className="inline-flex h-8 cursor-pointer items-center justify-center gap-2 rounded-[10px] bg-[#1A1A1A] px-3.5 text-[13px] font-medium text-white transition-colors hover:bg-[#333333] disabled:cursor-progress disabled:opacity-60"
           >
-            <LayoutGrid size={14} strokeWidth={2} />
-          </ViewButton>
-          <ViewButton
-            label="列表视图"
-            active={view === 'list'}
-            onClick={() => setView('list')}
+            {opening ? (
+              <LoaderCircle size={14} className="animate-spin" />
+            ) : null}
+            {opening ? '正在打开…' : '打开设计稿'}
+          </button>
+          <div
+            role="group"
+            aria-label="视图"
+            className="flex items-center gap-[2px] rounded-[10px] bg-white p-[3px]"
           >
-            <List size={14} strokeWidth={2} />
-          </ViewButton>
+            <ViewButton
+              label="网格视图"
+              active={view === 'grid'}
+              onClick={() => setView('grid')}
+            >
+              <LayoutGrid size={14} strokeWidth={2} />
+            </ViewButton>
+            <ViewButton
+              label="列表视图"
+              active={view === 'list'}
+              onClick={() => setView('list')}
+            >
+              <List size={14} strokeWidth={2} />
+            </ViewButton>
+          </div>
         </div>
       </div>
 
-      {projects.length === 0 ? (
+      {sorted.length === 0 ? (
         <EmptyState
           opening={opening}
           creating={creating}
@@ -300,12 +390,12 @@ export function Home({
           onCreate={onCreate}
         />
       ) : (
-        <ProjectList
-          projects={projects}
+        <RecordList
+          records={sorted}
           view={view}
-          opening={opening}
-          onOpen={onOpen}
-          onSelectProject={onSelectProject}
+          now={now}
+          busy={busy}
+          onOpenRecord={onOpenRecord}
         />
       )}
     </main>

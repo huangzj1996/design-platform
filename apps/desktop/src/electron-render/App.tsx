@@ -49,6 +49,7 @@ import {
   applySaveToActiveProject,
   emptySession,
   hasSessionContent,
+  homeRecords,
   initialWorkspaceState,
   projectPath,
   restoreWorkspace,
@@ -380,6 +381,30 @@ export function App({
     );
   };
 
+  /**
+   * Reopens a design from a home record. An open tab is reused; a record for
+   * another file is loaded from its saved path.
+   */
+  const handleOpenRecord = async (filePath: string) => {
+    const target = workspaceRef.current.projects.find(
+      (project) => projectPath(project) === filePath,
+    );
+    if (target !== undefined) {
+      await handleSelectProject(target.id);
+      return;
+    }
+
+    setOpening(true);
+    try {
+      const result = await openAtRef.current(filePath);
+      setWorkspace((current) => applyOpenToWorkspace(current, result));
+    } catch (error) {
+      setWorkspace((current) => showHomeOpenError(current, error));
+    } finally {
+      setOpening(false);
+    }
+  };
+
   const runPendingAction = async (action: PendingAction) => {
     switch (action.type) {
       case 'close':
@@ -559,12 +584,12 @@ export function App({
             </div>
           </header>
           <Home
-            projects={workspace.projects}
+            records={homeRecords(workspace)}
             opening={opening}
             creating={creating}
             onOpen={handleOpen}
             onCreate={handleCreate}
-            onSelectProject={handleSelectProject}
+            onOpenRecord={handleOpenRecord}
           />
         </>
       ) : (

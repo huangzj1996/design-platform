@@ -157,6 +157,41 @@ export function projectFileName(project: ProjectTab): string | null {
   return filePath === null ? null : documentName(filePath);
 }
 
+/**
+ * Every design the home page can reopen: the recent-use records plus any open
+ * tab the capped recent list no longer holds.
+ */
+export function homeRecords(workspace: WorkspaceState): SessionProject[] {
+  const records = [...workspace.recent];
+  for (const project of workspace.projects) {
+    const filePath = projectPath(project);
+    if (
+      filePath !== null &&
+      !records.some((record) => record.filePath === filePath)
+    ) {
+      records.push({ filePath, openedAt: project.openedAt });
+    }
+  }
+  return records;
+}
+
+/** Points a renamed design's record at its new save target. */
+function renameRecentPath(
+  recent: SessionProject[],
+  fromPath: string,
+  toPath: string,
+): SessionProject[] {
+  const seen = new Set<string>();
+  return recent.flatMap((record) => {
+    const filePath = record.filePath === fromPath ? toPath : record.filePath;
+    if (seen.has(filePath)) {
+      return [];
+    }
+    seen.add(filePath);
+    return [{ filePath, openedAt: record.openedAt }];
+  });
+}
+
 function replaceProject(
   workspace: WorkspaceState,
   projectId: string,
@@ -341,7 +376,8 @@ export function applySaveToActiveProject(
   if (project === null) {
     return workspace;
   }
-  return replaceProject(workspace, project.id, (active) => ({
+  const previousPath = projectPath(project);
+  const saved = replaceProject(workspace, project.id, (active) => ({
     ...active,
     label:
       active.state.filePath === null
@@ -349,6 +385,13 @@ export function applySaveToActiveProject(
         : active.label,
     state: applySaveResult(active.state, result, savedVersion),
   }));
+  if (previousPath === null || previousPath === result.filePath) {
+    return saved;
+  }
+  return {
+    ...saved,
+    recent: renameRecentPath(saved.recent, previousPath, result.filePath),
+  };
 }
 
 /** Selects a tab; from home, a created design adopts its actual file name. */
