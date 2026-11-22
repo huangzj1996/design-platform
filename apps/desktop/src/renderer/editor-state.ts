@@ -115,14 +115,12 @@ export function applyOpenResult(
         sourcePath: result.sourcePath,
         warnings: result.warnings,
       });
-    case 'opened':
-      // The selected file is the save target, so a moved document records its
-      // actual absolute path in the next snapshot.
-      return withDocument(
-        state,
-        withDocumentPath(result.document, result.filePath),
-        { filePath: result.filePath },
-      );
+    case 'opened': {
+      // The selected file is the save target, so record its path in the
+      // snapshot; a moved file may still carry its previous path.
+      const document = withDocumentPath(result.document, result.filePath);
+      return withDocument(state, document, { filePath: result.filePath });
+    }
   }
 }
 

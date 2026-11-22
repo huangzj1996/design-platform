@@ -96,11 +96,14 @@ describe('DesignFileSaver', () => {
     const saver = new DesignFileSaver({ projectDirectory: directory });
     const filePath = path.join(directory, 'moved', 'design.json');
     await mkdir(path.dirname(filePath), { recursive: true });
-    const stalePath = path.join(directory, 'original.json');
-    const document = { ...documentWithText('移动后'), filePath: stalePath };
+    const staleDocumentPath = path.join(directory, 'original.json');
+    const document = {
+      ...documentWithText('移动后'),
+      filePath: staleDocumentPath,
+    };
     const changed = {
       ...documentWithText('移动后新内容'),
-      filePath: stalePath,
+      filePath: staleDocumentPath,
     };
 
     const first = await saver.save({ filePath, document });
@@ -111,7 +114,9 @@ describe('DesignFileSaver', () => {
 
     // The write target and the snapshot path agree, and the fingerprint covers
     // exactly the snapshot that landed on disk.
-    const written = JSON.parse(await readFile(filePath, 'utf8'));
+    const written = JSON.parse(await readFile(filePath, 'utf8')) as {
+      filePath: string;
+    };
     expect(written.filePath).toBe(filePath);
     expect(first.fingerprint).toBe(fingerprintSnapshot(written));
 

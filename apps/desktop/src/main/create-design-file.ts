@@ -65,8 +65,8 @@ export async function createDesignFile(
   dependencies: CreateFileDependencies = {},
 ): Promise<CreateDesignFileResult> {
   const write = dependencies.writeFile ?? writeFile;
-  // The snapshot must record a system absolute path, even when the configured
-  // project directory is relative.
+  // The document snapshot stores its own file path, so resolve a relative
+  // project directory to keep that path absolute.
   const targetDirectory = path.resolve(projectDirectory);
 
   try {
