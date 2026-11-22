@@ -1,8 +1,13 @@
-import { createDiagnostic, DiagnosticCodes } from './diagnostics';
+import {
+  createDiagnostic,
+  DiagnosticCodes,
+  type Diagnostic,
+} from './diagnostics';
 import type {
   DesignDocument,
   DesignElement,
   Dimension,
+  FrameAlignItems,
   FrameElement,
   FrameJustifyContent,
   TextElement,
@@ -15,6 +20,8 @@ const DEFAULT_PADDING: [number, number, number, number] = [0, 0, 0, 0];
 
 const NARROW_CHARACTERS = new Set("iljI.,:;'!|()[]");
 const WIDE_CHARACTERS = new Set('mwMW@%&');
+
+type Axis = 'width' | 'height';
 
 const isFullWidthCodePoint = (codePoint: number): boolean =>
   (codePoint >= 0x1100 && codePoint <= 0x115f) ||
@@ -74,25 +81,24 @@ function wrapParagraph(
   let cursor = 0;
 
   while (cursor < characters.length) {
-    let answerEnd = cursor;
+    let end = cursor;
     let width = 0;
-    let breakAfter = -1;
+    let breakAt = -1;
 
-    while (answerEnd < characters.length) {
-      const character = characters[answerEnd] ?? '';
+    while (end < characters.length) {
+      const character = characters[end] ?? '';
       const nextWidth = width + characterWidth(character, fontSize);
-      if (nextWidth > maxWidth && answerEnd > cursor) {
+      if (nextWidth > maxWidth && end > cursor) {
         break;
       }
       width = nextWidth;
-      answerEnd += 1;
+      end += 1;
       if (character === ' ') {
-        breakAfter = answerEnd;
+        breakAt = end;
       }
     }
 
-    const breaksAtSpace = answerEnd < characters.length && breakAfter > cursor;
-    const lineEnd = breaksAtSpace ? breakAfter : answerEnd;
+    const lineEnd = end < characters.length && breakAt > cursor ? breakAt : end;
     lines.push(characters.slice(cursor, lineEnd).join('').trimEnd());
     cursor = lineEnd;
     while (cursor < characters.length && characters[cursor] === ' ') {
@@ -128,7 +134,7 @@ export interface LayoutBox {
 export interface LayoutIssue {
   /** Property path of the dimension that lacks a size basis. */
   path: string;
-  axis: 'width' | 'height';
+  axis: Axis;
   message: string;
 }
 
@@ -152,15 +158,10 @@ interface ResolvedTextStyle {
   lineHeight: number;
 }
 
+/** Size basis a child can inherit from its parent; document roots have none. */
 type ParentLayout =
   | { kind: 'root' }
-  | { kind: 'free'; contentWidth: number; contentHeight: number }
-  | {
-      kind: 'auto';
-      layout: 'horizontal' | 'vertical';
-      contentWidth: number;
-      contentHeight: number;
-    };
+  | { kind: 'content'; contentWidth: number; contentHeight: number };
 
 const round = (value: number): number =>
   Math.round((value + Number.EPSILON) * 100) / 100;
@@ -219,7 +220,7 @@ function isFillContainer(value: Dimension | undefined): boolean {
 
 function parentContentSize(
   parent: ParentLayout,
-  axis: 'width' | 'height',
+  axis: Axis,
 ): number | undefined {
   if (parent.kind === 'root') {
     return undefined;
@@ -242,7 +243,7 @@ function textWidthConstraint(
 
 function intrinsicContentSize(
   element: DesignElement,
-  axis: 'width' | 'height',
+  axis: Axis,
   parent?: ParentLayout,
 ): number | undefined {
   switch (element.type) {
@@ -264,27 +265,13 @@ function intrinsicContentSize(
   }
 }
 
-function defaultContentSize(
-  element: DesignElement,
-  axis: 'width' | 'height',
-  parent: ParentLayout,
-): number | undefined {
-  if (element.type === 'text') {
-    return intrinsicContentSize(element, axis, parent);
-  }
-  if (element.type === 'frame' && (element.layout ?? 'horizontal') !== 'none') {
-    return intrinsicContentSize(element, axis, parent);
-  }
-  return undefined;
-}
-
 /**
  * Size contributed by a child when its parent measures its own content. Fill
  * dimensions only contribute a fallback because the parent has no basis yet.
  */
 function intrinsicDimension(
   element: DesignElement,
-  axis: 'width' | 'height',
+  axis: Axis,
 ): number | undefined {
   const value = element[axis];
   if (typeof value === 'number') {
@@ -296,14 +283,11 @@ function intrinsicDimension(
     }
     return intrinsicContentSize(element, axis) ?? value.fallback;
   }
-  return defaultContentSize(element, axis, { kind: 'root' });
+  return intrinsicContentSize(element, axis);
 }
 
-function maxDefined(
-  values: Array<number | undefined>,
-  count: number,
-): number | undefined {
-  if (count === 0) {
+function maxDefined(values: Array<number | undefined>): number | undefined {
+  if (values.length === 0) {
     return 0;
   }
   const defined = values.filter(
@@ -314,62 +298,33 @@ function maxDefined(
 
 function measureAutoFrameAxis(
   frame: FrameElement,
-  axis: 'width' | 'height',
+  axis: Axis,
 ): number | undefined {
   const layout = frame.layout ?? 'horizontal';
-  const padding = frame.padding ?? DEFAULT_PADDING;
+  const [top, right, bottom, left] = frame.padding ?? DEFAULT_PADDING;
   const gap = frame.gap ?? 0;
   const children = frame.children ?? [];
   const gapTotal = gap * Math.max(0, children.length - 1);
+  const paddingTotal = axis === 'width' ? left + right : top + bottom;
+  const mainAxis = layout === 'horizontal' ? 'width' : 'height';
+  const sizes = children.map((child) => intrinsicDimension(child, axis));
 
-  if (layout === 'horizontal') {
-    if (axis === 'width') {
-      const widths = children.map((child) =>
-        intrinsicDimension(child, 'width'),
-      );
-      if (widths.some((width) => width === undefined)) {
-        return undefined;
-      }
-      return (
-        padding[3] +
-        padding[1] +
-        widths.reduce<number>((sum, width) => sum + (width ?? 0), 0) +
-        gapTotal
-      );
-    }
-    const contentHeight = maxDefined(
-      children.map((child) => intrinsicDimension(child, 'height')),
-      children.length,
-    );
-    return contentHeight === undefined
-      ? undefined
-      : padding[0] + padding[2] + contentHeight;
-  }
-
-  if (axis === 'height') {
-    const heights = children.map((child) =>
-      intrinsicDimension(child, 'height'),
-    );
-    if (heights.some((height) => height === undefined)) {
+  if (axis === mainAxis) {
+    if (sizes.some((size) => size === undefined)) {
       return undefined;
     }
     return (
-      padding[0] +
-      padding[2] +
-      heights.reduce<number>((sum, height) => sum + (height ?? 0), 0) +
+      paddingTotal +
+      sizes.reduce<number>((sum, size) => sum + (size ?? 0), 0) +
       gapTotal
     );
   }
-  const contentWidth = maxDefined(
-    children.map((child) => intrinsicDimension(child, 'width')),
-    children.length,
-  );
-  return contentWidth === undefined
-    ? undefined
-    : padding[3] + padding[1] + contentWidth;
+
+  const contentSize = maxDefined(sizes);
+  return contentSize === undefined ? undefined : paddingTotal + contentSize;
 }
 
-function missingSizeMessage(axis: 'width' | 'height'): string {
+function missingSizeMessage(axis: Axis): string {
   const label = axis === 'width' ? '宽度' : '高度';
   return `${label}（${axis}）缺少尺寸依据：需要固定数值、内容尺寸、父容器尺寸或备用值`;
 }
@@ -380,7 +335,7 @@ function childPath(parentPath: string, index: number): string {
 
 function resolveSize(
   element: DesignElement,
-  axis: 'width' | 'height',
+  axis: Axis,
   parent: ParentLayout,
   path: string,
   issues: LayoutIssue[],
@@ -398,7 +353,7 @@ function resolveSize(
         ? parentContentSize(parent, axis)
         : intrinsicContentSize(element, axis, parent);
   } else {
-    basis = defaultContentSize(element, axis, parent);
+    basis = intrinsicContentSize(element, axis, parent);
   }
 
   if (basis !== undefined) {
@@ -456,7 +411,7 @@ function mainOffsets(
 }
 
 function crossOffset(
-  align: 'start' | 'center' | 'end',
+  align: FrameAlignItems,
   containerSize: number,
   childSize: number,
 ): number {
@@ -518,13 +473,9 @@ function layoutFrameChildren(
   const contentHeight = Math.max(0, height - top - bottom);
   const children = frame.children ?? [];
   const layout = frame.layout ?? 'horizontal';
+  const parent: ParentLayout = { kind: 'content', contentWidth, contentHeight };
 
   if (layout === 'none') {
-    const parent: ParentLayout = {
-      kind: 'free',
-      contentWidth,
-      contentHeight,
-    };
     return children.map((child, index) =>
       layoutElement(
         child,
@@ -537,12 +488,6 @@ function layoutFrameChildren(
     );
   }
 
-  const parent: ParentLayout = {
-    kind: 'auto',
-    layout,
-    contentWidth,
-    contentHeight,
-  };
   const mainAxis = layout === 'horizontal' ? 'width' : 'height';
   const crossAxis = layout === 'horizontal' ? 'height' : 'width';
   const contentMain = layout === 'horizontal' ? contentWidth : contentHeight;
@@ -643,7 +588,7 @@ export function layoutDesignDocument(document: DesignDocument): DesignLayout {
 }
 
 /** Converts a layout issue into a document diagnostic. */
-export function layoutIssueToDiagnostic(issue: LayoutIssue) {
+export function layoutIssueToDiagnostic(issue: LayoutIssue): Diagnostic {
   return createDiagnostic(
     DiagnosticCodes.missingSizeBasis,
     issue.path,

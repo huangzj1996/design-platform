@@ -108,6 +108,17 @@ function strokeShadow(element: DesignElement): string | undefined {
   return `inset 0 0 0 ${element.strokeWidth ?? 1}px ${element.stroke}`;
 }
 
+function surfaceStyle(
+  element: DesignElement,
+  borderRadius: CSSProperties['borderRadius'],
+): CSSProperties {
+  return {
+    backgroundColor: element.fill,
+    borderRadius,
+    boxShadow: strokeShadow(element),
+  };
+}
+
 interface FrameViewProps {
   element: FrameElement;
   node: LayoutNode;
@@ -119,9 +130,7 @@ function FrameView({ element, node, children }: FrameViewProps) {
   const style: CSSProperties = {
     ...boxStyle(node),
     ...stateStyle(element),
-    backgroundColor: element.fill,
-    borderRadius: element.cornerRadius,
-    boxShadow: strokeShadow(element),
+    ...surfaceStyle(element, element.cornerRadius),
   };
 
   return (
@@ -148,9 +157,10 @@ function ShapeView({
   const style: CSSProperties = {
     ...boxStyle(node),
     ...stateStyle(element),
-    backgroundColor: element.fill,
-    borderRadius: element.type === 'ellipse' ? '50%' : element.cornerRadius,
-    boxShadow: strokeShadow(element),
+    ...surfaceStyle(
+      element,
+      element.type === 'ellipse' ? '50%' : element.cornerRadius,
+    ),
   };
 
   return (
@@ -205,7 +215,7 @@ function IconView({
   const style: CSSProperties = {
     ...boxStyle(node),
     ...stateStyle(element),
-    color: element.fill ?? element.stroke ?? undefined,
+    color: element.fill ?? element.stroke,
     borderRadius: element.cornerRadius,
   };
 
