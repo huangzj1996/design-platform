@@ -1,14 +1,19 @@
 import {
   createDiagnostic,
+  DESIGN_DOCUMENT_VERSION,
+  getNodeInspector,
   isHexColor,
   isOneOf,
   isPlainObject,
   measureElementSize,
+  resolveDesignDocument,
   type DesignElement,
+  type DesignVariable,
   type Diagnostic,
   type Dimension,
   type DimensionMode,
   type ElementStyle,
+  type ElementType,
   type EllipseElement,
   type FrameAlignItems,
   type FrameElement,
@@ -123,6 +128,8 @@ interface SolidColorResult {
   /** Whether the value is a form this importer understands at all. */
   supported: boolean;
   color?: string;
+  /** Pencil `$name` reference found in a color position. */
+  reference?: string;
 }
 
 /**
@@ -137,6 +144,10 @@ export interface ConversionContext {
   idCounters: Map<string, number>;
   /** Source Pencil path of every converted element, for later diagnostics. */
   sourcePaths: WeakMap<DesignElement, string>;
+  /** Native variables converted from the Pencil document. */
+  variables: DesignVariable[];
+  /** Native variables indexed by their original Pencil name. */
+  variablesBySourceName: Map<string, DesignVariable>;
 }
 
 export function createConversionContext(): ConversionContext {
@@ -147,6 +158,8 @@ export function createConversionContext(): ConversionContext {
     keptSourceIds: new Set(),
     idCounters: new Map(),
     sourcePaths: new WeakMap(),
+    variables: [],
+    variablesBySourceName: new Map(),
   };
 }
 
@@ -223,6 +236,94 @@ function warnUnknownFields(
   }
 }
 
+type TypedStyleElement = ElementStyle & { type: ElementType };
+
+/** Pencil binds a property to a document variable with a `$name` string. */
+function isPencilVariableReference(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 1 && value.startsWith('$');
+}
+
+function nativeVariableReference(name: string): string {
+  return '$${' + name + '}';
+}
+
+/**
+ * Resolves a Pencil `$name` reference against the converted document
+ * variables. Returns the native `$${--name}` binding when the source variable
+ * was converted, accepts the target field's variable types and resolves to a
+ * legal value for that field. Unsupported references are reported at the
+ * property and dropped so the rest of the element can stay.
+ */
+function bindVariableReference(
+  value: string,
+  elementType: ElementType,
+  nativeField: string,
+  path: string,
+  sourceField: string,
+  ctx: ConversionContext,
+): string | undefined {
+  const sourceName = value.slice(1);
+  const variable = ctx.variablesBySourceName.get(sourceName);
+  if (variable === undefined) {
+    warnUnsupportedProperty(
+      ctx,
+      path,
+      sourceField,
+      `Pencil 变量引用 "${value}" 无法转换，已跳过该属性`,
+    );
+    return undefined;
+  }
+
+  const validator = getNodeInspector(elementType)?.fields[nativeField];
+  if (
+    validator?.variableTypes === undefined ||
+    !validator.variableTypes.includes(variable.type)
+  ) {
+    warnUnsupportedProperty(
+      ctx,
+      path,
+      sourceField,
+      `Pencil 变量 "${sourceName}" 的类型 ${variable.type} 不能绑定到此属性，已跳过该属性`,
+    );
+    return undefined;
+  }
+
+  if (validator(variable.value, fieldPath(path, sourceField)).length > 0) {
+    warnUnsupportedProperty(
+      ctx,
+      path,
+      sourceField,
+      `Pencil 变量 "${sourceName}" 的值不能用于此属性，已跳过该属性`,
+    );
+    return undefined;
+  }
+
+  return nativeVariableReference(variable.name);
+}
+
+/**
+ * Whether a value contains a Pencil variable reference anywhere in its nested
+ * arrays or objects. Used for fields whose native equivalent only accepts
+ * literal tuples, such as padding.
+ */
+function containsPencilVariableReference(value: unknown): boolean {
+  if (isPencilVariableReference(value)) {
+    return true;
+  }
+  if (Array.isArray(value)) {
+    return value.some(containsPencilVariableReference);
+  }
+  if (isPlainObject(value)) {
+    return Object.values(value).some(containsPencilVariableReference);
+  }
+  return false;
+}
+
+/** Assigns converted values, including native `$${...}` binding strings. */
+function assignField(element: object, field: string, value: unknown): void {
+  Reflect.set(element, field, value);
+}
+
 function normalizeNumber(value: unknown, rule: NumberRule): number | undefined {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return undefined;
@@ -266,11 +367,33 @@ function readStringField(
   field: string,
   path: string,
   ctx: ConversionContext,
-  options: { nonEmpty?: boolean } = {},
+  options: {
+    nonEmpty?: boolean;
+    binding?: { elementType: ElementType; nativeField?: string };
+  } = {},
 ): string | undefined {
   const value = node[field];
   if (value === undefined) {
     return undefined;
+  }
+  if (isPencilVariableReference(value)) {
+    if (options.binding === undefined) {
+      warnUnsupportedProperty(
+        ctx,
+        path,
+        field,
+        `Pencil 属性 "${field}" 的变量引用无法转换，已跳过`,
+      );
+      return undefined;
+    }
+    return bindVariableReference(
+      value,
+      options.binding.elementType,
+      options.binding.nativeField ?? field,
+      path,
+      field,
+      ctx,
+    );
   }
   const usable =
     typeof value === 'string' &&
@@ -281,6 +404,34 @@ function readStringField(
     return undefined;
   }
   return value;
+}
+
+/**
+ * Reads a numeric Pencil property that may bind a native number variable.
+ * Literal values keep the caller's range rules; a `$name` reference is checked
+ * against the native target field instead.
+ */
+function readNumberOrBinding(
+  node: Record<string, unknown>,
+  field: string,
+  path: string,
+  ctx: ConversionContext,
+  rule: NumberRule,
+  elementType: ElementType,
+  nativeField: string = field,
+): number | string | undefined {
+  const value = node[field];
+  if (isPencilVariableReference(value)) {
+    return bindVariableReference(
+      value,
+      elementType,
+      nativeField,
+      path,
+      field,
+      ctx,
+    );
+  }
+  return readNumberField(node, field, path, ctx, rule);
 }
 
 function readEnumField<T extends string>(
@@ -326,23 +477,39 @@ function assignDimension(
   field: 'width' | 'height',
   path: string,
   ctx: ConversionContext,
-  element: SizedElement,
-): Dimension | undefined {
+  element: SizedElement & { type: ElementType },
+): void {
   const value = node[field];
   if (value === undefined) {
-    return undefined;
+    return;
+  }
+  if (isPencilVariableReference(value)) {
+    const reference = bindVariableReference(
+      value,
+      element.type,
+      field,
+      path,
+      field,
+      ctx,
+    );
+    if (reference !== undefined) {
+      assignField(element, field, reference);
+    }
+    return;
   }
   const dimension = dimensionValue(value);
   if (dimension === undefined) {
     warnInvalidField(ctx, path, field);
-    return undefined;
+    return;
   }
   element[field] = dimension;
-  return dimension;
 }
 
 function solidColorValue(value: unknown): SolidColorResult {
   if (typeof value === 'string') {
+    if (isPencilVariableReference(value)) {
+      return { supported: true, reference: value };
+    }
     return isHexColor(value)
       ? { supported: true, color: value }
       : { supported: false };
@@ -376,7 +543,7 @@ function applyColorField(
   field: 'fill' | 'stroke',
   path: string,
   ctx: ConversionContext,
-  element: ElementStyle,
+  element: TypedStyleElement,
 ): void {
   const value = node[field];
   if (value === undefined) {
@@ -385,6 +552,20 @@ function applyColorField(
   const result = solidColorValue(value);
   if (!result.supported) {
     warnInvalidField(ctx, path, field);
+    return;
+  }
+  if (result.reference !== undefined) {
+    const reference = bindVariableReference(
+      result.reference,
+      element.type,
+      field,
+      path,
+      field,
+      ctx,
+    );
+    if (reference !== undefined) {
+      element[field] = reference;
+    }
     return;
   }
   if (result.color !== undefined) {
@@ -443,7 +624,7 @@ function applyEntityFields(
   node: Record<string, unknown>,
   path: string,
   ctx: ConversionContext,
-  element: ElementStyle,
+  element: TypedStyleElement,
 ): void {
   const x = readNumberField(node, 'x', path, ctx);
   if (x !== undefined) {
@@ -460,22 +641,45 @@ function applyEntityFields(
       if (!node.enabled) {
         element.visible = false;
       }
+    } else if (isPencilVariableReference(node.enabled)) {
+      const reference = bindVariableReference(
+        node.enabled,
+        element.type,
+        'visible',
+        path,
+        'enabled',
+        ctx,
+      );
+      if (reference !== undefined) {
+        assignField(element, 'visible', reference);
+      }
     } else {
       warnInvalidField(ctx, path, 'enabled');
     }
   }
 
-  const opacity = readNumberField(node, 'opacity', path, ctx, {
-    nonNegative: true,
-    max: 1,
-  });
+  const opacity = readNumberOrBinding(
+    node,
+    'opacity',
+    path,
+    ctx,
+    { nonNegative: true, max: 1 },
+    element.type,
+  );
   if (opacity !== undefined) {
-    element.opacity = opacity;
+    assignField(element, 'opacity', opacity);
   }
 
-  const rotation = readNumberField(node, 'rotation', path, ctx);
+  const rotation = readNumberOrBinding(
+    node,
+    'rotation',
+    path,
+    ctx,
+    {},
+    element.type,
+  );
   if (rotation !== undefined) {
-    element.rotation = rotation;
+    assignField(element, 'rotation', rotation);
   }
 }
 
@@ -483,24 +687,51 @@ function applyPaintFields(
   node: Record<string, unknown>,
   path: string,
   ctx: ConversionContext,
-  element: ElementStyle,
+  element: TypedStyleElement,
 ): void {
   applyColorField(node, 'fill', path, ctx, element);
   applyColorField(node, 'stroke', path, ctx, element);
 
-  const strokeWidth = readNumberField(node, 'strokeWidth', path, ctx, {
-    nonNegative: true,
-  });
+  const strokeWidth = readNumberOrBinding(
+    node,
+    'strokeWidth',
+    path,
+    ctx,
+    { nonNegative: true },
+    element.type,
+  );
   if (strokeWidth !== undefined) {
-    element.strokeWidth = strokeWidth;
+    assignField(element, 'strokeWidth', strokeWidth);
   }
 
   if (node.cornerRadius !== undefined) {
-    const cornerRadius = cornerRadiusValue(node.cornerRadius);
-    if (cornerRadius === undefined) {
-      warnInvalidField(ctx, path, 'cornerRadius');
+    const value = node.cornerRadius;
+    if (isPencilVariableReference(value)) {
+      const reference = bindVariableReference(
+        value,
+        element.type,
+        'cornerRadius',
+        path,
+        'cornerRadius',
+        ctx,
+      );
+      if (reference !== undefined) {
+        assignField(element, 'cornerRadius', reference);
+      }
+    } else if (containsPencilVariableReference(value)) {
+      warnUnsupportedProperty(
+        ctx,
+        path,
+        'cornerRadius',
+        'Pencil 属性 "cornerRadius" 中的变量引用无法转换，已跳过该属性',
+      );
     } else {
-      element.cornerRadius = cornerRadius;
+      const cornerRadius = cornerRadiusValue(value);
+      if (cornerRadius === undefined) {
+        warnInvalidField(ctx, path, 'cornerRadius');
+      } else {
+        element.cornerRadius = cornerRadius;
+      }
     }
   }
 }
@@ -509,7 +740,7 @@ function applyCommonFields(
   node: Record<string, unknown>,
   path: string,
   ctx: ConversionContext,
-  element: ElementStyle,
+  element: TypedStyleElement,
 ): void {
   applyEntityFields(node, path, ctx, element);
   applyPaintFields(node, path, ctx, element);
@@ -520,7 +751,7 @@ function applySizedFields(
   node: Record<string, unknown>,
   path: string,
   ctx: ConversionContext,
-  element: SizedElement,
+  element: SizedElement & { type: ElementType },
 ): void {
   applyCommonFields(node, path, ctx, element);
   assignDimension(node, 'width', path, ctx, element);
@@ -640,17 +871,33 @@ function convertFrame(
     frame.layout = layout;
   }
 
-  const gap = readNumberField(node, 'gap', path, ctx, { nonNegative: true });
+  const gap = readNumberOrBinding(
+    node,
+    'gap',
+    path,
+    ctx,
+    { nonNegative: true },
+    'frame',
+  );
   if (gap !== undefined) {
-    frame.gap = gap;
+    assignField(frame, 'gap', gap);
   }
 
   if (node.padding !== undefined) {
-    const padding = paddingValue(node.padding);
-    if (padding === undefined) {
-      warnInvalidField(ctx, path, 'padding');
+    if (containsPencilVariableReference(node.padding)) {
+      warnUnsupportedProperty(
+        ctx,
+        path,
+        'padding',
+        'Pencil 属性 "padding" 中的变量引用无法转换，已跳过该属性',
+      );
     } else {
-      frame.padding = padding;
+      const padding = paddingValue(node.padding);
+      if (padding === undefined) {
+        warnInvalidField(ctx, path, 'padding');
+      } else {
+        frame.padding = padding;
+      }
     }
   }
 
@@ -690,6 +937,21 @@ interface GroupBounds {
   offsetY: number;
   width: number;
   height: number;
+}
+
+/**
+ * Resolves variable bindings in converted children so measurement uses their
+ * literal sizes and text. The group frame itself keeps the bindings.
+ */
+function resolveChildBindings(
+  children: DesignElement[],
+  ctx: ConversionContext,
+): DesignElement[] {
+  return resolveDesignDocument({
+    version: DESIGN_DOCUMENT_VERSION,
+    children,
+    variables: ctx.variables,
+  }).children;
 }
 
 /**
@@ -759,7 +1021,7 @@ function convertGroup(
     frame.children = children;
   }
 
-  const bounds = measureGroupBounds(children);
+  const bounds = measureGroupBounds(resolveChildBindings(children, ctx));
   if (bounds !== undefined) {
     frame.width = bounds.width;
     frame.height = bounds.height;
@@ -835,7 +1097,20 @@ function convertText(
   warnUnknownFields(node, TEXT_FIELDS, path, ctx);
 
   const content = node.content;
-  if (typeof content !== 'string' || content.startsWith('$')) {
+  let textContent: string | undefined;
+  if (typeof content === 'string' && !content.startsWith('$')) {
+    textContent = content;
+  } else if (isPencilVariableReference(content)) {
+    textContent = bindVariableReference(
+      content,
+      'text',
+      'text',
+      path,
+      'content',
+      ctx,
+    );
+  }
+  if (textContent === undefined) {
     warnSkippedNode(
       ctx,
       path,
@@ -849,39 +1124,64 @@ function convertText(
   const text: TextElement = {
     id: resolveId(node, 'text', path, ctx),
     type: 'text',
-    text: content,
+    text: textContent,
   };
   ctx.sourcePaths.set(text, path);
   applyCommonFields(node, path, ctx, text);
 
   const fontFamily = readStringField(node, 'fontFamily', path, ctx, {
     nonEmpty: true,
+    binding: { elementType: 'text' },
   });
   if (fontFamily !== undefined) {
     text.fontFamily = fontFamily;
   }
 
-  const fontSize = readNumberField(node, 'fontSize', path, ctx, {
-    positive: true,
-  });
+  const fontSize = readNumberOrBinding(
+    node,
+    'fontSize',
+    path,
+    ctx,
+    { positive: true },
+    'text',
+  );
   if (fontSize !== undefined) {
-    text.fontSize = fontSize;
+    assignField(text, 'fontSize', fontSize);
   }
 
   if (node.fontWeight !== undefined) {
-    const fontWeight = fontWeightValue(node.fontWeight);
-    if (fontWeight === undefined) {
-      warnInvalidField(ctx, path, 'fontWeight');
+    if (isPencilVariableReference(node.fontWeight)) {
+      const reference = bindVariableReference(
+        node.fontWeight,
+        'text',
+        'fontWeight',
+        path,
+        'fontWeight',
+        ctx,
+      );
+      if (reference !== undefined) {
+        assignField(text, 'fontWeight', reference);
+      }
     } else {
-      text.fontWeight = fontWeight;
+      const fontWeight = fontWeightValue(node.fontWeight);
+      if (fontWeight === undefined) {
+        warnInvalidField(ctx, path, 'fontWeight');
+      } else {
+        text.fontWeight = fontWeight;
+      }
     }
   }
 
-  const lineHeight = readNumberField(node, 'lineHeight', path, ctx, {
-    positive: true,
-  });
+  const lineHeight = readNumberOrBinding(
+    node,
+    'lineHeight',
+    path,
+    ctx,
+    { positive: true },
+    'text',
+  );
   if (lineHeight !== undefined) {
-    text.lineHeight = lineHeight;
+    assignField(text, 'lineHeight', lineHeight);
   }
 
   const textAlign = readEnumField(node, 'textAlign', path, ctx, TEXT_ALIGNS);
@@ -911,19 +1211,34 @@ function convertIcon(
 ): IconElement | null {
   warnUnknownFields(node, ICON_FIELDS, path, ctx);
 
-  const iconName = node.icon;
+  const iconValue = node.icon;
+  let iconName: string | undefined;
   if (
-    typeof iconName !== 'string' ||
-    iconName.length === 0 ||
-    iconName.startsWith('$')
+    typeof iconValue === 'string' &&
+    iconValue.length > 0 &&
+    !iconValue.startsWith('$')
   ) {
+    iconName = iconValue;
+  } else if (isPencilVariableReference(iconValue)) {
+    iconName = bindVariableReference(
+      iconValue,
+      'icon',
+      'icon',
+      path,
+      'icon',
+      ctx,
+    );
+  }
+  if (iconName === undefined) {
     warnSkippedNode(ctx, path, '图标节点缺少有效的 icon，已跳过');
     return null;
   }
 
   const library =
-    readStringField(node, 'library', path, ctx, { nonEmpty: true }) ??
-    DEFAULT_ICON_LIBRARY;
+    readStringField(node, 'library', path, ctx, {
+      nonEmpty: true,
+      binding: { elementType: 'icon' },
+    }) ?? DEFAULT_ICON_LIBRARY;
 
   if (node.weight !== undefined) {
     warnUnsupportedField(ctx, path, 'weight');

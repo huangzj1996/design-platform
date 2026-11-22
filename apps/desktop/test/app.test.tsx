@@ -368,6 +368,48 @@ describe('desktop open flow', () => {
     expect(container.querySelector('[role="alert"]')).toBeNull();
   });
 
+  it('opens an imported Pencil file with variable bindings and renders resolved values', async () => {
+    const contents = `{
+      "version": "2.25",
+      "variables": {
+        "color.brand": { "type": "color", "value": "#3366FF" },
+        "label.title": { "type": "string", "value": "导入变量标题" }
+      },
+      "children": [
+        {
+          "id": "frame-variable",
+          "type": "frame",
+          "layout": "vertical",
+          "width": 320,
+          "height": 120,
+          "fill": "$color.brand",
+          "children": [
+            { "id": "text-variable", "type": "text", "content": "$label.title", "fill": "$color.brand" },
+            { "id": "block-variable", "type": "rectangle", "width": 40, "height": 20, "fill": "$color.brand" }
+          ]
+        }
+      ]
+    }`;
+    const filePath = path.join(directory, 'variables.pen');
+    await writeFile(filePath, contents, 'utf8');
+    await showOpenResult(filePath);
+    renderApp();
+
+    await clickOpen();
+
+    expect(elementById('frame-variable')?.style.backgroundColor).toBe(
+      'rgb(51, 102, 255)',
+    );
+    expect(elementById('text-variable')?.textContent).toBe('导入变量标题');
+    expect(elementById('block-variable')?.style.backgroundColor).toBe(
+      'rgb(51, 102, 255)',
+    );
+    expect(
+      container.querySelector('[data-testid="import-warnings"]'),
+    ).toBeNull();
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
   it('keeps the current design when a Pencil import fails and shows the reason', async () => {
     const nativePath = await writeJson('valid.json', frameWithText);
     await showOpenResult(nativePath);

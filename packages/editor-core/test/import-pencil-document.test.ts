@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   layoutDesignDocument,
+  resolveDesignDocument,
   validateDesignDocument,
   type DesignElement,
   type Diagnostic,
@@ -209,6 +210,333 @@ describe('importPencilDocument', () => {
     expect(frameOf(document.children, 'one').padding).toEqual([4, 4, 4, 4]);
     expect(frameOf(document.children, 'two').padding).toEqual([4, 8, 4, 8]);
     expect(frameOf(document.children, 'four').padding).toEqual([1, 2, 3, 4]);
+    expectValid(document);
+  });
+
+  it('converts document variables and rewrites whole-value property references', () => {
+    const { document, warnings } = successOf(
+      importPencilDocument(`{
+        "version": "2.25",
+        "variables": {
+          "color.brand": { "type": "color", "value": "#3366FF" },
+          "space.gap": { "type": "number", "value": 12 },
+          "label.title": { "type": "string", "value": "欢迎" },
+          "show.title": { "type": "boolean", "value": false }
+        },
+        "children": [
+          {
+            "id": "card",
+            "type": "frame",
+            "layout": "vertical",
+            "width": 320,
+            "height": 200,
+            "gap": "$space.gap",
+            "fill": "$color.brand",
+            "children": [
+              {
+                "id": "title",
+                "type": "text",
+                "content": "$label.title",
+                "fontSize": 16,
+                "enabled": "$show.title",
+                "fill": "$color.brand"
+              },
+              {
+                "id": "block",
+                "type": "rectangle",
+                "width": "$space.gap",
+                "height": "$space.gap",
+                "fill": { "type": "color", "color": "$color.brand" }
+              }
+            ]
+          }
+        ]
+      }`),
+    );
+
+    expect(warnings).toEqual([]);
+    expect(document.variables).toEqual([
+      { name: '--color-brand', type: 'color', value: '#3366FF' },
+      { name: '--space-gap', type: 'number', value: 12 },
+      { name: '--label-title', type: 'string', value: '欢迎' },
+      { name: '--show-title', type: 'boolean', value: false },
+    ]);
+
+    const card = frameOf(document.children, 'card');
+    expect(card.gap).toBe('$${--space-gap}');
+    expect(card.fill).toBe('$${--color-brand}');
+    expect(elementOf(card.children, 'title')).toMatchObject({
+      text: '$${--label-title}',
+      visible: '$${--show-title}',
+      fill: '$${--color-brand}',
+    });
+    expect(elementOf(card.children, 'block')).toMatchObject({
+      width: '$${--space-gap}',
+      height: '$${--space-gap}',
+      fill: '$${--color-brand}',
+    });
+    expectValid(document);
+
+    const resolved = resolveDesignDocument(document);
+    const resolvedCard = frameOf(resolved.children, 'card');
+    expect(resolvedCard.gap).toBe(12);
+    expect(elementOf(resolvedCard.children, 'title')).toMatchObject({
+      text: '欢迎',
+      visible: false,
+      fill: '#3366FF',
+    });
+    expect(elementOf(resolvedCard.children, 'block')).toMatchObject({
+      width: 12,
+      height: 12,
+      fill: '#3366FF',
+    });
+
+    const changed = {
+      ...document,
+      variables: document.variables.map((variable) =>
+        variable.name === '--color-brand'
+          ? { ...variable, value: '#FF5500' }
+          : variable,
+      ),
+    };
+    const changedCard = frameOf(
+      resolveDesignDocument(changed).children,
+      'card',
+    );
+    expect(changedCard.fill).toBe('#FF5500');
+    expect(elementOf(changedCard.children, 'title')).toMatchObject({
+      text: '欢迎',
+      visible: false,
+      fill: '#FF5500',
+    });
+    expect(elementOf(changedCard.children, 'block')).toMatchObject({
+      width: 12,
+      height: 12,
+      fill: '#FF5500',
+    });
+  });
+
+  it('assigns numeric suffixes to colliding normalized variable names and keeps each binding', () => {
+    const { document, warnings } = successOf(
+      importPencilDocument(`{
+        "version": "2.25",
+        "variables": {
+          "color.brand": { "type": "color", "value": "#111111" },
+          "color-brand": { "type": "color", "value": "#222222" }
+        },
+        "children": [
+          { "id": "first", "type": "rectangle", "width": 10, "height": 10, "fill": "$color.brand" },
+          { "id": "second", "type": "rectangle", "width": 10, "height": 10, "fill": "$color-brand" }
+        ]
+      }`),
+    );
+
+    expect(warnings).toEqual([]);
+    expect(document.variables).toEqual([
+      { name: '--color-brand', type: 'color', value: '#111111' },
+      { name: '--color-brand-2', type: 'color', value: '#222222' },
+    ]);
+    expect(elementOf(document.children, 'first').fill).toBe(
+      '$${--color-brand}',
+    );
+    expect(elementOf(document.children, 'second').fill).toBe(
+      '$${--color-brand-2}',
+    );
+    expectValid(document);
+
+    const changed = {
+      ...document,
+      variables: document.variables.map((variable) =>
+        variable.name === '--color-brand'
+          ? { ...variable, value: '#ABCDEF' }
+          : variable,
+      ),
+    };
+    const resolved = resolveDesignDocument(changed);
+    expect(elementOf(resolved.children, 'first').fill).toBe('#ABCDEF');
+    expect(elementOf(resolved.children, 'second').fill).toBe('#222222');
+  });
+
+  it('skips themed variables and unconvertible references while keeping legal content', () => {
+    const { document, warnings } = successOf(
+      importPencilDocument(`{
+        "version": "2.25",
+        "variables": {
+          "color.themed": {
+            "type": "color",
+            "value": [
+              { "value": "#111111", "theme": { "mode": "light" } },
+              { "value": "#000000", "theme": { "mode": "dark" } }
+            ]
+          },
+          "color.alias": { "type": "color", "value": "$color.base" },
+          "color.base": { "type": "color", "value": "#ABCDEF" },
+          "size.bad": { "type": "number", "value": "12" },
+          "!!!": { "type": "string", "value": "无法命名" }
+        },
+        "children": [
+          { "id": "themed", "type": "rectangle", "width": 10, "height": 10, "fill": "$color.themed" },
+          { "id": "alias", "type": "rectangle", "width": 10, "height": 10, "fill": "$color.alias" },
+          { "id": "missing", "type": "rectangle", "width": 10, "height": 10, "fill": "$missing.variable" },
+          { "id": "valid", "type": "rectangle", "width": 10, "height": 10, "fill": "$color.base" },
+          { "id": "bad-text", "type": "text", "content": "$label.missing" }
+        ]
+      }`),
+    );
+
+    expect(document.variables).toEqual([
+      { name: '--color-base', type: 'color', value: '#ABCDEF' },
+    ]);
+    expect(
+      warningFor(
+        warnings,
+        'unsupported_variable',
+        '$.variables.color.themed.value',
+      ),
+    ).toBeDefined();
+    expect(
+      warningFor(
+        warnings,
+        'unsupported_variable',
+        '$.variables.color.alias.value',
+      ),
+    ).toBeDefined();
+    expect(
+      warningFor(
+        warnings,
+        'unsupported_variable',
+        '$.variables.size.bad.value',
+      ),
+    ).toBeDefined();
+    expect(
+      warningFor(warnings, 'unsupported_variable', '$.variables.!!!.name'),
+    ).toBeDefined();
+    expect(
+      warningFor(warnings, 'unsupported_property', '$.children[0].fill'),
+    ).toBeDefined();
+    expect(
+      warningFor(warnings, 'unsupported_property', '$.children[1].fill'),
+    ).toBeDefined();
+    expect(
+      warningFor(warnings, 'unsupported_property', '$.children[2].fill'),
+    ).toBeDefined();
+    expect(
+      warningFor(warnings, 'unsupported_property', '$.children[4].content'),
+    ).toBeDefined();
+    expect(warningFor(warnings, 'skipped_node', '$.children[4]')).toBeDefined();
+
+    expect(elementOf(document.children, 'themed')).not.toHaveProperty('fill');
+    expect(elementOf(document.children, 'alias')).not.toHaveProperty('fill');
+    expect(elementOf(document.children, 'missing')).not.toHaveProperty('fill');
+    expect(elementOf(document.children, 'valid').fill).toBe('$${--color-base}');
+    expect(document.children.map((child) => child.id)).toEqual([
+      'themed',
+      'alias',
+      'missing',
+      'valid',
+    ]);
+    expectValid(document);
+  });
+
+  it('binds scalar radius and gap variables but drops padding tuples that cannot bind', () => {
+    const { document, warnings } = successOf(
+      importPencilDocument(`{
+        "version": "2.25",
+        "variables": {
+          "space.gap": { "type": "number", "value": 8 },
+          "radius.card": { "type": "number", "value": 6 },
+          "space.pad": { "type": "number", "value": 4 }
+        },
+        "children": [
+          {
+            "id": "card",
+            "type": "frame",
+            "width": 100,
+            "height": 100,
+            "gap": "$space.gap",
+            "padding": ["$space.pad", "$space.pad"],
+            "cornerRadius": "$radius.card"
+          }
+        ]
+      }`),
+    );
+
+    const card = frameOf(document.children, 'card');
+    expect(card.gap).toBe('$${--space-gap}');
+    expect(card.cornerRadius).toBe('$${--radius-card}');
+    expect(card).not.toHaveProperty('padding');
+    expect(
+      warningFor(warnings, 'unsupported_property', '$.children[0].padding'),
+    ).toBeDefined();
+    expectValid(document);
+
+    const resolved = frameOf(resolveDesignDocument(document).children, 'card');
+    expect(resolved).toMatchObject({
+      gap: 8,
+      cornerRadius: 6,
+    });
+  });
+
+  it('drops a binding whose resolved value is invalid for that property', () => {
+    const { document, warnings } = successOf(
+      importPencilDocument(`{
+        "version": "2.25",
+        "variables": {
+          "range.value": { "type": "number", "value": 8 }
+        },
+        "children": [
+          {
+            "id": "frame",
+            "type": "frame",
+            "width": 100,
+            "height": 100,
+            "gap": "$range.value",
+            "opacity": "$range.value"
+          }
+        ]
+      }`),
+    );
+
+    const frame = frameOf(document.children, 'frame');
+    expect(frame.gap).toBe('$${--range-value}');
+    expect(frame).not.toHaveProperty('opacity');
+    expect(
+      warningFor(warnings, 'unsupported_property', '$.children[0].opacity'),
+    ).toBeDefined();
+    expectValid(document);
+  });
+
+  it('measures group bounds using resolved variable sizes', () => {
+    const { document, warnings } = successOf(
+      importPencilDocument(`{
+        "version": "2.25",
+        "variables": {
+          "size.child": { "type": "number", "value": 20 }
+        },
+        "children": [
+          {
+            "id": "group",
+            "type": "group",
+            "children": [
+              {
+                "id": "child",
+                "type": "rectangle",
+                "width": "$size.child",
+                "height": "$size.child"
+              }
+            ]
+          }
+        ]
+      }`),
+    );
+
+    expect(warnings).toEqual([]);
+    const group = frameOf(document.children, 'group');
+    expect(group).toMatchObject({ width: 20, height: 20 });
+    expect(elementOf(group.children, 'child')).toMatchObject({
+      width: '$${--size-child}',
+      height: '$${--size-child}',
+    });
     expectValid(document);
   });
 

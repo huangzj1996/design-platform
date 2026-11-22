@@ -19,10 +19,11 @@ import {
   type PencilDiagnosticCode,
 } from './diagnostics';
 import { stripJsonComments } from './json-comments';
+import { convertVariables } from './variables';
 
 const PENCIL_VERSION = '2.25';
 const ROOT_PATH = '$';
-const ROOT_FIELDS = new Set(['version', 'children']);
+const ROOT_FIELDS = new Set(['version', 'children', 'variables']);
 /** Safety cap; each pass removes at least one element, so this is ample. */
 const MAX_PRUNE_PASSES = 100;
 
@@ -110,6 +111,10 @@ export function importPencilDocument(text: string): PencilImportResult {
   }
 
   const ctx = createConversionContext();
+  const convertedVariables = convertVariables(input.variables, ctx.warnings);
+  ctx.variables = convertedVariables.variables;
+  ctx.variablesBySourceName = convertedVariables.bySourceName;
+
   for (const child of sourceChildren) {
     collectIdUsage(child, ctx);
   }
@@ -138,7 +143,7 @@ export function importPencilDocument(text: string): PencilImportResult {
   const document: DesignDocument = {
     version: DESIGN_DOCUMENT_VERSION,
     children,
-    variables: [],
+    variables: ctx.variables,
   };
   pruneElementsWithoutSizeBasis(document, ctx);
 
