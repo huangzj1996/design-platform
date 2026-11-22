@@ -16,6 +16,7 @@ import {
   it,
   vi,
 } from 'vitest';
+import type { CanvasViewport } from '../src/electron-render/canvas-engine';
 import { Canvas } from '../src/electron-render/Canvas';
 import { TestCanvasRegistry } from './test-canvas-engine';
 
@@ -78,12 +79,16 @@ async function render(
 async function rerender(
   document: DesignDocument | null,
   selectionId: string | null,
+  viewport?: CanvasViewport,
+  onSelect?: (id: string | null) => void,
 ): Promise<void> {
   await act(async () => {
     root.render(
       <Canvas
         document={document}
         selectionId={selectionId}
+        viewport={viewport}
+        onSelect={onSelect}
         createEngine={canvas.factory}
       />,
     );
@@ -190,6 +195,39 @@ describe('Canvas', () => {
     await rerender(documentWithFrame, 'title');
     expect(canvas.engine).toBe(created);
     expect(canvas.engine?.selection?.id).toBe('title');
+  });
+
+  it('forwards viewport changes to the engine without recreating it', async () => {
+    await render(documentWithFrame);
+    const created = canvas.engine;
+    expect(created?.viewport).toEqual({ scale: 1, x: 0, y: 0 });
+
+    await rerender(documentWithFrame, null, { scale: 1.5, x: 12, y: -8 });
+
+    expect(canvas.engine).toBe(created);
+    expect(canvas.engine?.viewport).toEqual({ scale: 1.5, x: 12, y: -8 });
+  });
+
+  it('ignores selection taps while the hand tool is active', async () => {
+    const onSelect = vi.fn();
+    await render(documentWithFrame, null, onSelect);
+
+    await act(async () => {
+      root.render(
+        <Canvas
+          document={documentWithFrame}
+          selectionId={null}
+          selectable={false}
+          onSelect={onSelect}
+          createEngine={canvas.factory}
+        />,
+      );
+    });
+    await act(async () => {
+      canvas.engine?.tap('rectangle');
+    });
+
+    expect(onSelect).not.toHaveBeenCalled();
   });
 
   it('destroys the engine when unmounted', async () => {

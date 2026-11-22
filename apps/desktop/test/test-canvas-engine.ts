@@ -1,6 +1,7 @@
 import type {
   CanvasEngine,
   CanvasEngineFactory,
+  CanvasViewport,
 } from '../src/electron-render/canvas-engine';
 import type {
   CanvasScene,
@@ -12,6 +13,7 @@ import type {
 export class TestCanvasEngine implements CanvasEngine {
   scene: CanvasScene | null = null;
   selection: CanvasSelection | null = null;
+  viewport: CanvasViewport | null = null;
   destroyed = false;
 
   constructor(private readonly onSelect: (id: string | null) => void) {}
@@ -19,6 +21,10 @@ export class TestCanvasEngine implements CanvasEngine {
   setScene(scene: CanvasScene, selection: CanvasSelection | null): void {
     this.scene = scene;
     this.selection = selection;
+  }
+
+  setViewport(viewport: CanvasViewport): void {
+    this.viewport = viewport;
   }
 
   destroy(): void {

@@ -22,8 +22,8 @@ import type {
   SaveDesignFileInput,
   SaveDesignFileResult,
 } from '../electron-preload/contract';
-import { Canvas } from './Canvas';
 import type { CanvasEngineFactory } from './canvas-engine';
+import { Editor } from './Editor';
 import {
   applySaveFailure,
   documentName,
@@ -35,8 +35,6 @@ import {
   type PendingAction,
 } from './editor-state';
 import { Home } from './Home';
-import { LayerTree } from './LayerTree';
-import { PropertiesPanel } from './PropertiesPanel';
 import { TabBar } from './TabBar';
 import { useAutosave } from './use-autosave';
 import {
@@ -525,29 +523,19 @@ export function App({
     ? workspace.homeDiagnosticsTitle
     : editorState.diagnosticsTitle;
 
+  const tabBar = (
+    <TabBar
+      activeTabId={workspace.activeTabId}
+      projects={workspace.projects}
+      busy={opening || creating}
+      onSelectHome={handleSelectHome}
+      onSelectProject={handleSelectProject}
+      onCreate={handleCreate}
+    />
+  );
+
   return (
     <div className="flex h-full flex-col overflow-hidden bg-[#F6F6F6] text-[#1A1A1A]">
-      <header
-        data-testid="window-chrome"
-        className="relative flex h-12 shrink-0 items-center justify-center bg-[#F6F6F6]"
-      >
-        <TabBar
-          activeTabId={workspace.activeTabId}
-          projects={workspace.projects}
-          busy={opening || creating}
-          onSelectHome={handleSelectHome}
-          onSelectProject={handleSelectProject}
-          onCreate={handleCreate}
-        />
-        <div
-          aria-hidden="true"
-          className="absolute right-5 hidden items-center gap-5 text-[#222222] md:flex"
-        >
-          <CircleUser size={16} strokeWidth={2} />
-          <Play size={16} strokeWidth={2} />
-        </div>
-      </header>
-
       {diagnostics.length > 0 ? (
         <section className="diagnostics" role="alert" aria-live="polite">
           <h2>{diagnosticsTitle}</h2>
@@ -556,56 +544,31 @@ export function App({
       ) : null}
 
       {showingHome ? (
-        <Home
-          projects={workspace.projects}
-          opening={opening}
-          creating={creating}
-          onOpen={handleOpen}
-          onCreate={handleCreate}
-          onSelectProject={handleSelectProject}
-        />
-      ) : (
         <>
-          <header className="toolbar">
-            <div className="document-summary">
-              <strong className="app-name">Design AI</strong>
-              <span className="document-name">
-                {documentName(editorState.filePath ?? editorState.sourcePath)}
-              </span>
-              {document !== null ? (
-                <span className="save-status" data-testid="save-status">
-                  {saveStatusText(editorState)}
-                </span>
-              ) : null}
-            </div>
-            <div className="toolbar-actions">
-              {document !== null ? (
-                <>
-                  <button type="button" onClick={() => handleAddRoot('text')}>
-                    新建标题
-                  </button>
-                  <button type="button" onClick={() => handleAddRoot('frame')}>
-                    新建容器
-                  </button>
-                </>
-              ) : null}
-              <button
-                type="button"
-                onClick={handleCreate}
-                disabled={opening || creating}
-              >
-                {creating ? '正在新建…' : '新建设计稿'}
-              </button>
-              <button
-                type="button"
-                onClick={handleOpen}
-                disabled={opening || creating}
-              >
-                {opening ? '正在打开…' : '打开设计稿'}
-              </button>
+          <header
+            data-testid="window-chrome"
+            className="relative flex h-12 shrink-0 items-center justify-center bg-[#F6F6F6]"
+          >
+            {tabBar}
+            <div
+              aria-hidden="true"
+              className="absolute right-5 hidden items-center gap-5 text-[#222222] md:flex"
+            >
+              <CircleUser size={16} strokeWidth={2} />
+              <Play size={16} strokeWidth={2} />
             </div>
           </header>
-
+          <Home
+            projects={workspace.projects}
+            opening={opening}
+            creating={creating}
+            onOpen={handleOpen}
+            onCreate={handleCreate}
+            onSelectProject={handleSelectProject}
+          />
+        </>
+      ) : (
+        <>
           {editorState.saveStatus === 'error' ? (
             <section
               className="diagnostics save-error"
@@ -636,32 +599,24 @@ export function App({
             </section>
           ) : null}
 
-          {document === null ? null : (
-            <main className="workspace">
-              <aside className="layers-panel">
-                <LayerTree
-                  document={document}
-                  selectionId={editorState.selectionId}
-                  onSelect={handleSelect}
-                />
-              </aside>
-              <section className="canvas-area">
-                <Canvas
-                  document={document}
-                  selectionId={editorState.selectionId}
-                  onSelect={handleSelect}
-                  createEngine={createCanvasEngine}
-                />
-              </section>
-              <PropertiesPanel
-                document={document}
-                selectionId={editorState.selectionId}
-                onUpdate={handleUpdate}
-                onAddChild={handleAddChild}
-                onDelete={handleDelete}
-              />
-            </main>
-          )}
+          <Editor
+            document={document}
+            selectionId={editorState.selectionId}
+            tabBar={tabBar}
+            documentName={documentName(
+              editorState.filePath ?? editorState.sourcePath,
+            )}
+            saveStatus={document === null ? null : saveStatusText(editorState)}
+            busy={opening || creating}
+            onOpen={handleOpen}
+            onCreate={handleCreate}
+            onSelect={handleSelect}
+            onAddRoot={handleAddRoot}
+            onUpdate={handleUpdate}
+            onAddChild={handleAddChild}
+            onDelete={handleDelete}
+            createCanvasEngine={createCanvasEngine}
+          />
         </>
       )}
     </div>
