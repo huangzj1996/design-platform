@@ -4,6 +4,7 @@ import {
   type DesignDocument,
   type DesignElement,
   type FrameAlignItems,
+  type FrameElement,
   type FrameJustifyContent,
 } from '@design-ai/design-schema';
 import { updateElement, type ElementPatch } from './edit';
@@ -25,7 +26,9 @@ const AXIS_VALUES: readonly FrameAlignItems[] = ['start', 'center', 'end'];
 const round = (value: number): number =>
   Math.round((value + Number.EPSILON) * 100) / 100;
 
-function axisIndex(value: unknown): 0 | 1 | 2 | undefined {
+function axisIndex(
+  value: FrameAlignItems | FrameJustifyContent | undefined,
+): 0 | 1 | 2 | undefined {
   switch (value) {
     case 'start':
       return 0;
@@ -82,8 +85,8 @@ export function frameAlignmentCell(
 export function findElementParent(
   document: DesignDocument,
   id: string,
-): DesignElement | null {
-  const visit = (elements: readonly DesignElement[]): DesignElement | null => {
+): FrameElement | null {
+  const visit = (elements: readonly DesignElement[]): FrameElement | null => {
     for (const element of elements) {
       if (element.type !== 'frame') {
         continue;
@@ -113,10 +116,7 @@ export function alignElement(
   alignment: ElementAlignment,
 ): DesignDocument {
   const parent = findElementParent(document, id);
-  if (parent === null || parent.type !== 'frame') {
-    return document;
-  }
-  if ((parent.layout ?? 'horizontal') !== 'none') {
+  if (parent === null || (parent.layout ?? 'horizontal') !== 'none') {
     return document;
   }
 
@@ -127,11 +127,7 @@ export function alignElement(
     return document;
   }
 
-  const resolvedParent = parentNode.element;
-  if (resolvedParent.type !== 'frame') {
-    return document;
-  }
-  const [top, right, bottom, left] = resolvedParent.padding ?? [0, 0, 0, 0];
+  const [top, right, bottom, left] = parent.padding ?? [0, 0, 0, 0];
   const contentWidth = Math.max(0, parentNode.box.width - left - right);
   const contentHeight = Math.max(0, parentNode.box.height - top - bottom);
   const { width, height } = childNode.box;

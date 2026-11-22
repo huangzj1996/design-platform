@@ -7,8 +7,10 @@ import {
   type DimensionMode,
   type ElementType,
   type FrameElement,
-  type FrameLayout,
   type FrameJustifyContent,
+  type FrameLayout,
+  type IconElement,
+  type TextElement,
 } from '@design-ai/design-schema';
 import {
   findElement,
@@ -17,6 +19,7 @@ import {
   frameAlignmentProps,
   type ElementAlignment,
   type ElementPatch,
+  type FrameAlignmentCell,
 } from '@design-ai/editor-core';
 import {
   AlignCenterHorizontal,
@@ -52,11 +55,15 @@ export interface PropertiesPanelProps {
 }
 
 const DEFAULT_PADDING: [number, number, number, number] = [0, 0, 0, 0];
-const PADDING_LABELS = [
-  '内边距上',
-  '内边距右',
-  '内边距下',
-  '内边距左',
+const PADDING_ROWS = [
+  [
+    { index: 0, label: '内边距上' },
+    { index: 1, label: '内边距右' },
+  ],
+  [
+    { index: 2, label: '内边距下' },
+    { index: 3, label: '内边距左' },
+  ],
 ] as const;
 const CHILD_TYPES: readonly ElementType[] = [
   'text',
@@ -97,35 +104,79 @@ const ALIGNMENT_BUTTONS: ReadonlyArray<{
   { alignment: 'bottom', label: '底部对齐', icon: AlignEndVertical },
 ];
 
-const MATRIX_LABELS = [
-  ['左上', '上中', '右上'],
-  ['左中', '正中', '右中'],
-  ['左下', '下中', '右下'],
-] as const;
-const MATRIX_KEYS = [
-  ['matrix-top-left', 'matrix-top-center', 'matrix-top-right'],
-  ['matrix-middle-left', 'matrix-center', 'matrix-middle-right'],
-  ['matrix-bottom-left', 'matrix-bottom-center', 'matrix-bottom-right'],
-] as const;
+interface AlignmentMatrixCell extends FrameAlignmentCell {
+  label: string;
+  testId: string;
+}
 
-function normalizeColor(value: unknown): string {
-  return typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value)
+const ALIGNMENT_MATRIX: readonly (readonly AlignmentMatrixCell[])[] = [
+  [
+    { row: 0, column: 0, label: '左上', testId: 'matrix-top-left' },
+    { row: 0, column: 1, label: '上中', testId: 'matrix-top-center' },
+    { row: 0, column: 2, label: '右上', testId: 'matrix-top-right' },
+  ],
+  [
+    { row: 1, column: 0, label: '左中', testId: 'matrix-middle-left' },
+    { row: 1, column: 1, label: '正中', testId: 'matrix-center' },
+    { row: 1, column: 2, label: '右中', testId: 'matrix-middle-right' },
+  ],
+  [
+    { row: 2, column: 0, label: '左下', testId: 'matrix-bottom-left' },
+    { row: 2, column: 1, label: '下中', testId: 'matrix-bottom-center' },
+    { row: 2, column: 2, label: '右下', testId: 'matrix-bottom-right' },
+  ],
+];
+
+const LAYOUT_MODES: ReadonlyArray<{
+  value: FrameLayout;
+  label: string;
+  testId: string;
+  icon: typeof LayoutDashboard;
+}> = [
+  {
+    value: 'none',
+    label: '自由布局',
+    testId: 'layout-none',
+    icon: LayoutDashboard,
+  },
+  {
+    value: 'vertical',
+    label: '纵向布局',
+    testId: 'layout-vertical',
+    icon: ArrowDown,
+  },
+  {
+    value: 'horizontal',
+    label: '横向布局',
+    testId: 'layout-horizontal',
+    icon: ArrowRight,
+  },
+];
+
+const GAP_OPTIONS: ReadonlyArray<{
+  value: 'fixed' | FrameJustifyContent;
+  label: string;
+  testId: string;
+}> = [
+  { value: 'fixed', label: '固定间距', testId: 'gap-fixed' },
+  { value: 'space_between', label: '两端分布', testId: 'gap-space-between' },
+  { value: 'space_around', label: '环绕分布', testId: 'gap-space-around' },
+];
+
+function normalizeColor(value: string | undefined): string {
+  return value !== undefined && /^#[0-9a-f]{6}$/i.test(value)
     ? value
     : '#000000';
 }
 
-function numberValue(value: unknown): number | '' {
-  return typeof value === 'number' ? value : '';
+function isDimensionObject(
+  value: Dimension | undefined,
+): value is Exclude<Dimension, number> {
+  return typeof value === 'object' && value !== null;
 }
 
-function round(value: number): number {
-  return Math.round((value + Number.EPSILON) * 100) / 100;
-}
-
-type DimensionState = DimensionMode | 'fixed';
-
-function dimensionMode(value: Dimension | undefined): DimensionState {
-  return typeof value === 'object' && value !== null ? value.mode : 'fixed';
+function dimensionMode(value: Dimension | undefined): DimensionMode | 'fixed' {
+  return isDimensionObject(value) ? value.mode : 'fixed';
 }
 
 function dimensionDisplayValue(
@@ -138,9 +189,7 @@ function dimensionDisplayValue(
   if (resolved !== undefined) {
     return resolved;
   }
-  return typeof value === 'object' && value !== null
-    ? (value.fallback ?? 0)
-    : 0;
+  return isDimensionObject(value) ? (value.fallback ?? 0) : 0;
 }
 
 function dimensionWithMode(
@@ -148,10 +197,7 @@ function dimensionWithMode(
   mode: DimensionMode,
   resolved: number | undefined,
 ): Dimension {
-  const fallback =
-    typeof current === 'object' && current !== null
-      ? current.fallback
-      : current;
+  const fallback = isDimensionObject(current) ? current.fallback : current;
   return { mode, fallback: fallback ?? resolved ?? 0 };
 }
 
@@ -170,7 +216,7 @@ function fixedDimension(
 
 interface NumberFieldProps {
   label: string;
-  value: unknown;
+  value: number | undefined;
   min?: number;
   max?: number;
   step?: number;
@@ -216,7 +262,7 @@ function NumberField({
         max={max}
         step={step}
         disabled={disabled}
-        value={numberValue(value)}
+        value={value ?? ''}
         onChange={handleChange}
         className={INPUT_CLASS}
       />
@@ -282,7 +328,7 @@ function ColorField({
   onChange,
 }: {
   label: string;
-  value: unknown;
+  value: string | undefined;
   onChange: (value: string) => void;
 }) {
   return (
@@ -416,39 +462,13 @@ function LayoutModeControl({
   layout: FrameLayout;
   onUpdate: (patch: ElementPatch) => void;
 }) {
-  const modes: ReadonlyArray<{
-    value: FrameLayout;
-    label: string;
-    testId: string;
-    icon: typeof LayoutDashboard;
-  }> = [
-    {
-      value: 'none',
-      label: '自由布局',
-      testId: 'layout-none',
-      icon: LayoutDashboard,
-    },
-    {
-      value: 'vertical',
-      label: '纵向布局',
-      testId: 'layout-vertical',
-      icon: ArrowDown,
-    },
-    {
-      value: 'horizontal',
-      label: '横向布局',
-      testId: 'layout-horizontal',
-      icon: ArrowRight,
-    },
-  ];
-
   return (
     <div
       role="group"
       aria-label="布局"
       className="flex h-[34px] items-center gap-px rounded-lg bg-[#EDEDED] p-0.5"
     >
-      {modes.map(({ value, label, testId, icon: Icon }) => {
+      {LAYOUT_MODES.map(({ value, label, testId, icon: Icon }) => {
         const active = layout === value;
         return (
           <button
@@ -459,9 +479,11 @@ function LayoutModeControl({
             title={label}
             aria-pressed={active}
             onClick={() => onUpdate({ layout: value })}
-            className={`${SEGMENT_CLASS} ${
-              active ? SEGMENT_ACTIVE_CLASS : 'cursor-pointer'
-            }`}
+            className={
+              active
+                ? `${SEGMENT_CLASS} ${SEGMENT_ACTIVE_CLASS}`
+                : SEGMENT_CLASS
+            }
           >
             <Icon size={15} strokeWidth={2} />
           </button>
@@ -482,19 +504,10 @@ function GapControl({
 }) {
   const distributed =
     justifyContent === 'space_between' || justifyContent === 'space_around';
-  const options: ReadonlyArray<{
-    value: 'fixed' | FrameJustifyContent;
-    label: string;
-    testId: string;
-  }> = [
-    { value: 'fixed', label: '固定间距', testId: 'gap-fixed' },
-    { value: 'space_between', label: '两端分布', testId: 'gap-space-between' },
-    { value: 'space_around', label: '环绕分布', testId: 'gap-space-around' },
-  ];
 
   return (
     <div className="flex flex-col gap-1.5">
-      {options.map(({ value, label, testId }) => {
+      {GAP_OPTIONS.map(({ value, label, testId }) => {
         const checked =
           value === 'fixed' ? !distributed : justifyContent === value;
         return (
@@ -530,7 +543,7 @@ function FrameFields({ element, onUpdate }: ElementFieldsProps<FrameElement>) {
     ? frameAlignmentCell(direction, element)
     : undefined;
 
-  const setPadding = (index: number, value: number | undefined) => {
+  const setPadding = (index: 0 | 1 | 2 | 3, value: number | undefined) => {
     if (value === undefined) {
       return;
     }
@@ -547,8 +560,8 @@ function FrameFields({ element, onUpdate }: ElementFieldsProps<FrameElement>) {
         <div className="flex flex-col gap-2">
           <span className="text-[11px] font-medium text-[#666666]">对齐</span>
           <div className="grid h-[69px] grid-cols-3 overflow-hidden rounded-lg border border-[#E3E3E3] bg-[#F8F8F8]">
-            {MATRIX_KEYS.map((rowKeys, row) =>
-              rowKeys.map((testId, column) => {
+            {ALIGNMENT_MATRIX.map((cells) =>
+              cells.map(({ row, column, label, testId }) => {
                 const active =
                   activeCell?.row === row && activeCell.column === column;
                 return (
@@ -556,16 +569,11 @@ function FrameFields({ element, onUpdate }: ElementFieldsProps<FrameElement>) {
                     key={testId}
                     type="button"
                     data-testid={testId}
-                    aria-label={`容器内${MATRIX_LABELS[row]?.[column] ?? ''}`}
+                    aria-label={`容器内${label}`}
                     aria-pressed={active}
                     disabled={!autoLayout}
                     onClick={() =>
-                      onUpdate(
-                        frameAlignmentProps(direction, {
-                          column: column as 0 | 1 | 2,
-                          row: row as 0 | 1 | 2,
-                        }),
-                      )
+                      onUpdate(frameAlignmentProps(direction, { row, column }))
                     }
                     className="flex cursor-pointer items-center justify-center disabled:cursor-not-allowed"
                   >
@@ -601,28 +609,19 @@ function FrameFields({ element, onUpdate }: ElementFieldsProps<FrameElement>) {
         />
       </div>
 
-      <div className="flex gap-2">
-        {padding.slice(0, 2).map((value, index) => (
-          <NumberField
-            key={PADDING_LABELS[index]}
-            label={PADDING_LABELS[index] ?? `内边距${index}`}
-            value={value}
-            min={0}
-            onChange={(next) => setPadding(index, next)}
-          />
-        ))}
-      </div>
-      <div className="flex gap-2">
-        {padding.slice(2).map((value, index) => (
-          <NumberField
-            key={PADDING_LABELS[index + 2]}
-            label={PADDING_LABELS[index + 2] ?? `内边距${index + 2}`}
-            value={value}
-            min={0}
-            onChange={(next) => setPadding(index + 2, next)}
-          />
-        ))}
-      </div>
+      {PADDING_ROWS.map((row) => (
+        <div key={row[0].label} className="flex gap-2">
+          {row.map(({ index, label }) => (
+            <NumberField
+              key={label}
+              label={label}
+              value={padding[index]}
+              min={0}
+              onChange={(next) => setPadding(index, next)}
+            />
+          ))}
+        </div>
+      ))}
 
       <CheckboxField
         label="裁剪内容"
@@ -709,10 +708,7 @@ function DimensionModeControls({
   );
 }
 
-function TextFields({
-  element,
-  onUpdate,
-}: ElementFieldsProps<Extract<DesignElement, { type: 'text' }>>) {
+function TextFields({ element, onUpdate }: ElementFieldsProps<TextElement>) {
   return (
     <Section title="文字" testId="text-section">
       <label className="flex flex-col gap-1 text-[11px] text-[#666666]">
@@ -757,10 +753,7 @@ function TextFields({
   );
 }
 
-function IconFields({
-  element,
-  onUpdate,
-}: ElementFieldsProps<Extract<DesignElement, { type: 'icon' }>>) {
+function IconFields({ element, onUpdate }: ElementFieldsProps<IconElement>) {
   return (
     <Section title="图标" testId="icon-section">
       <TextField
@@ -867,11 +860,10 @@ export function PropertiesPanel({
 
   const layoutNode =
     layout === null ? undefined : findLayoutNode(layout, element.id);
-  const parent = findElementParent(document, element.id);
-  const parentFrame = parent?.type === 'frame' ? parent : null;
-  const parentLayout = parentFrame?.layout ?? 'horizontal';
-  const computedPosition = parentFrame !== null && parentLayout !== 'none';
-  const canAlign = parentFrame !== null && parentLayout === 'none';
+  const parentFrame = findElementParent(document, element.id);
+  const parentUsesAutoLayout =
+    parentFrame !== null && (parentFrame.layout ?? 'horizontal') !== 'none';
+  const canAlign = parentFrame !== null && !parentUsesAutoLayout;
   const resolvedWidth = layoutNode?.box.width;
   const resolvedHeight = layoutNode?.box.height;
 
@@ -915,9 +907,9 @@ export function PropertiesPanel({
 
       <PositionSection
         element={element}
-        layoutX={round(layoutNode?.box.x ?? 0)}
-        layoutY={round(layoutNode?.box.y ?? 0)}
-        computed={computedPosition}
+        layoutX={layoutNode?.box.x ?? 0}
+        layoutY={layoutNode?.box.y ?? 0}
+        computed={parentUsesAutoLayout}
         onUpdate={onUpdate}
       />
 

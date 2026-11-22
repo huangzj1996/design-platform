@@ -92,14 +92,6 @@ body {
   background: transparent;
 }
 
-.properties-panel h2 {
-  margin: 0 0 12px;
-  font-size: 13px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #57606a;
-}
-
 .panel-empty {
   margin: 0;
   color: #8c959f;
@@ -113,63 +105,10 @@ body {
   list-style: none;
 }
 
-.layer-type {
-  flex: none;
-  color: #57606a;
-  font-size: 11px;
-}
-
 .layer-label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.properties-panel h3 {
-  margin: 16px 0 8px;
-  font-size: 13px;
-}
-
-.property-summary {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin: 0 0 12px;
-  font-size: 13px;
-}
-
-.property-fields {
-  display: grid;
-  gap: 10px;
-}
-
-.property-field {
-  display: grid;
-  gap: 4px;
-  font-size: 12px;
-  color: #57606a;
-}
-
-.property-field input,
-.property-field select,
-.property-field textarea {
-  border: 1px solid #d0d7de;
-  border-radius: 6px;
-  padding: 5px 8px;
-  color: #1f2328;
-  background: #ffffff;
-  font: inherit;
-  font-size: 13px;
-}
-
-.property-field input[type='color'] {
-  height: 30px;
-  padding: 2px;
-}
-
-.property-field-inline {
-  grid-template-columns: 1fr auto;
-  align-items: center;
 }
 
 .button-row {

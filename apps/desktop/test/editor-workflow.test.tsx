@@ -227,16 +227,6 @@ function sceneNode(id: string) {
   return findSceneNode(canvas.engine?.scene ?? null, id);
 }
 
-function toolButton(testId: string): HTMLElement {
-  const button = container.querySelector<HTMLElement>(
-    `[data-testid="${testId}"]`,
-  );
-  if (button === null) {
-    throw new Error(`Tool button "${testId}" not found`);
-  }
-  return button;
-}
-
 function control(testId: string): HTMLElement {
   const element = container.querySelector<HTMLElement>(
     `[data-testid="${testId}"]`,
@@ -352,9 +342,9 @@ describe('desktop editing workflow', () => {
     expect(sceneNode('main').fill).toBe('#00ff00');
 
     // New title at the root, a new container, and a child inside it.
-    await click(toolButton('tool-text'));
+    await click(control('tool-text'));
     expect(sceneNode('text-1').text?.content).toBe('标题');
-    await click(toolButton('tool-frame'));
+    await click(control('tool-frame'));
     await click(layerRow('frame-1'));
     await clickButton('添加文字');
     expect(layerRow('text-2') !== null).toBe(true);
@@ -961,7 +951,7 @@ describe('desktop editing workflow', () => {
     expect(control('export-format').textContent).toContain('PNG');
 
     // Existing text and icon property editing stays available.
-    await click(toolButton('tool-expand'));
+    await click(control('tool-expand'));
     await click(control('shape-icon'));
     expect(sceneNode('icon-1').icon?.icon).toBe('star');
     await setInput('图标名称', 'heart');

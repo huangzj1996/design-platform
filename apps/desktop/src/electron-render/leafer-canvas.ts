@@ -43,6 +43,7 @@ export function fillPaint(
 
 /** Maps one scene node to the LeaferJS input shared by every canvas shape. */
 export function canvasNodeInput(node: CanvasSceneNode) {
+  const hidesOverflow = node.type === 'frame' && node.clipContent === true;
   return {
     x: node.box.x,
     y: node.box.y,
@@ -55,10 +56,7 @@ export function canvasNodeInput(node: CanvasSceneNode) {
     opacity: node.opacity,
     rotation: node.rotation,
     visible: node.visible,
-    overflow:
-      node.type === 'frame' && node.clipContent === true
-        ? ('hide' as const)
-        : undefined,
+    overflow: hidesOverflow ? ('hide' as const) : undefined,
     origin: 'center' as const,
     hitFill: 'all' as const,
     data: { elementId: node.id },
