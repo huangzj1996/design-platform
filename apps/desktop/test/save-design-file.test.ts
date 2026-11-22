@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
@@ -92,6 +92,45 @@ describe('DesignFileSaver', () => {
     });
   });
 
+  it('fingerprints the same path-bearing snapshot that it writes and updates the baseline', async () => {
+    const saver = new DesignFileSaver({ projectDirectory: directory });
+    const filePath = path.join(directory, 'moved', 'design.json');
+    await mkdir(path.dirname(filePath), { recursive: true });
+    const stalePath = path.join(directory, 'original.json');
+    const document = { ...documentWithText('移动后'), filePath: stalePath };
+    const changed = {
+      ...documentWithText('移动后新内容'),
+      filePath: stalePath,
+    };
+
+    const first = await saver.save({ filePath, document });
+    expect(first.status).toBe('saved');
+    if (first.status !== 'saved') {
+      return;
+    }
+
+    // The write target and the snapshot path agree, and the fingerprint covers
+    // exactly the snapshot that landed on disk.
+    const written = JSON.parse(await readFile(filePath, 'utf8'));
+    expect(written.filePath).toBe(filePath);
+    expect(first.fingerprint).toBe(fingerprintSnapshot(written));
+
+    // The successful write becomes the new baseline for the moved target, so
+    // the stale in-memory path alone does not cause another write.
+    await expect(saver.save({ filePath, document })).resolves.toMatchObject({
+      status: 'skipped',
+    });
+    await expect(
+      saver.save({ filePath, document: changed }),
+    ).resolves.toMatchObject({ status: 'saved' });
+    const updated = JSON.parse(await readFile(filePath, 'utf8')) as {
+      filePath: string;
+      children: Array<{ text: string }>;
+    };
+    expect(updated.filePath).toBe(filePath);
+    expect(updated.children[0]?.text).toBe('移动后新内容');
+  });
+
   it('assigns a default path to an unsaved draft and reuses it afterwards', async () => {
     const saver = new DesignFileSaver({ projectDirectory: directory });
     const document = documentWithText('草稿');
@@ -101,6 +140,7 @@ describe('DesignFileSaver', () => {
     if (first.status !== 'saved') {
       return;
     }
+    expect(path.isAbsolute(first.filePath)).toBe(true);
     expect(path.basename(first.filePath)).toBe('未命名.json');
 
     const saved = JSON.parse(await readFile(first.filePath, 'utf8')) as {

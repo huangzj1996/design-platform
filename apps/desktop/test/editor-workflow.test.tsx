@@ -1,6 +1,14 @@
 // @vitest-environment jsdom
 
-import { readFile, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { act } from 'react';
@@ -617,6 +625,108 @@ describe('desktop editing workflow', () => {
     expect(elementById('bound-title')?.textContent).toBe('变量标题');
   });
 
+  it('records the new absolute path when a saved design with variables is moved and reopened', async () => {
+    const originalDirectory = path.join(directory, 'original');
+    const movedDirectory = path.join(directory, 'moved');
+    await mkdir(originalDirectory, { recursive: true });
+    await mkdir(movedDirectory, { recursive: true });
+    const originalPath = path.join(originalDirectory, 'moved.json');
+    const movedPath = path.join(movedDirectory, 'moved.json');
+    const savedVariables = [
+      { name: '--label-title', type: 'string', value: '变量标题' },
+      { name: '--color-brand', type: 'color', value: '#3366ff' },
+    ];
+    await writeFile(
+      originalPath,
+      JSON.stringify({
+        version: 1,
+        filePath: originalPath,
+        variables: savedVariables,
+        children: [
+          {
+            id: 'moved-frame',
+            type: 'frame',
+            layout: 'vertical',
+            width: 320,
+            height: 200,
+            gap: 8,
+            children: [
+              {
+                id: 'bound-title',
+                type: 'text',
+                text: '$${--label-title}',
+                fill: '$${--color-brand}',
+              },
+              { id: 'caption', type: 'text', text: '移动前说明' },
+            ],
+          },
+        ],
+      }),
+      'utf8',
+    );
+    await rename(originalPath, movedPath);
+
+    const saveCalls: SaveDesignFileInput[] = [];
+    const saveThroughSaver = saveDesignFile;
+    saveDesignFile = (input) => {
+      saveCalls.push(input);
+      return saveThroughSaver(input);
+    };
+
+    await setOpenFile(movedPath);
+    await renderApp();
+    await clickButton('打开设计稿');
+
+    // Opening the moved file and changing only the selection skips the write.
+    expect(elementById('bound-title')?.textContent).toBe('变量标题');
+    await click(layerRow('caption'));
+    expect(writeLog).toHaveLength(0);
+
+    await setInput('文案', '移动后说明');
+    await requestClose();
+
+    expect(confirmCloseCalls).toBe(1);
+    expect(saveCalls).toHaveLength(1);
+    expect(saveCalls[0]?.filePath).toBe(movedPath);
+    expect(saveCalls[0]?.document.filePath).toBe(movedPath);
+
+    // The written snapshot and its target path agree and keep variables.
+    const written = savedFileAsText(await readFile(movedPath, 'utf8')) as {
+      filePath: string;
+      variables: unknown;
+      children: Array<{ children: Array<Record<string, unknown>> }>;
+    };
+    expect(written.filePath).toBe(movedPath);
+    expect(written.variables).toEqual(savedVariables);
+    expect(written.children[0]?.children[0]).toMatchObject({
+      id: 'bound-title',
+      text: '$${--label-title}',
+      fill: '$${--color-brand}',
+    });
+
+    // Reopening the saved file keeps elements and variable references usable.
+    const reopened = await readDesignFile(movedPath);
+    expect(reopened.status).toBe('opened');
+    if (reopened.status !== 'opened') {
+      return;
+    }
+    expect(reopened.document.filePath).toBe(movedPath);
+    expect(reopened.document.variables).toEqual(savedVariables);
+
+    await setOpenFile(movedPath);
+    await clickButton('打开设计稿');
+    expect(elementById('bound-title')?.textContent).toBe('变量标题');
+    expect(elementById('caption')?.textContent).toBe('移动后说明');
+
+    // Restoring the reopened document's saved content still skips the write.
+    await click(layerRow('caption'));
+    await setInput('文案', '临时修改');
+    await setInput('文案', '移动后说明');
+    await requestClose();
+    expect(confirmCloseCalls).toBe(2);
+    expect(writeLog).toHaveLength(1);
+  });
+
   it('flushes before reading when the current file is reopened', async () => {
     const filePath = await writeJson('reopen-same.json', frameWithText);
     await setOpenFile(filePath);
@@ -715,5 +825,77 @@ describe('desktop editing workflow', () => {
       id: 'imported',
       text: '导入后修改',
     });
+  });
+
+  it('keeps variables when an imported draft first saves to a new path', async () => {
+    const penPath = path.join(directory, 'variable-draft.pen');
+    await writeFile(
+      penPath,
+      JSON.stringify({
+        version: '2.25',
+        variables: {
+          'color.brand': { type: 'color', value: '#3366FF' },
+          'label.title': { type: 'string', value: '导入变量标题' },
+        },
+        children: [
+          {
+            id: 'imported-frame',
+            type: 'frame',
+            layout: 'vertical',
+            width: 320,
+            height: 120,
+            fill: '$color.brand',
+            children: [
+              {
+                id: 'imported-title',
+                type: 'text',
+                content: '$label.title',
+                fill: '$color.brand',
+              },
+              { id: 'imported-caption', type: 'text', content: '导入说明' },
+            ],
+          },
+        ],
+      }),
+      'utf8',
+    );
+    await setOpenFile(penPath);
+    await renderApp();
+    await clickButton('打开设计稿');
+    expect(elementById('imported-title')?.textContent).toBe('导入变量标题');
+
+    await click(layerRow('imported-caption'));
+    await setInput('文案', '导入后说明');
+    await requestClose();
+
+    expect(confirmCloseCalls).toBe(1);
+    const savedPath = path.join(directory, '未命名.json');
+    const saved = JSON.parse(await readFile(savedPath, 'utf8')) as {
+      filePath: string;
+      variables: unknown;
+      children: Array<{ children: Array<Record<string, unknown>> }>;
+    };
+    expect(saved.filePath).toBe(savedPath);
+    expect(saved.variables).toEqual([
+      { name: '--color-brand', type: 'color', value: '#3366FF' },
+      { name: '--label-title', type: 'string', value: '导入变量标题' },
+    ]);
+    expect(saved.children[0]?.children[0]).toMatchObject({
+      id: 'imported-title',
+      text: '$${--label-title}',
+      fill: '$${--color-brand}',
+    });
+    expect(saved.children[0]?.children[1]).toMatchObject({
+      id: 'imported-caption',
+      text: '导入后说明',
+    });
+
+    // The assigned path and the variable references survive a reopen.
+    await setOpenFile(savedPath);
+    await clickButton('打开设计稿');
+    expect(elementById('imported-title')?.textContent).toBe('导入变量标题');
+    expect(elementById('imported-frame')?.style.backgroundColor).toBe(
+      'rgb(51, 102, 255)',
+    );
   });
 });

@@ -65,18 +65,18 @@ export async function createDesignFile(
   dependencies: CreateFileDependencies = {},
 ): Promise<CreateDesignFileResult> {
   const write = dependencies.writeFile ?? writeFile;
+  // The snapshot must record a system absolute path, even when the configured
+  // project directory is relative.
+  const targetDirectory = path.resolve(projectDirectory);
 
   try {
-    await mkdir(projectDirectory, { recursive: true });
+    await mkdir(targetDirectory, { recursive: true });
   } catch (error) {
     return failure(errorMessage(error));
   }
 
   for (let attempt = 1; attempt <= MAX_FILE_ATTEMPTS; attempt += 1) {
-    const filePath = path.join(
-      projectDirectory,
-      defaultDesignFileName(attempt),
-    );
+    const filePath = path.join(targetDirectory, defaultDesignFileName(attempt));
     const document = { ...createBlankDocument(), filePath };
 
     try {

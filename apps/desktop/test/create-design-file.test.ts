@@ -67,6 +67,23 @@ describe('createDesignFile', () => {
     );
   });
 
+  it('records an absolute target path when the project directory is relative', async () => {
+    const relativeDirectory = path.relative(process.cwd(), directory);
+
+    const result = await createDesignFile(relativeDirectory);
+
+    expect(result.status).toBe('created');
+    if (result.status !== 'created') {
+      return;
+    }
+    expect(path.isAbsolute(result.filePath)).toBe(true);
+    expect(result.filePath).toBe(path.join(directory, '未命名.json'));
+    const written = JSON.parse(await readFile(result.filePath, 'utf8')) as {
+      filePath: string;
+    };
+    expect(written.filePath).toBe(result.filePath);
+  });
+
   it('creates the project directory when it does not exist', async () => {
     const projectDirectory = path.join(directory, 'nested', 'project');
 

@@ -54,6 +54,17 @@ export const initialEditorState: EditorState = {
   pendingAction: null,
 };
 
+/** Keeps the document snapshot's path in sync with its actual save target. */
+function withDocumentPath(
+  document: DesignDocument,
+  filePath: string,
+): DesignDocument {
+  if (document.filePath === filePath) {
+    return document;
+  }
+  return { ...document, filePath };
+}
+
 /**
  * Applies a fresh document to the editor. Opening always starts from an empty
  * selection and a clean save baseline.
@@ -105,9 +116,13 @@ export function applyOpenResult(
         warnings: result.warnings,
       });
     case 'opened':
-      return withDocument(state, result.document, {
-        filePath: result.filePath,
-      });
+      // The selected file is the save target, so a moved document records its
+      // actual absolute path in the next snapshot.
+      return withDocument(
+        state,
+        withDocumentPath(result.document, result.filePath),
+        { filePath: result.filePath },
+      );
   }
 }
 
@@ -202,14 +217,9 @@ export function applySaveResult(
     return state;
   }
 
-  const document: DesignDocument =
-    state.document.filePath === result.filePath
-      ? state.document
-      : { ...state.document, filePath: result.filePath };
-
   return {
     ...state,
-    document,
+    document: withDocumentPath(state.document, result.filePath),
     filePath: result.filePath,
     dirty: state.dirty && state.editVersion !== savedVersion,
     saveStatus: 'idle',
