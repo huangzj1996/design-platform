@@ -1,3 +1,4 @@
+import { validateDesignDocument } from '@design-ai/design-schema';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -40,6 +41,33 @@ const frameWithText = {
     },
   ],
 };
+
+const pencilSample = `// Pencil 2.25 样稿，覆盖五种基础元素。
+{
+  "version": "2.25",
+  "children": [
+    {
+      "id": "page",
+      "type": "frame",
+      "width": 320,
+      "height": 200,
+      "layout": "vertical",
+      "padding": 12,
+      "gap": 8,
+      "children": [
+        { "id": "label", "type": "text", "content": "来自 Pencil", "fontSize": 16 },
+        { "id": "box", "type": "rectangle", "width": 40, "height": 20, "fill": "#FF0000" },
+        { "id": "dot", "type": "ellipse", "width": 16, "height": 16, "fill": "#00FF00" },
+        { "id": "icon", "type": "icon", "library": "lucide", "icon": "star", "width": 16, "height": 16 }
+      ]
+    },
+    {
+      "id": "unsupported",
+      "type": "group",
+      "children": [{ "id": "inner", "type": "text", "content": "不应导入" }]
+    }
+  ]
+}`;
 
 describe('readDesignFile', () => {
   it('opens a blank design document from a real temporary file', async () => {
@@ -180,6 +208,82 @@ describe('readDesignFile', () => {
         path: '$',
       });
       expect(result.errors[0]?.message.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('imports a Pencil 2.25 file with comments and reports conversion diagnostics', async () => {
+    const filePath = await writeText('sample.pen', pencilSample);
+
+    const result = await readDesignFile(filePath);
+
+    expect(result.status).toBe('imported');
+    if (result.status !== 'imported') {
+      return;
+    }
+
+    expect(result.sourcePath).toBe(filePath);
+    expect(result.document.version).toBe(1);
+    expect(result.document.filePath).toBeUndefined();
+    expect(result.document.children.map((child) => child.id)).toEqual(['page']);
+    expect(result.warnings).toEqual([
+      expect.objectContaining({
+        code: 'unsupported_node',
+        path: '$.children[1]',
+      }),
+    ]);
+    expect(validateDesignDocument(result.document).ok).toBe(true);
+
+    const page = result.document.children[0];
+    if (page?.type !== 'frame') {
+      throw new Error('Expected the imported page frame');
+    }
+    expect(page.children?.map((child) => child.id)).toEqual([
+      'label',
+      'box',
+      'dot',
+      'icon',
+    ]);
+    expect(page.children?.map((child) => child.type)).toEqual([
+      'text',
+      'rectangle',
+      'ellipse',
+      'icon',
+    ]);
+    await expect(readFile(filePath, 'utf8')).resolves.toBe(pencilSample);
+  });
+
+  it('reports Pencil parse, version and all-skipped failures', async () => {
+    const cases: Array<[string, string, string]> = [
+      ['broken.pen', '{ not json', 'invalid_json'],
+      [
+        'newer.pen',
+        '{ "version": "2.26", "children": [] }',
+        'unsupported_version',
+      ],
+      [
+        'skipped.pen',
+        '{ "version": "2.25", "children": [{ "id": "g", "type": "group" }] }',
+        'empty_import',
+      ],
+    ];
+
+    for (const [name, contents, code] of cases) {
+      const filePath = await writeText(name, contents);
+      const result = await readDesignFile(filePath);
+
+      expect(result.status, name).toBe('failed');
+      if (result.status === 'failed') {
+        expect(result.filePath, name).toBe(filePath);
+        expect(
+          result.errors.map((error) => error.code),
+          name,
+        ).toContain(code);
+        for (const error of result.errors) {
+          expect(error.path.length, name).toBeGreaterThan(0);
+          expect(error.message.length, name).toBeGreaterThan(0);
+        }
+      }
+      await expect(readFile(filePath, 'utf8'), name).resolves.toBe(contents);
     }
   });
 });

@@ -29,6 +29,9 @@
   "engines": {
     "node": "26.x"
   },
+  "dependencies": {
+    "@design-ai/design-schema": "workspace:*"
+  },
   "devDependencies": {
     "tsdown": "0.22.9",
     "typescript": "^6.0.0"

@@ -3,14 +3,23 @@ import {
   createDiagnostic,
   parseDesignDocument,
 } from '@design-ai/design-schema';
+import { importPencilDocument } from '@design-ai/editor-core';
 import {
   DesktopDiagnosticCodes,
   type OpenDesignFileResult,
 } from '../shared/open-design-file';
 
+const PENCIL_FILE_EXTENSION = /\.pen$/i;
+
+function isPencilFile(filePath: string): boolean {
+  return PENCIL_FILE_EXTENSION.test(filePath);
+}
+
 /**
- * Reads a native design document from disk and validates it. A failed read or
- * a failed validation never writes to the file.
+ * Reads a design document from disk. `.pen` files go through the Pencil 2.25
+ * importer and produce a native draft plus conversion warnings; other files
+ * are parsed as native documents. A failed read, import or validation never
+ * writes to the file.
  */
 export async function readDesignFile(
   filePath: string,
@@ -30,6 +39,19 @@ export async function readDesignFile(
           `无法读取设计稿文件：${message}`,
         ),
       ],
+    };
+  }
+
+  if (isPencilFile(filePath)) {
+    const result = importPencilDocument(contents);
+    if (!result.ok) {
+      return { status: 'failed', filePath, errors: result.errors };
+    }
+    return {
+      status: 'imported',
+      sourcePath: filePath,
+      document: result.document,
+      warnings: result.warnings,
     };
   }
 

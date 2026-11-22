@@ -46,9 +46,13 @@ const registerOpenDesignFileHandler = () => {
     OPEN_DESIGN_FILE_CHANNEL,
     async (event): Promise<OpenDesignFileResult> => {
       const options: OpenDialogOptions = {
-        title: '打开设计稿',
+        title: '打开或导入设计稿',
         properties: ['openFile'],
-        filters: [{ name: '设计稿', extensions: ['json'] }],
+        filters: [
+          { name: '设计稿', extensions: ['json', 'pen'] },
+          { name: 'Pencil 设计稿', extensions: ['pen'] },
+          { name: '原生设计稿', extensions: ['json'] },
+        ],
       };
       const browserWindow = BrowserWindow.fromWebContents(event.sender);
       const selection = browserWindow

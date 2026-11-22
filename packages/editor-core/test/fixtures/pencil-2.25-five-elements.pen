@@ -1,0 +1,103 @@
+// Pencil 2.25 基础元素样稿：Frame、Rectangle、Ellipse、Text、Icon。
+// .pen 文件允许 JSON 注释，导入入口需要先移除注释再解析。
+{
+  "version": "2.25",
+  "children": [
+    {
+      "id": "page",
+      "type": "frame",
+      "x": 0,
+      "y": 0,
+      "width": 480,
+      "height": 360,
+      "layout": "vertical",
+      "gap": 12,
+      /* 四项内边距：上、右、下、左。 */
+      "padding": [20, 24, 20, 24],
+      "fill": "#FFFFFF",
+      "cornerRadius": 12,
+      "stroke": { "type": "color", "color": "#D0D7DE" },
+      "strokeWidth": 1,
+      "children": [
+        {
+          "id": "header",
+          "type": "frame",
+          "width": "fill_container",
+          "height": 56,
+          "layout": "horizontal",
+          // 简写内边距应规范化为四项。
+          "padding": 10,
+          "gap": 8,
+          "alignItems": "center",
+          "fill": "#F6F8FA",
+          "children": [
+            {
+              "id": "logo",
+              "type": "icon",
+              "library": "lucide",
+              "icon": "sparkles",
+              "width": 24,
+              "height": 24,
+              "fill": "#8250DF"
+            },
+            {
+              "id": "title",
+              "type": "text",
+              "content": "基础元素",
+              "width": "fill_container",
+              "fontFamily": "Inter",
+              "fontSize": 18,
+              "fontWeight": "700",
+              "lineHeight": 1.4,
+              "fill": "#1F2328",
+              "textGrowth": "fixed-width"
+            }
+          ]
+        },
+        {
+          "id": "card",
+          "type": "frame",
+          "width": "fill_container",
+          "height": "fit_content",
+          "layout": "vertical",
+          "gap": 8,
+          // 两值内边距：[vertical, horizontal]。
+          "padding": [12, 16],
+          "fill": "#FFFFFF",
+          "cornerRadius": 8,
+          "children": [
+            {
+              "id": "thumbnail",
+              "type": "rectangle",
+              "width": "fill_container",
+              "height": 72,
+              "fill": "#FFD8A8",
+              "cornerRadius": 6
+            },
+            {
+              "id": "status",
+              "type": "ellipse",
+              "width": 12,
+              "height": 12,
+              "fill": "#1F883D",
+              "opacity": 0.8,
+              "rotation": 15
+            },
+            {
+              "id": "caption",
+              "type": "text",
+              "content": "五种基础元素",
+              "fontSize": 14,
+              "fontWeight": "400",
+              "lineHeight": 1.5,
+              "textAlign": "center",
+              "textGrowth": "auto",
+              "fill": "#57606A",
+              "enabled": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

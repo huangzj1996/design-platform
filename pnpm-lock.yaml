@@ -304,6 +304,10 @@ importers:
         version: 6.0.3
 
   packages/editor-core:
+    dependencies:
+      '@design-ai/design-schema':
+        specifier: workspace:*
+        version: link:../design-schema
     devDependencies:
       tsdown:
         specifier: 0.22.9
