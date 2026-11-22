@@ -258,7 +258,9 @@ describe('desktop editing workflow', () => {
   it('creates a blank file immediately and assigns distinct default names', async () => {
     await renderApp();
 
-    expect(container.textContent).toContain('尚未打开设计稿');
+    expect(
+      container.querySelector('[data-testid="home-empty"]'),
+    ).not.toBeNull();
     await clickButton('新建设计稿');
 
     expect(container.textContent).toContain('未命名.json');

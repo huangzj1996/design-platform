@@ -15,7 +15,12 @@ import type {
 const OPEN_FAILED_CODE: DesktopDiagnosticCode = 'open_failed';
 const FILE_WRITE_ERROR_CODE: DesktopDiagnosticCode = 'file_write_error';
 
-export type PendingAction = 'open' | 'create' | 'close';
+export type PendingAction =
+  | { type: 'open' }
+  | { type: 'create' }
+  | { type: 'close' }
+  | { type: 'home' }
+  | { type: 'project'; projectId: string };
 
 export type SaveStatus = 'idle' | 'saving' | 'error';
 

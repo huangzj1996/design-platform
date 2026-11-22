@@ -12,6 +12,7 @@ import {
   updateElement,
   type ElementPatch,
 } from '@design-ai/editor-core';
+import { CircleUser, Play } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type {
   CreateDesignFileResult,
@@ -22,24 +23,35 @@ import type {
 } from '../electron-preload/contract';
 import { Canvas } from './Canvas';
 import {
-  applyCreateError,
-  applyCreateResult,
-  applyOpenError,
-  applyOpenResult,
   applySaveFailure,
-  applySaveResult,
   documentName,
   editDocument,
   initialEditorState,
   markSaving,
   selectElement,
-  setPendingAction,
   type EditorState,
   type PendingAction,
 } from './editor-state';
+import { Home } from './Home';
 import { LayerTree } from './LayerTree';
 import { PropertiesPanel } from './PropertiesPanel';
+import { TabBar } from './TabBar';
 import { useAutosave } from './use-autosave';
+import {
+  HOME_TAB_ID,
+  activateProjectTab,
+  activeProjectOf,
+  applyCreateErrorToWorkspace,
+  applyCreateToWorkspace,
+  applyOpenErrorToWorkspace,
+  applyOpenToWorkspace,
+  applySaveToProject,
+  initialWorkspaceState,
+  setPendingActionForActive,
+  showHome,
+  updateProjectState,
+  type WorkspaceState,
+} from './workspace';
 
 export interface AppProps {
   openDesignFile?: () => Promise<OpenDesignFileResult>;
@@ -49,7 +61,6 @@ export interface AppProps {
   ) => Promise<SaveDesignFileResult>;
   subscribeCloseRequest?: (listener: () => void) => () => void;
   confirmClose?: () => void;
-  initialState?: EditorState;
   saveDelayMs?: number;
 }
 
@@ -135,14 +146,21 @@ export function App({
   saveDesignFile = saveThroughBridge,
   subscribeCloseRequest = subscribeThroughBridge,
   confirmClose = confirmThroughBridge,
-  initialState = initialEditorState,
   saveDelayMs,
 }: AppProps) {
-  const [state, setState] = useState<EditorState>(initialState);
+  const [workspace, setWorkspace] = useState<WorkspaceState>(
+    initialWorkspaceState,
+  );
   const [opening, setOpening] = useState(false);
   const [creating, setCreating] = useState(false);
+
+  const activeProject = activeProjectOf(workspace);
+  const activeProjectId = activeProject?.id ?? null;
+  const state = activeProject?.state ?? initialEditorState;
   const stateRef = useRef(state);
   stateRef.current = state;
+  const workspaceRef = useRef(workspace);
+  workspaceRef.current = workspace;
 
   const { flush } = useAutosave({
     document: state.document,
@@ -151,20 +169,41 @@ export function App({
     editVersion: state.editVersion,
     saveDesignFile,
     delayMs: saveDelayMs,
-    onSaving: () => setState(markSaving),
-    onSaved: (result, savedVersion) =>
-      setState((current) => applySaveResult(current, result, savedVersion)),
-    onFailed: (errors) =>
-      setState((current) => applySaveFailure(current, errors)),
+    onSaving: () => {
+      if (activeProjectId === null) {
+        return;
+      }
+      setWorkspace((current) =>
+        updateProjectState(current, activeProjectId, markSaving),
+      );
+    },
+    onSaved: (result, savedVersion) => {
+      if (activeProjectId === null) {
+        return;
+      }
+      setWorkspace((current) =>
+        applySaveToProject(current, activeProjectId, result, savedVersion),
+      );
+    },
+    onFailed: (errors) => {
+      if (activeProjectId === null) {
+        return;
+      }
+      setWorkspace((current) =>
+        updateProjectState(current, activeProjectId, (projectState) =>
+          applySaveFailure(projectState, errors),
+        ),
+      );
+    },
   });
 
   const runCreate = async () => {
     setCreating(true);
     try {
       const result = await createDesignFile();
-      setState((current) => applyCreateResult(current, result));
+      setWorkspace((current) => applyCreateToWorkspace(current, result));
     } catch (error) {
-      setState((current) => applyCreateError(current, error));
+      setWorkspace((current) => applyCreateErrorToWorkspace(current, error));
     } finally {
       setCreating(false);
     }
@@ -174,16 +213,16 @@ export function App({
     setOpening(true);
     try {
       const result = await openDesignFile();
-      setState((current) => applyOpenResult(current, result));
+      setWorkspace((current) => applyOpenToWorkspace(current, result));
     } catch (error) {
-      setState((current) => applyOpenError(current, error));
+      setWorkspace((current) => applyOpenErrorToWorkspace(current, error));
     } finally {
       setOpening(false);
     }
   };
 
   const runPendingAction = async (action: PendingAction) => {
-    switch (action) {
+    switch (action.type) {
       case 'close':
         confirmClose();
         return;
@@ -193,13 +232,21 @@ export function App({
       case 'open':
         await openNow();
         return;
+      case 'home':
+        setWorkspace(showHome);
+        return;
+      case 'project':
+        setWorkspace((current) =>
+          activateProjectTab(current, action.projectId),
+        );
+        return;
     }
   };
 
   /**
-   * Flushes pending edits before an action that closes or replaces the current
-   * design. A failed save keeps the design open and records the action for the
-   * retry entry.
+   * Flushes pending edits before an action that closes, replaces or leaves the
+   * current design. A failed save keeps the design open and records the action
+   * for the retry entry.
    */
   const saveBeforeAction = async (action: PendingAction): Promise<boolean> => {
     if (stateRef.current.document === null) {
@@ -209,26 +256,51 @@ export function App({
     if (saved !== 'failed') {
       return true;
     }
-    setState((current) => setPendingAction(current, action));
+    setWorkspace((current) => setPendingActionForActive(current, action));
     return false;
   };
 
   const handleOpen = async () => {
     // Reading the target after the flush also avoids reopening a stale copy of
     // the currently open file.
-    if (await saveBeforeAction('open')) {
+    if (await saveBeforeAction({ type: 'open' })) {
       await openNow();
     }
   };
 
   const handleCreate = async () => {
-    if (await saveBeforeAction('create')) {
+    if (await saveBeforeAction({ type: 'create' })) {
       await runCreate();
     }
   };
 
+  const handleSelectHome = async () => {
+    if (workspaceRef.current.activeTabId === HOME_TAB_ID) {
+      return;
+    }
+    if (await saveBeforeAction({ type: 'home' })) {
+      setWorkspace(showHome);
+    }
+  };
+
+  const handleSelectProject = async (projectId: string) => {
+    const current = workspaceRef.current;
+    if (current.activeTabId === projectId) {
+      return;
+    }
+    if (await saveBeforeAction({ type: 'project', projectId })) {
+      // Coming from home counts as reopening, so a created design adopts its
+      // actual file name in the tab.
+      setWorkspace((latest) =>
+        activateProjectTab(latest, projectId, {
+          preferFileName: latest.activeTabId === HOME_TAB_ID,
+        }),
+      );
+    }
+  };
+
   const handleCloseRequest = async () => {
-    if (await saveBeforeAction('close')) {
+    if (await saveBeforeAction({ type: 'close' })) {
       confirmClose();
     }
   };
@@ -249,18 +321,26 @@ export function App({
       return;
     }
     const action = stateRef.current.pendingAction;
-    setState((current) => setPendingAction(current, null));
+    setWorkspace((current) => setPendingActionForActive(current, null));
     if (action !== null) {
       await runPendingAction(action);
     }
   };
 
+  const updateActiveEditor = (
+    update: (projectState: EditorState) => EditorState,
+  ) => {
+    setWorkspace((current) =>
+      updateProjectState(current, current.activeTabId, update),
+    );
+  };
+
   const handleSelect = (id: string | null) => {
-    setState((current) => selectElement(current, id));
+    updateActiveEditor((current) => selectElement(current, id));
   };
 
   const handleUpdate = (patch: ElementPatch) => {
-    setState((current) => {
+    updateActiveEditor((current) => {
       if (current.document === null || current.selectionId === null) {
         return current;
       }
@@ -274,7 +354,7 @@ export function App({
   };
 
   const handleAddRoot = (type: ElementType) => {
-    setState((current) => {
+    updateActiveEditor((current) => {
       if (current.document === null) {
         return current;
       }
@@ -288,7 +368,7 @@ export function App({
   };
 
   const handleAddChild = (type: ElementType) => {
-    setState((current) => {
+    updateActiveEditor((current) => {
       if (current.document === null || current.selectionId === null) {
         return current;
       }
@@ -306,7 +386,7 @@ export function App({
   };
 
   const handleDelete = () => {
-    setState((current) => {
+    updateActiveEditor((current) => {
       if (current.document === null || current.selectionId === null) {
         return current;
       }
@@ -319,118 +399,151 @@ export function App({
   };
 
   const document = state.document;
+  const showingHome = workspace.activeTabId === HOME_TAB_ID;
+  const diagnostics = showingHome
+    ? workspace.homeDiagnostics
+    : state.diagnostics;
+  const diagnosticsTitle = showingHome
+    ? workspace.homeDiagnosticsTitle
+    : state.diagnosticsTitle;
 
   return (
-    <div className="app">
-      <header className="toolbar">
-        <div className="document-summary">
-          <strong className="app-name">Design AI</strong>
-          <span className="document-name">
-            {documentName(state.filePath ?? state.sourcePath)}
-          </span>
-          {document !== null ? (
-            <span className="save-status" data-testid="save-status">
-              {saveStatusText(state)}
-            </span>
-          ) : null}
-        </div>
-        <div className="toolbar-actions">
-          {document !== null ? (
-            <>
-              <button type="button" onClick={() => handleAddRoot('text')}>
-                新建标题
-              </button>
-              <button type="button" onClick={() => handleAddRoot('frame')}>
-                新建容器
-              </button>
-            </>
-          ) : null}
-          <button
-            type="button"
-            onClick={handleCreate}
-            disabled={opening || creating}
-          >
-            {creating ? '正在新建…' : '新建设计稿'}
-          </button>
-          <button
-            type="button"
-            onClick={handleOpen}
-            disabled={opening || creating}
-          >
-            {opening ? '正在打开…' : '打开设计稿'}
-          </button>
+    <div className="flex h-full flex-col overflow-hidden bg-[#F6F6F6] text-[#1A1A1A]">
+      <header
+        data-testid="window-chrome"
+        className="relative flex h-12 shrink-0 items-center justify-center bg-[#F6F6F6]"
+      >
+        <TabBar
+          activeTabId={workspace.activeTabId}
+          projects={workspace.projects}
+          busy={opening || creating}
+          onSelectHome={handleSelectHome}
+          onSelectProject={handleSelectProject}
+          onCreate={handleCreate}
+        />
+        <div
+          aria-hidden="true"
+          className="absolute right-5 hidden items-center gap-5 text-[#222222] md:flex"
+        >
+          <CircleUser size={16} strokeWidth={2} />
+          <Play size={16} strokeWidth={2} />
         </div>
       </header>
 
-      {state.diagnostics.length > 0 ? (
+      {diagnostics.length > 0 ? (
         <section className="diagnostics" role="alert" aria-live="polite">
-          <h2>{state.diagnosticsTitle}</h2>
-          <DiagnosticList diagnostics={state.diagnostics} />
+          <h2>{diagnosticsTitle}</h2>
+          <DiagnosticList diagnostics={diagnostics} />
         </section>
       ) : null}
 
-      {state.saveStatus === 'error' ? (
-        <section
-          className="diagnostics save-error"
-          role="alert"
-          aria-live="assertive"
-          data-testid="save-error"
-        >
-          <h2>保存失败</h2>
-          <DiagnosticList diagnostics={state.saveErrors} />
-          <p className="save-error-hint">
-            最近一次成功保存的文件保持不变，当前编辑仍在编辑器中。
-          </p>
-          <button type="button" onClick={handleRetry}>
-            重试保存
-          </button>
-        </section>
-      ) : null}
-
-      {state.warnings.length > 0 ? (
-        <section
-          className="diagnostics import-warnings"
-          role="status"
-          aria-live="polite"
-          data-testid="import-warnings"
-        >
-          <h2>导入提示</h2>
-          <DiagnosticList diagnostics={state.warnings} />
-        </section>
-      ) : null}
-
-      {document === null ? (
-        <main className="home" data-testid="home">
-          <h1>尚未打开设计稿</h1>
-          <p>
-            新建设计稿会立即写入项目目录；也可以打开已有的版本 1 JSON 或 Pencil
-            设计稿继续编辑。
-          </p>
-        </main>
+      {showingHome ? (
+        <Home
+          projects={workspace.projects}
+          opening={opening}
+          creating={creating}
+          onOpen={handleOpen}
+          onCreate={handleCreate}
+          onSelectProject={handleSelectProject}
+        />
       ) : (
-        <main className="workspace">
-          <aside className="layers-panel">
-            <LayerTree
-              document={document}
-              selectionId={state.selectionId}
-              onSelect={handleSelect}
-            />
-          </aside>
-          <section className="canvas-area">
-            <Canvas
-              document={document}
-              selectionId={state.selectionId}
-              onSelect={handleSelect}
-            />
-          </section>
-          <PropertiesPanel
-            document={document}
-            selectionId={state.selectionId}
-            onUpdate={handleUpdate}
-            onAddChild={handleAddChild}
-            onDelete={handleDelete}
-          />
-        </main>
+        <>
+          <header className="toolbar">
+            <div className="document-summary">
+              <strong className="app-name">Design AI</strong>
+              <span className="document-name">
+                {documentName(state.filePath ?? state.sourcePath)}
+              </span>
+              {document !== null ? (
+                <span className="save-status" data-testid="save-status">
+                  {saveStatusText(state)}
+                </span>
+              ) : null}
+            </div>
+            <div className="toolbar-actions">
+              {document !== null ? (
+                <>
+                  <button type="button" onClick={() => handleAddRoot('text')}>
+                    新建标题
+                  </button>
+                  <button type="button" onClick={() => handleAddRoot('frame')}>
+                    新建容器
+                  </button>
+                </>
+              ) : null}
+              <button
+                type="button"
+                onClick={handleCreate}
+                disabled={opening || creating}
+              >
+                {creating ? '正在新建…' : '新建设计稿'}
+              </button>
+              <button
+                type="button"
+                onClick={handleOpen}
+                disabled={opening || creating}
+              >
+                {opening ? '正在打开…' : '打开设计稿'}
+              </button>
+            </div>
+          </header>
+
+          {state.saveStatus === 'error' ? (
+            <section
+              className="diagnostics save-error"
+              role="alert"
+              aria-live="assertive"
+              data-testid="save-error"
+            >
+              <h2>保存失败</h2>
+              <DiagnosticList diagnostics={state.saveErrors} />
+              <p className="save-error-hint">
+                最近一次成功保存的文件保持不变，当前编辑仍在编辑器中。
+              </p>
+              <button type="button" onClick={handleRetry}>
+                重试保存
+              </button>
+            </section>
+          ) : null}
+
+          {state.warnings.length > 0 ? (
+            <section
+              className="diagnostics import-warnings"
+              role="status"
+              aria-live="polite"
+              data-testid="import-warnings"
+            >
+              <h2>导入提示</h2>
+              <DiagnosticList diagnostics={state.warnings} />
+            </section>
+          ) : null}
+
+          {document === null ? null : (
+            <main className="workspace">
+              <aside className="layers-panel">
+                <LayerTree
+                  document={document}
+                  selectionId={state.selectionId}
+                  onSelect={handleSelect}
+                />
+              </aside>
+              <section className="canvas-area">
+                <Canvas
+                  document={document}
+                  selectionId={state.selectionId}
+                  onSelect={handleSelect}
+                />
+              </section>
+              <PropertiesPanel
+                document={document}
+                selectionId={state.selectionId}
+                onUpdate={handleUpdate}
+                onAddChild={handleAddChild}
+                onDelete={handleDelete}
+              />
+            </main>
+          )}
+        </>
       )}
     </div>
   );

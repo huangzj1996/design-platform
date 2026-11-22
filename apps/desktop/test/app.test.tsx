@@ -136,7 +136,9 @@ describe('desktop open flow', () => {
     await showOpenResult(filePath);
     renderApp();
 
-    expect(container.textContent).toContain('尚未打开设计稿');
+    expect(
+      container.querySelector('[data-testid="home-empty"]'),
+    ).not.toBeNull();
 
     await clickOpen();
 
@@ -347,7 +349,9 @@ describe('desktop open flow', () => {
     await showOpenResult(filePath);
     renderApp();
 
-    expect(container.textContent).toContain('尚未打开设计稿');
+    expect(
+      container.querySelector('[data-testid="home-empty"]'),
+    ).not.toBeNull();
 
     await clickOpen();
 
