@@ -3,7 +3,7 @@ import {
   DiagnosticCodes,
   type Diagnostic,
 } from './diagnostics';
-import type { FieldValidator } from './types';
+import type { FieldValidator, VariableType } from './types';
 
 const HEX_COLOR_PATTERN =
   /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
@@ -33,6 +33,17 @@ function invalid(path: string, message: string): Diagnostic[] {
   return [createDiagnostic(DiagnosticCodes.invalidValue, path, message)];
 }
 
+/**
+ * Declares which document variable types may bind to a field. The field
+ * validator still checks the resolved literal against the property rules.
+ */
+function bindable(
+  validator: (value: unknown, path: string) => Diagnostic[],
+  variableTypes: readonly VariableType[],
+): FieldValidator {
+  return Object.assign(validator, { variableTypes });
+}
+
 function checkNonNegativeNumber(
   value: unknown,
   path: string,
@@ -44,48 +55,74 @@ function checkNonNegativeNumber(
   return [];
 }
 
-export const stringField: FieldValidator = (value, path) =>
-  typeof value === 'string' ? [] : invalid(path, '必须是字符串');
+export const stringField: FieldValidator = bindable(
+  (value, path) =>
+    typeof value === 'string' ? [] : invalid(path, '必须是字符串'),
+  ['string'],
+);
 
-export const nonEmptyStringField: FieldValidator = (value, path) =>
-  typeof value === 'string' && value.length > 0
-    ? []
-    : invalid(path, '必须是非空字符串');
+export const nonEmptyStringField: FieldValidator = bindable(
+  (value, path) =>
+    typeof value === 'string' && value.length > 0
+      ? []
+      : invalid(path, '必须是非空字符串'),
+  ['string'],
+);
 
-export const booleanField: FieldValidator = (value, path) =>
-  typeof value === 'boolean' ? [] : invalid(path, '必须是布尔值');
+export const booleanField: FieldValidator = bindable(
+  (value, path) =>
+    typeof value === 'boolean' ? [] : invalid(path, '必须是布尔值'),
+  ['boolean'],
+);
 
-export const numberField: FieldValidator = (value, path) =>
-  typeof value === 'number' && Number.isFinite(value)
-    ? []
-    : invalid(path, '必须是有限数值');
+export const numberField: FieldValidator = bindable(
+  (value, path) =>
+    typeof value === 'number' && Number.isFinite(value)
+      ? []
+      : invalid(path, '必须是有限数值'),
+  ['number'],
+);
 
-export const nonNegativeNumberField: FieldValidator = (value, path) =>
-  checkNonNegativeNumber(value, path, '数值');
+export const nonNegativeNumberField: FieldValidator = bindable(
+  (value, path) => checkNonNegativeNumber(value, path, '数值'),
+  ['number'],
+);
 
-export const positiveNumberField: FieldValidator = (value, path) =>
-  typeof value === 'number' && Number.isFinite(value) && value > 0
-    ? []
-    : invalid(path, '必须是正有限数值');
+export const positiveNumberField: FieldValidator = bindable(
+  (value, path) =>
+    typeof value === 'number' && Number.isFinite(value) && value > 0
+      ? []
+      : invalid(path, '必须是正有限数值'),
+  ['number'],
+);
 
-export const opacityField: FieldValidator = (value, path) =>
-  typeof value === 'number' &&
-  Number.isFinite(value) &&
-  value >= 0 &&
-  value <= 1
-    ? []
-    : invalid(path, '不透明度必须是 0 到 1 之间的数值');
+export const opacityField: FieldValidator = bindable(
+  (value, path) =>
+    typeof value === 'number' &&
+    Number.isFinite(value) &&
+    value >= 0 &&
+    value <= 1
+      ? []
+      : invalid(path, '不透明度必须是 0 到 1 之间的数值'),
+  ['number'],
+);
 
-export const colorField: FieldValidator = (value, path) =>
-  isHexColor(value) ? [] : invalid(path, '颜色必须是十六进制字符串');
+export const colorField: FieldValidator = bindable(
+  (value, path) =>
+    isHexColor(value) ? [] : invalid(path, '颜色必须是十六进制字符串'),
+  ['color'],
+);
 
 export function enumField<T extends string>(
   values: readonly T[],
 ): FieldValidator {
-  return (value, path) =>
-    isOneOf(value, values)
-      ? []
-      : invalid(path, `必须是 ${values.join('、')} 之一`);
+  return bindable(
+    (value, path) =>
+      isOneOf(value, values)
+        ? []
+        : invalid(path, `必须是 ${values.join('、')} 之一`),
+    ['string'],
+  );
 }
 
 export const paddingField: FieldValidator = (value, path) => {
@@ -102,44 +139,51 @@ export const paddingField: FieldValidator = (value, path) => {
   return diagnostics;
 };
 
-export const dimensionField: FieldValidator = (value, path) => {
-  if (typeof value === 'number') {
-    return checkNonNegativeNumber(value, path, '固定尺寸');
-  }
+export const dimensionField: FieldValidator = bindable(
+  (value, path) => {
+    if (typeof value === 'number') {
+      return checkNonNegativeNumber(value, path, '固定尺寸');
+    }
 
-  if (!isPlainObject(value)) {
-    return invalid(path, '尺寸必须是数值或包含 mode 的尺寸对象');
-  }
+    if (!isPlainObject(value)) {
+      return invalid(path, '尺寸必须是数值或包含 mode 的尺寸对象');
+    }
 
-  const diagnostics: Diagnostic[] = [];
-  for (const key of Object.keys(value)) {
-    if (key !== 'mode' && key !== 'fallback') {
+    const diagnostics: Diagnostic[] = [];
+    for (const key of Object.keys(value)) {
+      if (key !== 'mode' && key !== 'fallback') {
+        diagnostics.push(
+          createDiagnostic(
+            DiagnosticCodes.unknownField,
+            `${path}.${key}`,
+            `不支持的尺寸字段 "${key}"`,
+          ),
+        );
+      }
+    }
+
+    if (!('mode' in value)) {
+      diagnostics.push(...invalid(`${path}.mode`, '尺寸对象必须包含 mode'));
+    } else if (!isOneOf(value.mode, DIMENSION_MODES)) {
       diagnostics.push(
-        createDiagnostic(
-          DiagnosticCodes.unknownField,
-          `${path}.${key}`,
-          `不支持的尺寸字段 "${key}"`,
+        ...invalid(
+          `${path}.mode`,
+          `尺寸模式必须是 ${DIMENSION_MODES.join('、')} 之一`,
         ),
       );
     }
-  }
 
-  if (!('mode' in value)) {
-    diagnostics.push(...invalid(`${path}.mode`, '尺寸对象必须包含 mode'));
-  } else if (!isOneOf(value.mode, DIMENSION_MODES)) {
-    diagnostics.push(
-      ...invalid(
-        `${path}.mode`,
-        `尺寸模式必须是 ${DIMENSION_MODES.join('、')} 之一`,
-      ),
-    );
-  }
+    if ('fallback' in value) {
+      diagnostics.push(
+        ...checkNonNegativeNumber(
+          value.fallback,
+          `${path}.fallback`,
+          '备用尺寸',
+        ),
+      );
+    }
 
-  if ('fallback' in value) {
-    diagnostics.push(
-      ...checkNonNegativeNumber(value.fallback, `${path}.fallback`, '备用尺寸'),
-    );
-  }
-
-  return diagnostics;
-};
+    return diagnostics;
+  },
+  ['number'],
+);

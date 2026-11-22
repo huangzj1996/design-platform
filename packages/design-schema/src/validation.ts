@@ -12,10 +12,17 @@ import {
   type DesignDocument,
   type DesignElement,
   type DesignVariable,
+  type FieldValidator,
   type ValidationResult,
   type VariableType,
   type VariableValue,
 } from './types';
+import {
+  escapedVariableReference,
+  indexVariables,
+  isVariableName,
+  variableReferenceName,
+} from './variables';
 
 const ROOT_PATH = '$';
 const ROOT_FIELDS = new Set(['version', 'children', 'filePath', 'variables']);
@@ -30,6 +37,7 @@ const VARIABLE_TYPES: readonly VariableType[] = [
 interface ValidationState {
   errors: Diagnostic[];
   ids: Map<string, string>;
+  variables: Map<string, DesignVariable>;
 }
 
 function fail(path: string, message: string): Diagnostic {
@@ -81,11 +89,16 @@ export function validateDesignDocument(input: unknown): ValidationResult {
     };
   }
 
-  const state: ValidationState = { errors: [], ids: new Map() };
+  const state: ValidationState = {
+    errors: [],
+    ids: new Map(),
+    variables: new Map(),
+  };
   validateVersion(input, state);
   validateRootFields(input, state);
   const filePath = validateFilePath(input, state);
   const variables = validateVariables(input, state);
+  state.variables = indexVariables(variables);
   const children = validateChildren(input, state);
 
   if (state.errors.length > 0) {
@@ -205,6 +218,7 @@ function validateVariables(
   }
 
   const variables: DesignVariable[] = [];
+  const firstPathByName = new Map<string, string>();
   input.variables.forEach((entry, index) => {
     const entryPath = `${path}[${index}]`;
     if (!isPlainObject(entry)) {
@@ -225,18 +239,31 @@ function validateVariables(
     }
 
     const { name, type, value } = entry;
-    const nameIsValid = typeof name === 'string' && name.length > 0;
+    const nameIsValid = isVariableName(name);
     const typeIsValid = isVariableType(type);
     const valueIsValid = typeIsValid && isValidVariableValue(type, value);
 
     if (!nameIsValid) {
       state.errors.push(
         createDiagnostic(
-          DiagnosticCodes.invalidValue,
+          DiagnosticCodes.invalidVariableName,
           fieldPath(entryPath, 'name'),
-          '变量名必须是非空字符串',
+          '变量名必须以双连字符开头，后接由单连字符连接的小写字母或数字分段',
         ),
       );
+    } else {
+      const firstPath = firstPathByName.get(name);
+      if (firstPath === undefined) {
+        firstPathByName.set(name, fieldPath(entryPath, 'name'));
+      } else {
+        state.errors.push(
+          createDiagnostic(
+            DiagnosticCodes.duplicateVariableName,
+            fieldPath(entryPath, 'name'),
+            `重复的变量名 "${name}"，首次出现在 ${firstPath}`,
+          ),
+        );
+      }
     }
 
     if (!typeIsValid) {
@@ -375,12 +402,66 @@ function validateElement(
   for (const [field, validateField] of Object.entries(inspector.fields)) {
     if (element[field] !== undefined) {
       state.errors.push(
-        ...validateField(element[field], fieldPath(path, field)),
+        ...validateBoundField(
+          element[field],
+          validateField,
+          fieldPath(path, field),
+          state.variables,
+        ),
       );
     }
   }
 
   validateElementChildren(element, path, inspector.allowsChildren, state);
+}
+
+/**
+ * Validates a property value that may be a whole-value variable reference.
+ * Missing names and type mismatches point at the property using the variable;
+ * the resolved literal is then checked against the normal field rules so the
+ * same number can be valid for one property and out of range for another.
+ */
+function validateBoundField(
+  value: unknown,
+  validator: FieldValidator,
+  path: string,
+  variables: ReadonlyMap<string, DesignVariable>,
+): Diagnostic[] {
+  const escaped = escapedVariableReference(value);
+  if (escaped !== undefined) {
+    return validator(escaped, path);
+  }
+
+  const name = variableReferenceName(value);
+  if (name === undefined) {
+    return validator(value, path);
+  }
+
+  const variable = variables.get(name);
+  if (variable === undefined) {
+    return [
+      createDiagnostic(
+        DiagnosticCodes.missingVariable,
+        path,
+        `引用的变量 "${name}" 不存在`,
+      ),
+    ];
+  }
+
+  if (
+    validator.variableTypes === undefined ||
+    !validator.variableTypes.includes(variable.type)
+  ) {
+    return [
+      createDiagnostic(
+        DiagnosticCodes.variableTypeMismatch,
+        path,
+        `变量 "${name}" 的类型 ${variable.type} 不能绑定到此属性`,
+      ),
+    ];
+  }
+
+  return validator(variable.value, path);
 }
 
 function validateId(

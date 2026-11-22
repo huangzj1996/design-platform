@@ -618,6 +618,56 @@ describe('layoutDesignDocument', () => {
     });
   });
 
+  it('resolves variable bindings for sizes, spacing, styles and text measurement', () => {
+    const layout = layoutOf({
+      version: 1,
+      variables: [
+        { name: '--frame-width', type: 'number', value: 200 },
+        { name: '--space-gap', type: 'number', value: 10 },
+        { name: '--label-title', type: 'string', value: '标题' },
+        { name: '--title-size', type: 'number', value: 20 },
+        { name: '--color-brand', type: 'color', value: '#3366ff' },
+      ],
+      children: [
+        {
+          id: 'frame',
+          type: 'frame',
+          width: '$${--frame-width}',
+          height: 100,
+          gap: '$${--space-gap}',
+          children: [
+            text('title', '$${--label-title}', {
+              fontSize: '$${--title-size}',
+              fill: '$${--color-brand}',
+            }),
+            rectangle('block', { width: 20, height: 20 }),
+          ],
+        },
+      ],
+    });
+
+    expect(layout.issues).toEqual([]);
+    expect(sizesOf(findNode(layout.roots, 'frame').box)).toMatchObject({
+      width: 200,
+      height: 100,
+    });
+    expect(sizesOf(findNode(layout.roots, 'title').box)).toMatchObject({
+      x: 0,
+      width: 40,
+      height: 24,
+    });
+    expect(sizesOf(findNode(layout.roots, 'block').box)).toMatchObject({
+      x: 50,
+    });
+
+    const titleNode = findNode(layout.roots, 'title');
+    expect(titleNode.element).toMatchObject({
+      text: '标题',
+      fontSize: 20,
+      fill: '#3366ff',
+    });
+  });
+
   it('accepts every native element type with explicit or measured sizes', () => {
     const document = {
       version: 1,

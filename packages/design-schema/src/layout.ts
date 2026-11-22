@@ -13,6 +13,7 @@ import type {
   TextElement,
   TextWrap,
 } from './types';
+import { resolveDesignDocument } from './variables';
 
 const DEFAULT_FONT_SIZE = 16;
 const DEFAULT_LINE_HEIGHT = 1.2;
@@ -561,12 +562,15 @@ function layoutFrameChildren(
 }
 
 /**
- * Computes the shared layout tree for a validated design document. The same
+ * Computes the shared layout tree for a validated design document. Variable
+ * bindings are resolved first so sizes, spacing and measured text use their
+ * literal values while the document itself keeps the references. The same
  * rules back document validation and canvas rendering.
  */
 export function layoutDesignDocument(document: DesignDocument): DesignLayout {
+  const resolvedDocument = resolveDesignDocument(document);
   const issues: LayoutIssue[] = [];
-  const roots = document.children.map((element, index) =>
+  const roots = resolvedDocument.children.map((element, index) =>
     layoutElement(
       element,
       `$.children[${index}]`,

@@ -5,3 +5,4 @@ export * from './node-inspectors';
 export * from './path';
 export * from './types';
 export * from './validation';
+export * from './variables';

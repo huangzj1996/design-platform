@@ -24,6 +24,10 @@ export const DiagnosticCodes = {
   invalidChildren: 'invalid_children',
   missingField: 'missing_field',
   invalidValue: 'invalid_value',
+  invalidVariableName: 'invalid_variable_name',
+  duplicateVariableName: 'duplicate_variable_name',
+  missingVariable: 'missing_variable',
+  variableTypeMismatch: 'variable_type_mismatch',
   missingSizeBasis: 'missing_size_basis',
 } as const;
 

@@ -397,6 +397,125 @@ describe('Canvas', () => {
     expect(unknownLibrary.querySelector('svg')).toBeNull();
   });
 
+  it('renders resolved variable values and updates every reference together', () => {
+    const input = {
+      version: 1,
+      variables: [
+        { name: '--color-brand', type: 'color', value: '#3366ff' },
+        { name: '--label-title', type: 'string', value: '欢迎' },
+        { name: '--space-gap', type: 'number', value: 8 },
+        { name: '--size-width', type: 'number', value: 120 },
+        { name: '--show-caption', type: 'boolean', value: true },
+      ],
+      children: [
+        {
+          id: 'variable-frame',
+          type: 'frame',
+          layout: 'vertical',
+          width: 240,
+          height: 200,
+          padding: [10, 10, 10, 10],
+          gap: '$${--space-gap}',
+          children: [
+            {
+              id: 'brand-block-a',
+              type: 'rectangle',
+              width: '$${--size-width}',
+              height: 20,
+              fill: '$${--color-brand}',
+            },
+            {
+              id: 'brand-block-b',
+              type: 'rectangle',
+              width: 40,
+              height: 20,
+              fill: '$${--color-brand}',
+            },
+            {
+              id: 'variable-title',
+              type: 'text',
+              text: '$${--label-title}',
+              fill: '$${--color-brand}',
+              visible: '$${--show-caption}',
+            },
+            {
+              id: 'escaped-title',
+              type: 'text',
+              text: '\\$${--label-title}',
+            },
+            {
+              id: 'embedded-title',
+              type: 'text',
+              text: 'See $${--label-title}',
+            },
+          ],
+        },
+      ],
+    };
+
+    const document = documentFrom(input);
+    render(document);
+
+    expect(elementById('brand-block-a').style.backgroundColor).toBe(
+      'rgb(51, 102, 255)',
+    );
+    expect(elementById('brand-block-b').style.backgroundColor).toBe(
+      'rgb(51, 102, 255)',
+    );
+    expect(elementById('variable-title').textContent).toBe('欢迎');
+    expect(elementById('variable-title').style.color).toBe('rgb(51, 102, 255)');
+    expect(elementById('variable-title').style.visibility).not.toBe('hidden');
+
+    expect(boxOf('brand-block-a')).toMatchObject({
+      x: 10,
+      y: 10,
+      width: 120,
+      height: 20,
+    });
+    expect(boxOf('brand-block-b').y).toBe(38);
+
+    expect(elementById('escaped-title').textContent).toBe('$${--label-title}');
+    expect(elementById('embedded-title').textContent).toBe(
+      'See $${--label-title}',
+    );
+
+    const originalFrame = document.children[0];
+    expect(originalFrame).toMatchObject({
+      gap: '$${--space-gap}',
+    });
+    if (originalFrame?.type === 'frame') {
+      expect(originalFrame.children?.[0]).toMatchObject({
+        width: '$${--size-width}',
+        fill: '$${--color-brand}',
+      });
+    }
+
+    const changed = documentFrom({
+      ...input,
+      variables: [
+        { name: '--color-brand', type: 'color', value: '#ff0000' },
+        { name: '--label-title', type: 'string', value: '已更新' },
+        { name: '--space-gap', type: 'number', value: 16 },
+        { name: '--size-width', type: 'number', value: 80 },
+        { name: '--show-caption', type: 'boolean', value: false },
+      ],
+    });
+    act(() => {
+      root.render(<Canvas document={changed} />);
+    });
+
+    expect(elementById('brand-block-a').style.backgroundColor).toBe(
+      'rgb(255, 0, 0)',
+    );
+    expect(elementById('brand-block-b').style.backgroundColor).toBe(
+      'rgb(255, 0, 0)',
+    );
+    expect(elementById('variable-title').textContent).toBe('已更新');
+    expect(elementById('variable-title').style.visibility).toBe('hidden');
+    expect(boxOf('brand-block-a')).toMatchObject({ width: 80 });
+    expect(boxOf('brand-block-b').y).toBe(46);
+  });
+
   it('shows the empty states for a missing or blank document', () => {
     render(null);
     expect(container.textContent).toContain('尚未打开设计稿');

@@ -215,6 +215,68 @@ describe('desktop open flow', () => {
     ).toEqual(['rect-all', 'ellipse-all', 'text-all', 'icon-all']);
   });
 
+  it('renders resolved variables after opening while the file keeps the references', async () => {
+    const contents = {
+      version: 1,
+      variables: [
+        { name: '--color-brand', type: 'color', value: '#3366ff' },
+        { name: '--label-title', type: 'string', value: '变量标题' },
+        { name: '--space-gap', type: 'number', value: 12 },
+        { name: '--show-title', type: 'boolean', value: false },
+      ],
+      children: [
+        {
+          id: 'variable-frame',
+          type: 'frame',
+          layout: 'vertical',
+          width: 320,
+          height: 200,
+          gap: '$${--space-gap}',
+          children: [
+            {
+              id: 'variable-title',
+              type: 'text',
+              text: '$${--label-title}',
+              fill: '$${--color-brand}',
+              visible: '$${--show-title}',
+            },
+            {
+              id: 'variable-block',
+              type: 'rectangle',
+              width: 40,
+              height: 20,
+              fill: '$${--color-brand}',
+            },
+          ],
+        },
+      ],
+    };
+    const filePath = await writeJson('variables.json', contents);
+    await showOpenResult(filePath);
+    renderApp();
+
+    await clickOpen();
+
+    expect(elementById('variable-title')?.textContent).toBe('变量标题');
+    expect(elementById('variable-title')?.style.visibility).toBe('hidden');
+    expect(elementById('variable-block')?.style.backgroundColor).toBe(
+      'rgb(51, 102, 255)',
+    );
+    expect(elementById('variable-block')?.dataset.boxY).toBe('31.2');
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+
+    const saved = JSON.parse(await readFile(filePath, 'utf8')) as {
+      children: Array<{ gap: string; children: Array<{ text?: string }> }>;
+      variables: Array<{ name: string; value: unknown }>;
+    };
+    expect(saved.children[0]?.gap).toBe('$${--space-gap}');
+    expect(saved.children[0]?.children[0]?.text).toBe('$${--label-title}');
+    expect(saved.variables[0]).toMatchObject({
+      name: '--color-brand',
+      value: '#3366ff',
+    });
+  });
+
   it('keeps the current design and disk file after a failed open, then opens a valid file again', async () => {
     const validPath = await writeJson('valid.json', frameWithText);
     const invalidContents = '{ not json';

@@ -116,4 +116,11 @@ export interface NodeInspector {
   fields: Readonly<Record<string, FieldValidator>>;
 }
 
-export type FieldValidator = (value: unknown, path: string) => Diagnostic[];
+export interface FieldValidator {
+  (value: unknown, path: string): Diagnostic[];
+  /**
+   * Variable types that may bind to this field when its whole value is a
+   * variable reference. Omitted for fields that cannot bind a variable.
+   */
+  variableTypes?: readonly VariableType[];
+}
