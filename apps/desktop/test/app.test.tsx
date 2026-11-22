@@ -17,6 +17,11 @@ import {
 import { App } from '../src/electron-render/App';
 import { readDesignFile } from '../src/electron-main/read-design-file';
 import type { OpenDesignFileResult } from '../src/electron-preload/contract';
+import {
+  findSceneNode,
+  hasSceneNode,
+  TestCanvasRegistry,
+} from './test-canvas-engine';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean;
@@ -26,6 +31,7 @@ let container: HTMLDivElement;
 let root: Root;
 let directory: string;
 let openDesignFile: () => Promise<OpenDesignFileResult>;
+let canvas: TestCanvasRegistry;
 
 beforeAll(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -40,6 +46,7 @@ beforeEach(async () => {
   directory = await mkdtemp(path.join(tmpdir(), 'design-ai-app-'));
   container = document.createElement('div');
   document.body.append(container);
+  canvas = new TestCanvasRegistry();
 });
 
 afterEach(async () => {
@@ -64,7 +71,12 @@ async function showOpenResult(filePath: string): Promise<void> {
 function renderApp(): void {
   root = createRoot(container);
   act(() => {
-    root.render(<App openDesignFile={() => openDesignFile()} />);
+    root.render(
+      <App
+        openDesignFile={() => openDesignFile()}
+        createCanvasEngine={canvas.factory}
+      />,
+    );
   });
 }
 
@@ -80,8 +92,8 @@ async function clickOpen(): Promise<void> {
   });
 }
 
-function elementById(id: string): HTMLElement | null {
-  return container.querySelector<HTMLElement>(`[data-element-id="${id}"]`);
+function sceneNode(id: string) {
+  return findSceneNode(canvas.engine?.scene ?? null, id);
 }
 
 const frameWithText = {
@@ -151,20 +163,15 @@ describe('desktop open flow', () => {
 
     await clickOpen();
 
-    const frame = elementById('frame-main');
-    expect(frame?.getAttribute('data-element-type')).toBe('frame');
-    expect(frame?.textContent).toContain('产品标题');
-
-    const title = elementById('title');
-    const caption = elementById('caption');
-    expect(title?.getAttribute('data-element-type')).toBe('text');
-    expect(title?.textContent).toBe('产品标题');
-    expect(caption?.textContent).toBe('说明文字');
-
-    const directChildIds = [...(frame?.children ?? [])].map((child) =>
-      child.getAttribute('data-element-id'),
-    );
-    expect(directChildIds).toEqual(['title', 'caption']);
+    const frame = sceneNode('frame-main');
+    expect(frame.type).toBe('frame');
+    expect(sceneNode('title').type).toBe('text');
+    expect(sceneNode('title').text?.content).toBe('产品标题');
+    expect(sceneNode('caption').text?.content).toBe('说明文字');
+    expect(frame.children.map((child) => child.id)).toEqual([
+      'title',
+      'caption',
+    ]);
   });
 
   it('opens a document containing all five element types and preserves icon identifiers', async () => {
@@ -217,28 +224,21 @@ describe('desktop open flow', () => {
 
     await clickOpen();
 
-    const frame = elementById('frame-all');
-    if (frame === null) {
-      throw new Error('Expected the frame to render');
-    }
-    expect(frame.getAttribute('data-element-type')).toBe('frame');
-    expect(elementById('rect-all')?.getAttribute('data-element-type')).toBe(
-      'rectangle',
-    );
-    expect(elementById('ellipse-all')?.getAttribute('data-element-type')).toBe(
-      'ellipse',
-    );
-    expect(elementById('text-all')?.textContent).toBe('五种元素');
-    expect(elementById('icon-all')?.getAttribute('data-icon-library')).toBe(
-      'lucide',
-    );
-    expect(elementById('icon-all')?.getAttribute('data-icon-name')).toBe(
-      'arrow-right',
-    );
-    expect(elementById('icon-all')?.querySelector('svg')).not.toBeNull();
-    expect(
-      [...frame.children].map((child) => child.getAttribute('data-element-id')),
-    ).toEqual(['rect-all', 'ellipse-all', 'text-all', 'icon-all']);
+    const frame = sceneNode('frame-all');
+    expect(frame.type).toBe('frame');
+    expect(sceneNode('rect-all').type).toBe('rectangle');
+    expect(sceneNode('ellipse-all').type).toBe('ellipse');
+    expect(sceneNode('text-all').text?.content).toBe('五种元素');
+    expect(sceneNode('icon-all').icon).toMatchObject({
+      library: 'lucide',
+      icon: 'arrow-right',
+    });
+    expect(frame.children.map((child) => child.id)).toEqual([
+      'rect-all',
+      'ellipse-all',
+      'text-all',
+      'icon-all',
+    ]);
   });
 
   it('renders resolved variables after opening while the file keeps the references', async () => {
@@ -283,12 +283,10 @@ describe('desktop open flow', () => {
 
     await clickOpen();
 
-    expect(elementById('variable-title')?.textContent).toBe('变量标题');
-    expect(elementById('variable-title')?.style.visibility).toBe('hidden');
-    expect(elementById('variable-block')?.style.backgroundColor).toBe(
-      'rgb(51, 102, 255)',
-    );
-    expect(elementById('variable-block')?.dataset.boxY).toBe('31.2');
+    expect(sceneNode('variable-title').text?.content).toBe('变量标题');
+    expect(sceneNode('variable-title').visible).toBe(false);
+    expect(sceneNode('variable-block').fill).toBe('#3366ff');
+    expect(sceneNode('variable-block').box.y).toBe(31.2);
     expect(container.querySelector('[role="alert"]')).toBeNull();
 
     const saved = JSON.parse(await readFile(filePath, 'utf8')) as {
@@ -312,12 +310,12 @@ describe('desktop open flow', () => {
     await showOpenResult(validPath);
     renderApp();
     await clickOpen();
-    expect(container.textContent).toContain('产品标题');
+    expect(sceneNode('title').text?.content).toBe('产品标题');
 
     await showOpenResult(invalidPath);
     await clickOpen();
 
-    expect(container.textContent).toContain('产品标题');
+    expect(sceneNode('title').text?.content).toBe('产品标题');
     const alert = container.querySelector('[role="alert"]');
     expect(alert?.textContent).toContain('invalid_json');
     expect(container.textContent).toContain('$');
@@ -336,8 +334,8 @@ describe('desktop open flow', () => {
     await showOpenResult(secondPath);
     await clickOpen();
 
-    expect(container.textContent).toContain('第二份标题');
-    expect(container.textContent).not.toContain('产品标题');
+    expect(sceneNode('title-second').text?.content).toBe('第二份标题');
+    expect(hasSceneNode(canvas.engine?.scene ?? null, 'title')).toBe(false);
     expect(container.querySelector('[role="alert"]')).toBeNull();
   });
 
@@ -352,14 +350,12 @@ describe('desktop open flow', () => {
     await clickOpen();
 
     expect(container.textContent).toContain('sample.pen');
-    expect(elementById('frame-imported')?.dataset.elementType).toBe('frame');
-    expect(elementById('rect-imported')?.dataset.elementType).toBe('rectangle');
-    expect(elementById('ellipse-imported')?.dataset.elementType).toBe(
-      'ellipse',
-    );
-    expect(elementById('text-imported')?.textContent).toBe('导入的标题');
-    expect(elementById('icon-imported')?.dataset.iconName).toBe('arrow-right');
-    expect(container.textContent).not.toContain('不应出现');
+    expect(sceneNode('frame-imported').type).toBe('frame');
+    expect(sceneNode('rect-imported').type).toBe('rectangle');
+    expect(sceneNode('ellipse-imported').type).toBe('ellipse');
+    expect(sceneNode('text-imported').text?.content).toBe('导入的标题');
+    expect(sceneNode('icon-imported').icon?.icon).toBe('arrow-right');
+    expect(hasSceneNode(canvas.engine?.scene ?? null, 'hidden')).toBe(false);
 
     const warnings = container.querySelector('[data-testid="import-warnings"]');
     expect(warnings?.textContent).toContain('unsupported_node');
@@ -397,13 +393,9 @@ describe('desktop open flow', () => {
 
     await clickOpen();
 
-    expect(elementById('frame-variable')?.style.backgroundColor).toBe(
-      'rgb(51, 102, 255)',
-    );
-    expect(elementById('text-variable')?.textContent).toBe('导入变量标题');
-    expect(elementById('block-variable')?.style.backgroundColor).toBe(
-      'rgb(51, 102, 255)',
-    );
+    expect(sceneNode('frame-variable').fill).toBe('#3366FF');
+    expect(sceneNode('text-variable').text?.content).toBe('导入变量标题');
+    expect(sceneNode('block-variable').fill).toBe('#3366FF');
     expect(
       container.querySelector('[data-testid="import-warnings"]'),
     ).toBeNull();
@@ -415,14 +407,14 @@ describe('desktop open flow', () => {
     await showOpenResult(nativePath);
     renderApp();
     await clickOpen();
-    expect(container.textContent).toContain('产品标题');
+    expect(sceneNode('title').text?.content).toBe('产品标题');
 
     const penPath = path.join(directory, 'future.pen');
     await writeFile(penPath, '{ "version": "2.26", "children": [] }', 'utf8');
     await showOpenResult(penPath);
     await clickOpen();
 
-    expect(container.textContent).toContain('产品标题');
+    expect(sceneNode('title').text?.content).toBe('产品标题');
     const alert = container.querySelector('[role="alert"]');
     expect(alert?.textContent).toContain('unsupported_version');
     expect(alert?.textContent).toContain('$.version');

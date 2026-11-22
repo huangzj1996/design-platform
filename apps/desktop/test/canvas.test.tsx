@@ -14,15 +14,46 @@ import {
   describe,
   expect,
   it,
+  vi,
 } from 'vitest';
 import { Canvas } from '../src/electron-render/Canvas';
+import type {
+  CanvasEngine,
+  CanvasEngineFactory,
+} from '../src/electron-render/canvas-engine';
+import type {
+  CanvasScene,
+  CanvasSelection,
+} from '../src/electron-render/canvas-scene';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean;
 }
 
+class TestCanvasEngine implements CanvasEngine {
+  scene: CanvasScene | null = null;
+  selection: CanvasSelection | null = null;
+  destroyed = false;
+
+  constructor(private readonly onSelect: (id: string | null) => void) {}
+
+  setScene(scene: CanvasScene, selection: CanvasSelection | null): void {
+    this.scene = scene;
+    this.selection = selection;
+  }
+
+  destroy(): void {
+    this.destroyed = true;
+  }
+
+  tap(id: string | null): void {
+    this.onSelect(id);
+  }
+}
+
 let container: HTMLDivElement;
 let root: Root;
+let engine: TestCanvasEngine | null;
 
 beforeAll(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -36,6 +67,7 @@ afterAll(() => {
 beforeEach(() => {
   container = document.createElement('div');
   document.body.append(container);
+  engine = null;
 });
 
 afterEach(() => {
@@ -53,476 +85,154 @@ function documentFrom(input: unknown): DesignDocument {
   return result.document;
 }
 
-function render(document: DesignDocument | null): void {
+const createEngine: CanvasEngineFactory = (_host, options) => {
+  engine = new TestCanvasEngine(options.onSelect);
+  return engine;
+};
+
+async function render(
+  document: DesignDocument | null,
+  selectionId: string | null = null,
+  onSelect?: (id: string | null) => void,
+): Promise<void> {
   root = createRoot(container);
-  act(() => {
-    root.render(<Canvas document={document} />);
+  await act(async () => {
+    root.render(
+      <Canvas
+        document={document}
+        selectionId={selectionId}
+        onSelect={onSelect}
+        createEngine={createEngine}
+      />,
+    );
   });
 }
 
-function elementById(id: string): HTMLElement {
-  const element = container.querySelector<HTMLElement>(
-    `[data-element-id="${id}"]`,
-  );
-  if (element === null) {
-    throw new Error(`No rendered element for ${id}`);
-  }
-  return element;
+async function rerender(
+  document: DesignDocument | null,
+  selectionId: string | null,
+): Promise<void> {
+  await act(async () => {
+    root.render(
+      <Canvas
+        document={document}
+        selectionId={selectionId}
+        createEngine={createEngine}
+      />,
+    );
+  });
 }
 
-function boxOf(id: string) {
-  const element = elementById(id);
-  return {
-    x: Number(element.dataset.boxX),
-    y: Number(element.dataset.boxY),
-    width: Number(element.dataset.boxWidth),
-    height: Number(element.dataset.boxHeight),
-  };
-}
-
-const fiveElementDocument = {
+const documentWithFrame = documentFrom({
   version: 1,
   children: [
     {
       id: 'frame',
       type: 'frame',
-      layout: 'vertical',
       width: 400,
       height: 300,
-      padding: [16, 16, 16, 16],
-      gap: 8,
-      fill: '#ffffff',
       children: [
-        {
-          id: 'rectangle',
-          type: 'rectangle',
-          width: 100,
-          height: 40,
-          fill: '#ff0000',
-          stroke: '#000000',
-          strokeWidth: 2,
-          cornerRadius: 4,
-        },
-        {
-          id: 'ellipse',
-          type: 'ellipse',
-          width: 40,
-          height: 40,
-          fill: '#00ff00',
-        },
-        {
-          id: 'text',
-          type: 'text',
-          text: '标题',
-          fontSize: 20,
-          fontWeight: 700,
-          lineHeight: 1.5,
-          textAlign: 'center',
-          textWrap: 'wrap',
-          fill: '#111111',
-        },
-        {
-          id: 'icon',
-          type: 'icon',
-          library: 'lucide',
-          icon: 'arrow-right',
-          width: 24,
-          height: 24,
-          fill: '#333333',
-        },
+        { id: 'title', type: 'text', text: '标题', width: 100, height: 24 },
+        { id: 'rectangle', type: 'rectangle', width: 40, height: 20, y: 30 },
       ],
     },
   ],
-};
+});
 
 describe('Canvas', () => {
-  it('renders the five native element types with nesting and sibling order', () => {
-    render(documentFrom(fiveElementDocument));
+  it('shows the empty states without creating a canvas engine', async () => {
+    await render(null);
+    expect(container.textContent).toContain('尚未打开设计稿');
+    expect(engine).toBeNull();
 
-    expect(elementById('frame').dataset.elementType).toBe('frame');
-    expect(elementById('rectangle').dataset.elementType).toBe('rectangle');
-    expect(elementById('ellipse').dataset.elementType).toBe('ellipse');
-    expect(elementById('text').dataset.elementType).toBe('text');
-    expect(elementById('icon').dataset.elementType).toBe('icon');
-
-    const frame = elementById('frame');
-    expect(
-      [...frame.children].map((child) => child.getAttribute('data-element-id')),
-    ).toEqual(['rectangle', 'ellipse', 'text', 'icon']);
-    expect(elementById('text').textContent).toBe('标题');
+    await rerender(documentFrom({ version: 1, children: [] }), null);
+    expect(container.textContent).toContain('空白设计稿');
+    expect(engine).toBeNull();
   });
 
-  it('applies the computed layout boxes, including free positioning and fill sizes', () => {
-    render(documentFrom(fiveElementDocument));
-
-    expect(boxOf('frame')).toEqual({
-      x: 0,
-      y: 0,
-      width: 400,
-      height: 300,
-    });
-    expect(boxOf('rectangle')).toEqual({
-      x: 16,
-      y: 16,
-      width: 100,
-      height: 40,
-    });
-    expect(boxOf('ellipse')).toEqual({
-      x: 16,
-      y: 64,
-      width: 40,
-      height: 40,
-    });
-    expect(boxOf('text')).toEqual({
-      x: 16,
-      y: 112,
-      width: 40,
-      height: 30,
-    });
-    expect(boxOf('icon')).toEqual({
-      x: 16,
-      y: 150,
-      width: 24,
-      height: 24,
-    });
-
-    const freeLayoutDocument = documentFrom({
-      version: 1,
-      children: [
-        {
-          id: 'free-frame',
-          type: 'frame',
-          layout: 'none',
-          width: 300,
-          height: 200,
-          padding: [10, 20, 30, 40],
-          children: [
-            {
-              id: 'placed',
-              type: 'rectangle',
-              x: 5,
-              y: 6,
-              width: 30,
-              height: 40,
-            },
-            {
-              id: 'filled',
-              type: 'rectangle',
-              width: { mode: 'fill_container' },
-              height: 10,
-            },
-          ],
-        },
-      ],
-    });
-    act(() => {
-      root.render(<Canvas document={freeLayoutDocument} />);
-    });
-
-    expect(boxOf('placed')).toEqual({
-      x: 45,
-      y: 16,
-      width: 30,
-      height: 40,
-    });
-    expect(boxOf('filled')).toEqual({
-      x: 40,
-      y: 10,
-      width: 240,
-      height: 10,
-    });
-  });
-
-  it('applies visibility, opacity, rotation, fill, stroke and corner radius', () => {
-    render(
+  it('hands the variable-resolved scene and selection to the engine', async () => {
+    await render(
       documentFrom({
         version: 1,
+        variables: { label: { type: 'string', value: '变量标题' } },
         children: [
           {
-            id: 'styled-frame',
+            id: 'frame',
             type: 'frame',
             width: 200,
-            height: 100,
-            fill: '#ffffff',
-            stroke: '#123456',
-            strokeWidth: 3,
-            cornerRadius: 8,
-            opacity: 0.5,
-            visible: false,
-            rotation: 30,
+            height: 80,
             children: [
               {
-                id: 'styled-rectangle',
-                type: 'rectangle',
-                width: 50,
+                id: 'title',
+                type: 'text',
+                text: '$label',
+                width: 80,
                 height: 20,
-                fill: '#ff0000',
-                stroke: '#00ff00',
-                strokeWidth: 2,
-                cornerRadius: 4,
-              },
-              {
-                id: 'styled-ellipse',
-                type: 'ellipse',
-                width: 40,
-                height: 40,
-                fill: '#0000ff',
               },
             ],
           },
         ],
       }),
+      'title',
     );
 
-    const frame = elementById('styled-frame');
-    expect(frame.style.opacity).toBe('0.5');
-    expect(frame.style.visibility).toBe('hidden');
-    expect(frame.style.transform).toBe('rotate(30deg)');
-    expect(frame.style.backgroundColor).toBe('rgb(255, 255, 255)');
-    expect(frame.style.boxShadow).toContain('inset');
-    expect(frame.style.boxShadow).toContain('3px');
-    expect(frame.style.borderRadius).toBe('8px');
-
-    const rectangle = elementById('styled-rectangle');
-    expect(rectangle.style.backgroundColor).toBe('rgb(255, 0, 0)');
-    expect(rectangle.style.boxShadow).toContain('2px');
-    expect(rectangle.style.borderRadius).toBe('4px');
-
-    const ellipse = elementById('styled-ellipse');
-    expect(ellipse.style.borderRadius).toBe('50%');
-  });
-
-  it('renders text typography and wrapping styles', () => {
-    render(
-      documentFrom({
-        version: 1,
-        children: [
-          {
-            id: 'wrapped',
-            type: 'text',
-            text: 'Hello world',
-            width: 40,
-            fontSize: 16,
-            fontFamily: 'Georgia',
-            fontWeight: 700,
-            lineHeight: 1.5,
-            textAlign: 'center',
-            textWrap: 'wrap',
-            fill: '#111111',
-          },
-          {
-            id: 'nowrap',
-            type: 'text',
-            text: 'Hello world',
-            width: 40,
-            y: 50,
-            fontSize: 16,
-            textWrap: 'none',
-          },
-        ],
-      }),
-    );
-
-    const wrapped = elementById('wrapped');
-    expect(wrapped.style.color).toBe('rgb(17, 17, 17)');
-    expect(wrapped.style.fontFamily).toBe('Georgia');
-    expect(wrapped.style.fontSize).toBe('16px');
-    expect(wrapped.style.fontWeight).toBe('700');
-    expect(wrapped.style.lineHeight).toBe('1.5');
-    expect(wrapped.style.textAlign).toBe('center');
-    expect(wrapped.style.whiteSpace).toBe('pre-wrap');
-    expect(boxOf('wrapped')).toMatchObject({ width: 40, height: 48 });
-
-    expect(elementById('nowrap').style.whiteSpace).toBe('nowrap');
-    expect(boxOf('nowrap')).toMatchObject({ width: 40, height: 19.2 });
-  });
-
-  it('renders Lucide icons by name and a sized placeholder for unknown icons', () => {
-    render(
-      documentFrom({
-        version: 1,
-        children: [
-          {
-            id: 'known-icon',
-            type: 'icon',
-            library: 'lucide',
-            icon: 'arrow-right',
-            width: 24,
-            height: 24,
-            fill: '#123456',
-          },
-          {
-            id: 'unknown-icon',
-            type: 'icon',
-            library: 'lucide',
-            icon: 'not-a-real-icon',
-            width: 32,
-            height: 18,
-            y: 40,
-          },
-          {
-            id: 'unknown-library',
-            type: 'icon',
-            library: 'other',
-            icon: 'star',
-            width: 20,
-            height: 20,
-            y: 80,
-          },
-        ],
-      }),
-    );
-
-    const known = elementById('known-icon');
-    expect(known.dataset.iconLibrary).toBe('lucide');
-    expect(known.dataset.iconName).toBe('arrow-right');
-    expect(known.dataset.iconResolved).toBe('true');
-    expect(known.querySelector('svg')).not.toBeNull();
-    expect(known.style.color).toBe('rgb(18, 52, 86)');
-
-    const unknown = elementById('unknown-icon');
-    expect(unknown.dataset.iconLibrary).toBe('lucide');
-    expect(unknown.dataset.iconName).toBe('not-a-real-icon');
-    expect(unknown.dataset.iconResolved).toBe('false');
-    expect(unknown.querySelector('svg')).toBeNull();
-    expect(boxOf('unknown-icon')).toMatchObject({
-      width: 32,
-      height: 18,
+    expect(engine).not.toBeNull();
+    expect(engine?.scene?.roots[0]?.id).toBe('frame');
+    expect(engine?.scene?.roots[0]?.children[0]).toMatchObject({
+      id: 'title',
+      text: { content: '变量标题' },
     });
-
-    const unknownLibrary = elementById('unknown-library');
-    expect(unknownLibrary.dataset.iconLibrary).toBe('other');
-    expect(unknownLibrary.dataset.iconName).toBe('star');
-    expect(unknownLibrary.dataset.iconResolved).toBe('false');
-    expect(unknownLibrary.querySelector('svg')).toBeNull();
+    expect(engine?.selection).toMatchObject({
+      id: 'title',
+      box: { x: 0, y: 0, width: 80, height: 20 },
+      outline: { color: '#4592FF', strokeWidth: 3 },
+    });
+    expect(engine?.selection?.sizeTag.text).toBe('80 × 20');
   });
 
-  it('renders resolved variable values and updates every reference together', () => {
-    const input = {
-      version: 1,
-      variables: {
-        'color-brand': { type: 'color', value: '#3366ff' },
-        'label-title': { type: 'string', value: '欢迎' },
-        'space-gap': { type: 'number', value: 8 },
-        'size-width': { type: 'number', value: 120 },
-        'show-caption': { type: 'boolean', value: true },
-      },
-      children: [
-        {
-          id: 'variable-frame',
-          type: 'frame',
-          layout: 'vertical',
-          width: 240,
-          height: 200,
-          padding: [10, 10, 10, 10],
-          gap: '$space-gap',
-          children: [
-            {
-              id: 'brand-block-a',
-              type: 'rectangle',
-              width: '$size-width',
-              height: 20,
-              fill: '$color-brand',
-            },
-            {
-              id: 'brand-block-b',
-              type: 'rectangle',
-              width: 40,
-              height: 20,
-              fill: '$color-brand',
-            },
-            {
-              id: 'variable-title',
-              type: 'text',
-              text: '$label-title',
-              fill: '$color-brand',
-              visible: '$show-caption',
-            },
-            {
-              id: 'escaped-title',
-              type: 'text',
-              text: '\\$label-title',
-            },
-            {
-              id: 'embedded-title',
-              type: 'text',
-              text: 'See $label-title',
-            },
-          ],
-        },
-      ],
-    };
+  it('forwards canvas taps and clears the selection when empty space is tapped', async () => {
+    const onSelect = vi.fn();
+    await render(documentWithFrame, null, onSelect);
 
-    const document = documentFrom(input);
-    render(document);
+    await act(async () => {
+      engine?.tap('rectangle');
+    });
+    expect(onSelect).toHaveBeenLastCalledWith('rectangle');
 
-    expect(elementById('brand-block-a').style.backgroundColor).toBe(
-      'rgb(51, 102, 255)',
-    );
-    expect(elementById('brand-block-b').style.backgroundColor).toBe(
-      'rgb(51, 102, 255)',
-    );
-    expect(elementById('variable-title').textContent).toBe('欢迎');
-    expect(elementById('variable-title').style.color).toBe('rgb(51, 102, 255)');
-    expect(elementById('variable-title').style.visibility).not.toBe('hidden');
+    await act(async () => {
+      engine?.tap(null);
+    });
+    expect(onSelect).toHaveBeenLastCalledWith(null);
+  });
 
-    expect(boxOf('brand-block-a')).toMatchObject({
-      x: 10,
-      y: 10,
-      width: 120,
+  it('updates the selection without recreating the engine', async () => {
+    await render(documentWithFrame, null);
+    const created = engine;
+    expect(created?.selection).toBeNull();
+
+    await rerender(documentWithFrame, 'rectangle');
+    expect(engine).toBe(created);
+    expect(engine?.selection?.id).toBe('rectangle');
+    expect(engine?.selection?.box).toEqual({
+      x: 100,
+      y: 0,
+      width: 40,
       height: 20,
     });
-    expect(boxOf('brand-block-b').y).toBe(38);
 
-    expect(elementById('escaped-title').textContent).toBe('$label-title');
-    expect(elementById('embedded-title').textContent).toBe('See $label-title');
-
-    const originalFrame = document.children[0];
-    expect(originalFrame).toMatchObject({
-      gap: '$space-gap',
-    });
-    if (originalFrame?.type === 'frame') {
-      expect(originalFrame.children?.[0]).toMatchObject({
-        width: '$size-width',
-        fill: '$color-brand',
-      });
-    }
-
-    const changed = documentFrom({
-      ...input,
-      variables: {
-        'color-brand': { type: 'color', value: '#ff0000' },
-        'label-title': { type: 'string', value: '已更新' },
-        'space-gap': { type: 'number', value: 16 },
-        'size-width': { type: 'number', value: 80 },
-        'show-caption': { type: 'boolean', value: false },
-      },
-    });
-    act(() => {
-      root.render(<Canvas document={changed} />);
-    });
-
-    expect(elementById('brand-block-a').style.backgroundColor).toBe(
-      'rgb(255, 0, 0)',
-    );
-    expect(elementById('brand-block-b').style.backgroundColor).toBe(
-      'rgb(255, 0, 0)',
-    );
-    expect(elementById('variable-title').textContent).toBe('已更新');
-    expect(elementById('variable-title').style.visibility).toBe('hidden');
-    expect(boxOf('brand-block-a')).toMatchObject({ width: 80 });
-    expect(boxOf('brand-block-b').y).toBe(46);
+    await rerender(documentWithFrame, 'title');
+    expect(engine).toBe(created);
+    expect(engine?.selection?.id).toBe('title');
   });
 
-  it('shows the empty states for a missing or blank document', () => {
-    render(null);
-    expect(container.textContent).toContain('尚未打开设计稿');
+  it('destroys the engine when unmounted', async () => {
+    await render(documentWithFrame, null);
+    const created = engine;
 
     act(() => {
-      root.render(
-        <Canvas document={documentFrom({ version: 1, children: [] })} />,
-      );
+      root.unmount();
     });
-    expect(container.textContent).toContain('空白设计稿');
+
+    expect(created?.destroyed).toBe(true);
   });
 });

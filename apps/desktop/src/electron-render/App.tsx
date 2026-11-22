@@ -21,6 +21,7 @@ import type {
   SaveDesignFileResult,
 } from '../electron-preload/contract';
 import { Canvas } from './Canvas';
+import type { CanvasEngineFactory } from './canvas-engine';
 import {
   applyCreateError,
   applyCreateResult,
@@ -51,6 +52,8 @@ export interface AppProps {
   confirmClose?: () => void;
   initialState?: EditorState;
   saveDelayMs?: number;
+  /** Canvas engine factory, injectable for tests. */
+  createCanvasEngine?: CanvasEngineFactory;
 }
 
 function requireDesignAi(operation: string): DesignAiApi {
@@ -137,6 +140,7 @@ export function App({
   confirmClose = confirmThroughBridge,
   initialState = initialEditorState,
   saveDelayMs,
+  createCanvasEngine,
 }: AppProps) {
   const [state, setState] = useState<EditorState>(initialState);
   const [opening, setOpening] = useState(false);
@@ -421,6 +425,7 @@ export function App({
               document={document}
               selectionId={state.selectionId}
               onSelect={handleSelect}
+              createEngine={createCanvasEngine}
             />
           </section>
           <PropertiesPanel

@@ -33,6 +33,11 @@ import type {
   SaveDesignFileInput,
   SaveDesignFileResult,
 } from '../src/electron-preload/contract';
+import {
+  findSceneNode,
+  hasSceneNode,
+  TestCanvasRegistry,
+} from './test-canvas-engine';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean;
@@ -51,6 +56,7 @@ let saveDesignFile: (
 ) => Promise<SaveDesignFileResult>;
 let confirmCloseCalls: number;
 let closeListeners: Set<() => void>;
+let canvas: TestCanvasRegistry;
 
 beforeAll(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -69,6 +75,7 @@ beforeEach(async () => {
   failWrites = false;
   confirmCloseCalls = 0;
   closeListeners = new Set();
+  canvas = new TestCanvasRegistry();
 
   saver = new DesignFileSaver({
     projectDirectory: directory,
@@ -161,6 +168,7 @@ async function renderApp({
           confirmCloseCalls += 1;
         }}
         saveDelayMs={saveDelayMs}
+        createCanvasEngine={canvas.factory}
       />,
     );
   });
@@ -215,8 +223,15 @@ function layerRow(id: string): HTMLElement {
   return row;
 }
 
-function elementById(id: string): HTMLElement | null {
-  return container.querySelector<HTMLElement>(`[data-element-id="${id}"]`);
+function sceneNode(id: string) {
+  return findSceneNode(canvas.engine?.scene ?? null, id);
+}
+
+async function tapCanvas(id: string | null): Promise<void> {
+  await act(async () => {
+    canvas.tap(id);
+  });
+  await settle(3);
 }
 
 function propertyInput(label: string): HTMLInputElement {
@@ -288,35 +303,35 @@ describe('desktop editing workflow', () => {
     await renderApp();
     await clickButton('打开设计稿');
 
-    expect(elementById('title')?.textContent).toBe('旧标题');
+    expect(sceneNode('title').text?.content).toBe('旧标题');
     expect(container.textContent).toContain('未选择元素');
 
     // Canvas clicks and layer-tree clicks select the same element.
-    await click(elementById('caption') as HTMLElement);
+    await tapCanvas('caption');
+    expect(canvas.engine?.selection?.id).toBe('caption');
     expect(
       container.querySelector('[data-testid="property-panel"]')?.textContent,
     ).toContain('caption');
     await click(layerRow('title'));
+    expect(canvas.engine?.selection?.id).toBe('title');
     expect(propertyInput('文案').value).toBe('旧标题');
 
     // A local text edit keeps the other fields and updates the canvas.
     await setInput('文案', '新标题');
-    expect(elementById('title')?.textContent).toBe('新标题');
+    expect(sceneNode('title').text?.content).toBe('新标题');
     expect(propertyInput('字号').value).toBe('24');
 
     // Container spacing changes update the canvas layout.
     await click(layerRow('main'));
-    const captionBefore = Number(elementById('caption')?.dataset.boxY);
+    const captionBefore = sceneNode('caption').box.y;
     await setInput('间距', '24');
-    expect(Number(elementById('caption')?.dataset.boxY)).toBeGreaterThan(
-      captionBefore,
-    );
+    expect(sceneNode('caption').box.y).toBeGreaterThan(captionBefore);
     await setInput('填充颜色', '#00ff00');
-    expect(elementById('main')?.style.backgroundColor).toBe('rgb(0, 255, 0)');
+    expect(sceneNode('main').fill).toBe('#00ff00');
 
     // New title at the root, a new container, and a child inside it.
     await clickButton('新建标题');
-    expect(elementById('text-1')?.textContent).toBe('标题');
+    expect(sceneNode('text-1').text?.content).toBe('标题');
     await clickButton('新建容器');
     await click(layerRow('frame-1'));
     await clickButton('添加文字');
@@ -333,7 +348,9 @@ describe('desktop editing workflow', () => {
     expect(container.querySelector('[data-layer-id="frame-1"]')).toBeNull();
     expect(container.querySelector('[data-layer-id="text-2"]')).toBeNull();
     expect(container.querySelector('[data-layer-id="text-1"]')).not.toBeNull();
-    expect(elementById('title')?.textContent).toBe('新标题');
+    expect(canvas.engine?.selection).toBeNull();
+    expect(hasSceneNode(canvas.engine?.scene ?? null, 'frame-1')).toBe(false);
+    expect(sceneNode('title').text?.content).toBe('新标题');
 
     // Closing flushes the debounced save before confirming the close.
     await requestClose();
@@ -364,7 +381,7 @@ describe('desktop editing workflow', () => {
     await setOpenFile(filePath);
     await clickButton('打开设计稿');
     expect(container.textContent).toContain('未选择元素');
-    expect(elementById('title')?.textContent).toBe('新标题');
+    expect(sceneNode('title').text?.content).toBe('新标题');
     expect(container.querySelector('[data-layer-id="frame-1"]')).toBeNull();
   });
 
@@ -385,6 +402,8 @@ describe('desktop editing workflow', () => {
 
     await clickButton('打开设计稿');
     await click(layerRow('title'));
+    await tapCanvas('caption');
+    await tapCanvas('title');
     await act(async () => {
       vi.advanceTimersByTime(2000);
       await Promise.resolve();
@@ -505,7 +524,7 @@ describe('desktop editing workflow', () => {
     expect(
       container.querySelector('[data-testid="save-error"]'),
     ).not.toBeNull();
-    expect(elementById('title')?.textContent).toBe('失败后的编辑');
+    expect(sceneNode('title').text?.content).toBe('失败后的编辑');
     const onDisk = JSON.parse(await readFile(filePath, 'utf8')) as {
       children: Array<{ children: Array<{ text: string }> }>;
     };
@@ -591,7 +610,7 @@ describe('desktop editing workflow', () => {
     await setOpenFile(filePath);
     await renderApp();
     await clickButton('打开设计稿');
-    expect(elementById('bound-title')?.textContent).toBe('变量标题');
+    expect(sceneNode('bound-title').text?.content).toBe('变量标题');
 
     await click(layerRow('caption'));
     await setInput('文案', '编辑后的说明');
@@ -622,7 +641,7 @@ describe('desktop editing workflow', () => {
 
     await click(layerRow('bound-title'));
     expect(propertyInput('文案').value).toBe('$label-title');
-    expect(elementById('bound-title')?.textContent).toBe('变量标题');
+    expect(sceneNode('bound-title').text?.content).toBe('变量标题');
   });
 
   it('records the new absolute path when a saved design with variables is moved and reopened', async () => {
@@ -678,7 +697,7 @@ describe('desktop editing workflow', () => {
     await clickButton('打开设计稿');
 
     // Opening the moved file and changing only the selection skips the write.
-    expect(elementById('bound-title')?.textContent).toBe('变量标题');
+    expect(sceneNode('bound-title').text?.content).toBe('变量标题');
     await click(layerRow('caption'));
     expect(writeLog).toHaveLength(0);
 
@@ -715,8 +734,8 @@ describe('desktop editing workflow', () => {
 
     await setOpenFile(movedPath);
     await clickButton('打开设计稿');
-    expect(elementById('bound-title')?.textContent).toBe('变量标题');
-    expect(elementById('caption')?.textContent).toBe('移动后说明');
+    expect(sceneNode('bound-title').text?.content).toBe('变量标题');
+    expect(sceneNode('caption').text?.content).toBe('移动后说明');
 
     // Restoring the reopened document's saved content still skips the write.
     await click(layerRow('caption'));
@@ -739,7 +758,7 @@ describe('desktop editing workflow', () => {
     openDesignFile = () => readDesignFile(filePath);
     await clickButton('打开设计稿');
 
-    expect(elementById('title')?.textContent).toBe('重开前的编辑');
+    expect(sceneNode('title').text?.content).toBe('重开前的编辑');
     expect(container.textContent).toContain('未选择元素');
   });
 
@@ -862,7 +881,7 @@ describe('desktop editing workflow', () => {
     await setOpenFile(penPath);
     await renderApp();
     await clickButton('打开设计稿');
-    expect(elementById('imported-title')?.textContent).toBe('导入变量标题');
+    expect(sceneNode('imported-title').text?.content).toBe('导入变量标题');
 
     await click(layerRow('imported-caption'));
     await setInput('文案', '导入后说明');
@@ -894,9 +913,7 @@ describe('desktop editing workflow', () => {
     // The assigned path and the variable references survive a reopen.
     await setOpenFile(savedPath);
     await clickButton('打开设计稿');
-    expect(elementById('imported-title')?.textContent).toBe('导入变量标题');
-    expect(elementById('imported-frame')?.style.backgroundColor).toBe(
-      'rgb(14, 14, 17)',
-    );
+    expect(sceneNode('imported-title').text?.content).toBe('导入变量标题');
+    expect(sceneNode('imported-frame').fill).toBe('#0E0E11');
   });
 });
