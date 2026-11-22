@@ -2,11 +2,26 @@ import type {
   DesignDocument,
   DesignElement,
   Dimension,
+  EllipseElement,
   FrameElement,
+  FrameLayout,
   IconElement,
+  RectangleElement,
+  SizedElement,
   TextElement,
 } from '@design-ai/design-schema';
 import type { CSSProperties } from 'react';
+
+type ShapeElement = RectangleElement | EllipseElement;
+
+const FRAME_FLEX_DIRECTIONS: Record<
+  FrameLayout,
+  CSSProperties['flexDirection']
+> = {
+  none: undefined,
+  horizontal: 'row',
+  vertical: 'column',
+};
 
 export interface CanvasProps {
   document: DesignDocument | null;
@@ -43,9 +58,8 @@ function CanvasElement({ element }: { element: DesignElement }) {
     case 'icon':
       return <IconView element={element} />;
     case 'rectangle':
-      return <ShapeView element={element} shape="rectangle" />;
     case 'ellipse':
-      return <ShapeView element={element} shape="ellipse" />;
+      return <ShapeView element={element} />;
   }
 }
 
@@ -55,12 +69,7 @@ function FrameView({ element }: { element: FrameElement }) {
     ...sizedStyle(element),
     ...commonStyle(element),
     display: 'flex',
-    flexDirection:
-      layout === 'vertical'
-        ? 'column'
-        : layout === 'horizontal'
-          ? 'row'
-          : undefined,
+    flexDirection: FRAME_FLEX_DIRECTIONS[layout],
     gap: element.gap === undefined ? undefined : `${element.gap}px`,
     padding:
       element.padding === undefined
@@ -87,12 +96,7 @@ function FrameView({ element }: { element: FrameElement }) {
 function TextView({ element }: { element: TextElement }) {
   const style: CSSProperties = {
     ...sizedStyle(element),
-    opacity: element.opacity,
-    visibility: element.visible === false ? 'hidden' : undefined,
-    transform:
-      element.rotation === undefined
-        ? undefined
-        : `rotate(${element.rotation}deg)`,
+    ...stateStyle(element),
     color: element.fill,
     fontFamily: element.fontFamily,
     fontSize:
@@ -115,13 +119,8 @@ function TextView({ element }: { element: TextElement }) {
   );
 }
 
-function ShapeView({
-  element,
-  shape,
-}: {
-  element: DesignElement;
-  shape: 'rectangle' | 'ellipse';
-}) {
+function ShapeView({ element }: { element: ShapeElement }) {
+  const shape = element.type;
   const style: CSSProperties = {
     ...sizedStyle(element),
     ...commonStyle(element),
@@ -160,17 +159,14 @@ function IconView({ element }: { element: IconElement }) {
   );
 }
 
-function sizedStyle(element: {
-  width?: Dimension;
-  height?: Dimension;
-}): CSSProperties {
+function sizedStyle(element: SizedElement): CSSProperties {
   return {
     width: cssDimension(element.width),
     height: cssDimension(element.height),
   };
 }
 
-function commonStyle(element: DesignElement): CSSProperties {
+function stateStyle(element: DesignElement): CSSProperties {
   return {
     opacity: element.opacity,
     visibility: element.visible === false ? 'hidden' : undefined,
@@ -178,6 +174,12 @@ function commonStyle(element: DesignElement): CSSProperties {
       element.rotation === undefined
         ? undefined
         : `rotate(${element.rotation}deg)`,
+  };
+}
+
+function commonStyle(element: DesignElement): CSSProperties {
+  return {
+    ...stateStyle(element),
     border: element.stroke
       ? `${element.strokeWidth ?? 1}px solid ${element.stroke}`
       : undefined,
@@ -192,8 +194,11 @@ function cssDimension(value: Dimension | undefined): string | undefined {
   if (typeof value === 'number') {
     return `${value}px`;
   }
-  if (value.mode === 'fill_container') {
-    return '100%';
+
+  switch (value.mode) {
+    case 'fill_container':
+      return '100%';
+    case 'fit_content':
+      return value.fallback === undefined ? undefined : `${value.fallback}px`;
   }
-  return value.fallback === undefined ? undefined : `${value.fallback}px`;
 }

@@ -41,7 +41,7 @@ const createWindow = () => {
   mainWindow.webContents.openDevTools();
 };
 
-function registerOpenDesignFileHandler() {
+const registerOpenDesignFileHandler = () => {
   ipcMain.handle(
     OPEN_DESIGN_FILE_CHANNEL,
     async (event): Promise<OpenDesignFileResult> => {
@@ -50,9 +50,9 @@ function registerOpenDesignFileHandler() {
         properties: ['openFile'],
         filters: [{ name: '设计稿', extensions: ['json'] }],
       };
-      const window = BrowserWindow.fromWebContents(event.sender);
-      const selection = window
-        ? await dialog.showOpenDialog(window, options)
+      const browserWindow = BrowserWindow.fromWebContents(event.sender);
+      const selection = browserWindow
+        ? await dialog.showOpenDialog(browserWindow, options)
         : await dialog.showOpenDialog(options);
 
       if (selection.canceled || selection.filePaths.length === 0) {
@@ -62,7 +62,7 @@ function registerOpenDesignFileHandler() {
       return readDesignFile(selection.filePaths[0]);
     },
   );
-}
+};
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.

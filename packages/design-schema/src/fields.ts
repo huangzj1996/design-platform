@@ -20,6 +20,15 @@ export function isHexColor(value: unknown): value is string {
   return typeof value === 'string' && HEX_COLOR_PATTERN.test(value);
 }
 
+export function isOneOf<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+): value is T {
+  return (
+    typeof value === 'string' && (allowed as readonly string[]).includes(value)
+  );
+}
+
 function invalid(path: string, message: string): Diagnostic[] {
   return [createDiagnostic(DiagnosticCodes.invalidValue, path, message)];
 }
@@ -74,7 +83,7 @@ export function enumField<T extends string>(
   values: readonly T[],
 ): FieldValidator {
   return (value, path) =>
-    typeof value === 'string' && (values as readonly string[]).includes(value)
+    isOneOf(value, values)
       ? []
       : invalid(path, `必须是 ${values.join('、')} 之一`);
 }
@@ -117,10 +126,7 @@ export const dimensionField: FieldValidator = (value, path) => {
 
   if (!('mode' in value)) {
     diagnostics.push(...invalid(`${path}.mode`, '尺寸对象必须包含 mode'));
-  } else if (
-    typeof value.mode !== 'string' ||
-    !(DIMENSION_MODES as readonly string[]).includes(value.mode)
-  ) {
+  } else if (!isOneOf(value.mode, DIMENSION_MODES)) {
     diagnostics.push(
       ...invalid(
         `${path}.mode`,

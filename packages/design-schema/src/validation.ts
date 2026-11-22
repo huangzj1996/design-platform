@@ -3,7 +3,7 @@ import {
   DiagnosticCodes,
   type Diagnostic,
 } from './diagnostics';
-import { isHexColor, isPlainObject } from './fields';
+import { isHexColor, isOneOf, isPlainObject } from './fields';
 import { getNodeInspector } from './node-inspectors';
 import { isSystemAbsolutePath } from './path';
 import {
@@ -13,6 +13,7 @@ import {
   type DesignVariable,
   type ValidationResult,
   type VariableType,
+  type VariableValue,
 } from './types';
 
 const ROOT_PATH = '$';
@@ -48,7 +49,7 @@ function fieldPath(parentPath: string, field: string): string {
 export function parseDesignDocument(text: string): ValidationResult {
   let input: unknown;
   try {
-    input = JSON.parse(text) as unknown;
+    input = JSON.parse(text);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return {
@@ -215,9 +216,11 @@ function validateVariables(
     }
 
     const { name, type, value } = entry;
-    let valid = true;
+    const nameIsValid = typeof name === 'string' && name.length > 0;
+    const typeIsValid = isVariableType(type);
+    const valueIsValid = typeIsValid && isValidVariableValue(type, value);
 
-    if (typeof name !== 'string' || name.length === 0) {
+    if (!nameIsValid) {
       state.errors.push(
         createDiagnostic(
           DiagnosticCodes.invalidValue,
@@ -225,13 +228,9 @@ function validateVariables(
           '变量名必须是非空字符串',
         ),
       );
-      valid = false;
     }
 
-    if (
-      typeof type !== 'string' ||
-      !(VARIABLE_TYPES as readonly string[]).includes(type)
-    ) {
+    if (!typeIsValid) {
       state.errors.push(
         createDiagnostic(
           DiagnosticCodes.invalidValue,
@@ -239,8 +238,7 @@ function validateVariables(
           `变量类型必须是 ${VARIABLE_TYPES.join('、')} 之一`,
         ),
       );
-      valid = false;
-    } else if (!isValidVariableValue(type as VariableType, value)) {
+    } else if (!valueIsValid) {
       state.errors.push(
         createDiagnostic(
           DiagnosticCodes.invalidValue,
@@ -248,22 +246,24 @@ function validateVariables(
           `变量值必须匹配 ${type} 类型`,
         ),
       );
-      valid = false;
     }
 
-    if (valid) {
-      variables.push({
-        name: name as string,
-        type: type as VariableType,
-        value: value as string | number | boolean,
-      });
+    if (nameIsValid && typeIsValid && valueIsValid) {
+      variables.push({ name, type, value });
     }
   });
 
   return variables;
 }
 
-function isValidVariableValue(type: VariableType, value: unknown): boolean {
+function isVariableType(value: unknown): value is VariableType {
+  return isOneOf(value, VARIABLE_TYPES);
+}
+
+function isValidVariableValue(
+  type: VariableType,
+  value: unknown,
+): value is VariableValue {
   switch (type) {
     case 'color':
       return isHexColor(value);

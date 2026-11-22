@@ -81,7 +81,17 @@ const iconInspector: NodeInspector = {
   },
 };
 
-const registry = new Map<string, NodeInspector>();
+const builtInInspectors: readonly NodeInspector[] = [
+  frameInspector,
+  rectangleInspector,
+  ellipseInspector,
+  textInspector,
+  iconInspector,
+];
+
+const registry = new Map<string, NodeInspector>(
+  builtInInspectors.map((inspector) => [inspector.type, inspector]),
+);
 
 /**
  * The inspector registry used by the document validator. Each native element
@@ -96,16 +106,6 @@ export function registerNodeInspector(inspector: NodeInspector): void {
 
 export function getNodeInspector(type: string): NodeInspector | undefined {
   return registry.get(type);
-}
-
-for (const inspector of [
-  frameInspector,
-  rectangleInspector,
-  ellipseInspector,
-  textInspector,
-  iconInspector,
-]) {
-  registerNodeInspector(inspector);
 }
 
 export function supportedNodeTypes(): ElementType[] {

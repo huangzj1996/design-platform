@@ -1,6 +1,12 @@
 import { readFile } from 'node:fs/promises';
-import { parseDesignDocument } from '@design-ai/design-schema';
-import type { OpenDesignFileResult } from '../shared/open-design-file';
+import {
+  createDiagnostic,
+  parseDesignDocument,
+} from '@design-ai/design-schema';
+import {
+  DesktopDiagnosticCodes,
+  type OpenDesignFileResult,
+} from '../shared/open-design-file';
 
 /**
  * Reads a native design document from disk and validates it. A failed read or
@@ -18,11 +24,11 @@ export async function readDesignFile(
       status: 'failed',
       filePath,
       errors: [
-        {
-          code: 'file_read_error',
-          path: '$',
-          message: `无法读取设计稿文件：${message}`,
-        },
+        createDiagnostic(
+          DesktopDiagnosticCodes.fileReadError,
+          '$',
+          `无法读取设计稿文件：${message}`,
+        ),
       ],
     };
   }

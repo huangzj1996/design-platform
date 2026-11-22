@@ -1,5 +1,12 @@
-import type { DesignDocument, Diagnostic } from '@design-ai/design-schema';
-import type { OpenDesignFileResult } from '../shared/open-design-file';
+import {
+  createDiagnostic,
+  type DesignDocument,
+  type Diagnostic,
+} from '@design-ai/design-schema';
+import {
+  DesktopDiagnosticCodes,
+  type OpenDesignFileResult,
+} from '../shared/open-design-file';
 
 export interface EditorState {
   document: DesignDocument | null;
@@ -42,7 +49,9 @@ export function applyOpenError(
   const message = error instanceof Error ? error.message : String(error);
   return {
     ...state,
-    diagnostics: [{ code: 'open_failed', path: '$', message }],
+    diagnostics: [
+      createDiagnostic(DesktopDiagnosticCodes.openFailed, '$', message),
+    ],
   };
 }
 

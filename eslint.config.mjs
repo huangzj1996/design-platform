@@ -17,7 +17,9 @@ export default defineConfig(
     files: [
       '**/*.config.{cjs,js,mjs,cts,mts,ts}',
       '**/scripts/**/*.{cjs,js,mjs,cts,mts,ts}',
-      'apps/desktop/src/{main,preload}.ts',
+      'apps/desktop/src/main.ts',
+      'apps/desktop/src/main/**/*.ts',
+      'apps/desktop/src/preload.ts',
     ],
     languageOptions: { globals: globals.node },
   },
