@@ -322,48 +322,5 @@ body {
 
 .canvas-stage {
   position: relative;
-}
-
-.canvas-frame {
-  outline: 1px dashed #afb8c1;
-  outline-offset: -1px;
-}
-
-.canvas [data-selected='true'] {
-  outline: 2px solid #0969da;
-  outline-offset: 1px;
-  cursor: pointer;
-}
-
-.canvas [data-element-id] {
-  cursor: pointer;
-}
-
-.canvas-text {
-  display: block;
-  overflow: visible;
-}
-
-.canvas-shape,
-.canvas-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
   overflow: hidden;
-}
-
-.canvas-ellipse {
-  border-radius: 50%;
-}
-
-.canvas-icon-placeholder {
-  border: 1px dashed #8250df;
-  border-radius: 4px;
-  color: #8250df;
-  background: #faf5ff;
-  font-size: 11px;
-}
-
-.canvas-icon svg {
-  display: block;
 }

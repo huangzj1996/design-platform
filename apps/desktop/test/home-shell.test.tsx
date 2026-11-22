@@ -25,6 +25,7 @@ import type {
   SaveDesignFileInput,
   SaveDesignFileResult,
 } from '../src/electron-preload/contract';
+import { findSceneNode, TestCanvasRegistry } from './test-canvas-engine';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean;
@@ -41,6 +42,7 @@ let createDesignFile: () => Promise<CreateDesignFileResult>;
 let saveDesignFile: (
   input: SaveDesignFileInput,
 ) => Promise<SaveDesignFileResult>;
+let canvas: TestCanvasRegistry;
 
 beforeAll(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -57,6 +59,7 @@ beforeEach(async () => {
   document.body.append(container);
   writeLog = [];
   failWrites = false;
+  canvas = new TestCanvasRegistry();
 
   saver = new DesignFileSaver({
     projectDirectory: directory,
@@ -140,6 +143,7 @@ async function renderApp(): Promise<void> {
         openDesignFile={() => openDesignFile()}
         createDesignFile={() => createDesignFile()}
         saveDesignFile={(input) => saveDesignFile(input)}
+        createCanvasEngine={canvas.factory}
         subscribeCloseRequest={() => () => {}}
         confirmClose={() => {}}
         saveDelayMs={60_000}
@@ -224,8 +228,8 @@ async function readSavedTitle(filePath: string): Promise<unknown> {
   return saved.children[0]?.children?.[0];
 }
 
-function elementById(id: string): HTMLElement | null {
-  return container.querySelector<HTMLElement>(`[data-element-id="${id}"]`);
+function sceneNode(id: string) {
+  return findSceneNode(canvas.engine?.scene ?? null, id);
 }
 
 function layerRow(id: string): HTMLElement {
@@ -301,7 +305,7 @@ describe('home shell and project tabs', () => {
     expect(container.querySelector('[data-testid="home"]')).toBeNull();
     expect(tabLabels()).toHaveLength(2);
     expect(activeTab().textContent).toContain('board.json');
-    expect(elementById('title')?.textContent).toBe('旧标题');
+    expect(sceneNode('title').text?.content).toBe('旧标题');
 
     await clickTab('主页');
     expect(container.querySelector('[data-testid="home"]')).not.toBeNull();
@@ -310,7 +314,7 @@ describe('home shell and project tabs', () => {
 
     expect(tabLabels()).toHaveLength(2);
     expect(activeTab().textContent).toContain('board.json');
-    expect(elementById('title')?.textContent).toBe('旧标题');
+    expect(sceneNode('title').text?.content).toBe('旧标题');
   });
 
   it('imports a Pencil design from the home empty state', async () => {
@@ -330,7 +334,7 @@ describe('home shell and project tabs', () => {
 
     expect(container.querySelector('[data-testid="home"]')).toBeNull();
     expect(activeTab().textContent).toContain('sample.pen');
-    expect(elementById('imported')?.textContent).toBe('导入文案');
+    expect(sceneNode('imported').text?.content).toBe('导入文案');
   });
 
   it('creates a design from the tab add button and shows its file name when reopened from home', async () => {
@@ -393,7 +397,7 @@ describe('home shell and project tabs', () => {
     });
 
     await clickTab('draft.json');
-    expect(elementById('title')?.textContent).toBe('离开前保存');
+    expect(sceneNode('title').text?.content).toBe('离开前保存');
   });
 
   it('saves the current design before creating another one from the tab bar', async () => {
@@ -426,7 +430,7 @@ describe('home shell and project tabs', () => {
 
     expect(container.querySelector('[data-testid="home"]')).toBeNull();
     expect(activeTab().textContent).toContain('failed-home.json');
-    expect(elementById('title')?.textContent).toBe('失败后仍保留');
+    expect(sceneNode('title').text?.content).toBe('失败后仍保留');
     expect(
       container.querySelector('[data-testid="save-error"]'),
     ).not.toBeNull();
@@ -459,7 +463,7 @@ describe('home shell and project tabs', () => {
     await clickTab('second.json');
 
     expect(activeTab().textContent).toContain('first.json');
-    expect(elementById('title')?.textContent).toBe('切换前保存');
+    expect(sceneNode('title').text?.content).toBe('切换前保存');
     expect(
       container.querySelector('[data-testid="save-error"]'),
     ).not.toBeNull();
@@ -468,7 +472,7 @@ describe('home shell and project tabs', () => {
     await clickButton('重试保存');
 
     expect(activeTab().textContent).toContain('second.json');
-    expect(container.textContent).toContain('第二份标题');
+    expect(sceneNode('second-title').text?.content).toBe('第二份标题');
     expect(await readSavedTitle(firstPath)).toMatchObject({
       text: '切换前保存',
     });
