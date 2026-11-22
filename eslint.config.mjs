@@ -6,11 +6,11 @@ import tseslint from 'typescript-eslint';
 export default defineConfig(
   globalIgnores(['**/.vite/', '**/dist/', '**/out/', '.husky/_/']),
   {
-    files: ['**/*.{cjs,js,mjs,cts,mts,ts}'],
+    files: ['**/*.{cjs,js,mjs,cts,mts,ts,tsx}'],
     extends: [js.configs.recommended],
   },
   {
-    files: ['**/*.{cts,mts,ts}'],
+    files: ['**/*.{cts,mts,ts,tsx}'],
     extends: [tseslint.configs.recommended],
   },
   {
@@ -22,7 +22,14 @@ export default defineConfig(
     languageOptions: { globals: globals.node },
   },
   {
-    files: ['apps/desktop/src/renderer.ts'],
+    files: [
+      'apps/desktop/src/renderer.tsx',
+      'apps/desktop/src/renderer/**/*.{ts,tsx}',
+    ],
     languageOptions: { globals: globals.browser },
+  },
+  {
+    files: ['apps/desktop/test/**/*.{ts,tsx}', 'packages/*/test/**/*.{ts,tsx}'],
+    languageOptions: { globals: { ...globals.node, ...globals.browser } },
   },
 );

@@ -3,7 +3,9 @@
   "private": true,
   "scripts": {
     "build": "pnpm --filter './packages/*' -r build",
-    "start": "pnpm --filter @design-ai/desktop start",
+    "start": "pnpm build && pnpm --filter @design-ai/desktop start",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "package": "pnpm --filter @design-ai/desktop package",
     "make": "pnpm --filter @design-ai/desktop make",
     "release": "pnpm --filter @design-ai/desktop release",
@@ -12,7 +14,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "spellcheck": "cspell lint --no-progress",
-    "typecheck": "pnpm -r typecheck",
+    "typecheck": "pnpm build && pnpm -r typecheck",
     "prepare": "husky"
   },
   "engines": {
@@ -21,12 +23,15 @@
   "packageManager": "pnpm@12.21.0+sha512.66fd8278ee28935ce951792d34367ff3af5c432a2756445823029533835b8da529bbe0be5130afd56ed0713fb8789e47bad82d93bd5ae2fe54b15562d6276ef0",
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@types/node": "^26.6.6",
     "cspell": "^10.5.2",
     "eslint": "^10.15.0",
     "globals": "^17.14.0",
     "husky": "^9.1.7",
+    "jsdom": "^31.0.1",
     "prettier": "^3.10.1",
     "typescript": "6.0.3",
-    "typescript-eslint": "^8.73.0"
+    "typescript-eslint": "^8.73.0",
+    "vitest": "^5.1.1"
   }
 }

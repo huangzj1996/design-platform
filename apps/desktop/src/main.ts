@@ -1,6 +1,17 @@
-import { app, BrowserWindow } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  type OpenDialogOptions,
+} from 'electron';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
+import { readDesignFile } from './main/read-design-file';
+import {
+  OPEN_DESIGN_FILE_CHANNEL,
+  type OpenDesignFileResult,
+} from './shared/open-design-file';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
@@ -30,10 +41,34 @@ const createWindow = () => {
   mainWindow.webContents.openDevTools();
 };
 
+function registerOpenDesignFileHandler() {
+  ipcMain.handle(
+    OPEN_DESIGN_FILE_CHANNEL,
+    async (event): Promise<OpenDesignFileResult> => {
+      const options: OpenDialogOptions = {
+        title: '打开设计稿',
+        properties: ['openFile'],
+        filters: [{ name: '设计稿', extensions: ['json'] }],
+      };
+      const window = BrowserWindow.fromWebContents(event.sender);
+      const selection = window
+        ? await dialog.showOpenDialog(window, options)
+        : await dialog.showOpenDialog(options);
+
+      if (selection.canceled || selection.filePaths.length === 0) {
+        return { status: 'cancelled' };
+      }
+
+      return readDesignFile(selection.filePaths[0]);
+    },
+  );
+}
+
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
+  registerOpenDesignFileHandler();
   createWindow();
 
   // On OS X it's common to re-create a window in the app when the
