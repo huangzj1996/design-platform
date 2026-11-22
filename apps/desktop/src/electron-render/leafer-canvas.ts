@@ -1,4 +1,4 @@
-import type { UI as LeaferElement } from 'leafer-ui';
+import type { IFill, UI as LeaferElement } from 'leafer-ui';
 import {
   DEFAULT_CANVAS_VIEWPORT,
   type CanvasEngine,
@@ -22,6 +22,47 @@ import {
 interface TargetWithParent {
   data?: { elementId?: unknown };
   parent?: TargetWithParent | null;
+}
+
+/**
+ * Builds the paint used for a fill. A partial fill opacity becomes a solid
+ * paint so it affects only the fill, independently of element opacity.
+ */
+export function fillPaint(
+  color: string | undefined,
+  opacity: number | undefined,
+): IFill | undefined {
+  if (color === undefined) {
+    return undefined;
+  }
+  if (opacity === undefined || opacity >= 1) {
+    return color;
+  }
+  return { type: 'solid', color, opacity };
+}
+
+/** Maps one scene node to the LeaferJS input shared by every canvas shape. */
+export function canvasNodeInput(node: CanvasSceneNode) {
+  return {
+    x: node.box.x,
+    y: node.box.y,
+    width: node.box.width,
+    height: node.box.height,
+    fill: fillPaint(node.fill, node.fillOpacity),
+    stroke: node.stroke,
+    strokeWidth: node.strokeWidth,
+    cornerRadius: node.cornerRadius,
+    opacity: node.opacity,
+    rotation: node.rotation,
+    visible: node.visible,
+    overflow:
+      node.type === 'frame' && node.clipContent === true
+        ? ('hide' as const)
+        : undefined,
+    origin: 'center' as const,
+    hitFill: 'all' as const,
+    data: { elementId: node.id },
+  };
 }
 
 /** Walks from a hit node to the nearest node carrying a document element id. */
@@ -89,25 +130,6 @@ export async function createLeaferEngine(
       : null;
   resizeObserver?.observe(host);
 
-  function elementInput(node: CanvasSceneNode) {
-    return {
-      x: node.box.x,
-      y: node.box.y,
-      width: node.box.width,
-      height: node.box.height,
-      fill: node.fill,
-      stroke: node.stroke,
-      strokeWidth: node.strokeWidth,
-      cornerRadius: node.cornerRadius,
-      opacity: node.opacity,
-      rotation: node.rotation,
-      visible: node.visible,
-      origin: 'center' as const,
-      hitFill: 'all' as const,
-      data: { elementId: node.id },
-    };
-  }
-
   function iconPlaceholder(node: CanvasSceneNode): LeaferElement {
     const box = new Box({
       width: node.box.width,
@@ -151,12 +173,13 @@ export async function createLeaferEngine(
     }
     const scaleX = node.box.width / ICON_VIEWBOX_SIZE;
     const scaleY = node.box.height / ICON_VIEWBOX_SIZE;
+    const paint = fillPaint(icon.color, node.fillOpacity);
     for (const shape of shapes) {
       container.add(
         new Path({
           path: shape.path,
-          fill: shape.filled ? icon.color : undefined,
-          stroke: icon.color,
+          fill: shape.filled ? paint : undefined,
+          stroke: paint,
           strokeWidth: icon.strokeWidth,
           strokeCap: 'round',
           strokeJoin: 'round',
@@ -169,7 +192,7 @@ export async function createLeaferEngine(
   }
 
   function iconNode(node: CanvasSceneNode): LeaferElement {
-    const container = new Box(elementInput(node));
+    const container = new Box(canvasNodeInput(node));
     const icon = node.icon;
     if (icon === undefined) {
       return container;
@@ -191,7 +214,7 @@ export async function createLeaferEngine(
   }
 
   function textNode(node: CanvasSceneNode): LeaferElement {
-    const input = elementInput(node);
+    const input = canvasNodeInput(node);
     const text = node.text;
     if (text === undefined) {
       return new Text(input);
@@ -212,16 +235,16 @@ export async function createLeaferEngine(
   function sceneNode(node: CanvasSceneNode): LeaferElement {
     switch (node.type) {
       case 'frame': {
-        const frame = new Box(elementInput(node));
+        const frame = new Box(canvasNodeInput(node));
         for (const child of node.children) {
           frame.add(sceneNode(child));
         }
         return frame;
       }
       case 'rectangle':
-        return new Rect(elementInput(node));
+        return new Rect(canvasNodeInput(node));
       case 'ellipse':
-        return new Ellipse(elementInput(node));
+        return new Ellipse(canvasNodeInput(node));
       case 'text':
         return textNode(node);
       case 'icon':

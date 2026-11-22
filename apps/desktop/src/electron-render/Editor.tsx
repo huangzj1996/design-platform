@@ -1,5 +1,9 @@
 import type { DesignDocument, ElementType } from '@design-ai/design-schema';
-import { findElement, type ElementPatch } from '@design-ai/editor-core';
+import {
+  findElement,
+  type ElementAlignment,
+  type ElementPatch,
+} from '@design-ai/editor-core';
 import { CircleUser, Menu, PanelLeft, Play } from 'lucide-react';
 import {
   useRef,
@@ -76,6 +80,7 @@ export interface EditorProps {
   onSelect: (id: string | null) => void;
   onAddRoot: (type: ElementType) => void;
   onUpdate: (patch: ElementPatch) => void;
+  onAlign: (alignment: ElementAlignment) => void;
   onAddChild: (type: ElementType) => void;
   onDelete: () => void;
   /** Canvas engine factory, injectable for tests. */
@@ -98,6 +103,7 @@ export function Editor({
   onSelect,
   onAddRoot,
   onUpdate,
+  onAlign,
   onAddChild,
   onDelete,
   createCanvasEngine,
@@ -346,6 +352,7 @@ export function Editor({
               document={document}
               selectionId={selectionId}
               onUpdate={onUpdate}
+              onAlign={onAlign}
               onAddChild={onAddChild}
               onDelete={onDelete}
             />

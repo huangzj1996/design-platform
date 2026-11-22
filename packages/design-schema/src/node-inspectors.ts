@@ -18,6 +18,7 @@ const commonFields = {
   y: numberField,
   visible: booleanField,
   opacity: opacityField,
+  fillOpacity: opacityField,
   rotation: numberField,
   fill: colorField,
   stroke: colorField,
@@ -36,6 +37,7 @@ const frameInspector: NodeInspector = {
   fields: {
     ...sizedFields,
     ...commonFields,
+    clipContent: booleanField,
     layout: enumField(['none', 'horizontal', 'vertical']),
     gap: nonNegativeNumberField,
     padding: paddingField,

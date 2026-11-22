@@ -17,6 +17,7 @@ export interface CanvasSceneNode {
   /** Position and size relative to the parent's border box. */
   box: LayoutBox;
   fill?: string;
+  fillOpacity?: number;
   stroke?: string;
   strokeWidth?: number;
   cornerRadius?: number;
@@ -26,6 +27,8 @@ export interface CanvasSceneNode {
   visible: boolean;
   /** Free-positioned or auto-layout direction of a frame. */
   layout?: FrameLayout;
+  /** A frame hides child content that extends beyond its box. */
+  clipContent?: boolean;
   children: CanvasSceneNode[];
   text?: CanvasText;
   icon?: CanvasIcon;
@@ -119,6 +122,7 @@ function sceneNode(node: LayoutNode): CanvasSceneNode {
     type: element.type,
     box: { ...node.box },
     fill: element.fill,
+    fillOpacity: element.fillOpacity,
     stroke: element.stroke,
     strokeWidth: element.strokeWidth,
     cornerRadius: element.cornerRadius,
@@ -133,6 +137,7 @@ function sceneNode(node: LayoutNode): CanvasSceneNode {
       return {
         ...common,
         layout: element.layout ?? 'horizontal',
+        clipContent: element.clipContent === true,
         children: node.children.map(sceneNode),
       };
     case 'rectangle':

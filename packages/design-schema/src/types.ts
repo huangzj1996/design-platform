@@ -46,6 +46,8 @@ export interface ElementStyle {
   y?: number;
   visible?: boolean;
   opacity?: number;
+  /** Opacity of the fill only; strokes and children keep their own opacity. */
+  fillOpacity?: number;
   rotation?: number;
   fill?: string;
   stroke?: string;
@@ -60,6 +62,8 @@ export interface SizedElement extends ElementStyle {
 
 export interface FrameElement extends SizedElement {
   type: 'frame';
+  /** Hides child content that extends beyond the frame's border box. */
+  clipContent?: boolean;
   layout?: FrameLayout;
   gap?: number;
   padding?: [number, number, number, number];

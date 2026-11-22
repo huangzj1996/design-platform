@@ -154,6 +154,29 @@ export interface DesignLayout {
   height: number;
 }
 
+/**
+ * Finds the resolved box of one element in a layout tree, for computed
+ * positions and sizes shown outside the canvas.
+ */
+export function findLayoutNode(
+  layout: DesignLayout,
+  id: string,
+): LayoutNode | undefined {
+  const visit = (nodes: LayoutNode[]): LayoutNode | undefined => {
+    for (const node of nodes) {
+      if (node.element.id === id) {
+        return node;
+      }
+      const nested = visit(node.children);
+      if (nested !== undefined) {
+        return nested;
+      }
+    }
+    return undefined;
+  };
+  return visit(layout.roots);
+}
+
 interface ResolvedTextStyle {
   fontSize: number;
   lineHeight: number;

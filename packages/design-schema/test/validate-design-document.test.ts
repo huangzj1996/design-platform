@@ -283,6 +283,80 @@ describe('validateDesignDocument', () => {
     ).toBeGreaterThanOrEqual(7);
   });
 
+  it('accepts frame clipping and independent fill opacity', () => {
+    const result = validate({
+      version: 1,
+      children: [
+        {
+          id: 'clipper',
+          type: 'frame',
+          width: 200,
+          height: 100,
+          clipContent: true,
+          fillOpacity: 0.4,
+          children: [
+            {
+              id: 'swatch',
+              type: 'rectangle',
+              width: 40,
+              height: 40,
+              fill: '#ff0000',
+              fillOpacity: 0.25,
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.document.children[0]).toMatchObject({
+        clipContent: true,
+        fillOpacity: 0.4,
+      });
+    }
+  });
+
+  it('rejects invalid clipping and fill opacity values', () => {
+    const diagnostics = errors({
+      version: 1,
+      children: [
+        {
+          id: 'frame-1',
+          type: 'frame',
+          width: 100,
+          height: 100,
+          clipContent: 'yes',
+          fillOpacity: 1.5,
+        },
+        {
+          id: 'ellipse-1',
+          type: 'ellipse',
+          width: 10,
+          height: 10,
+          clipContent: true,
+        },
+      ],
+    });
+
+    expect(diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'invalid_value',
+          path: '$.children[0].clipContent',
+        }),
+        expect.objectContaining({
+          code: 'invalid_value',
+          path: '$.children[0].fillOpacity',
+        }),
+        expect.objectContaining({
+          code: 'unknown_field',
+          path: '$.children[1].clipContent',
+        }),
+      ]),
+    );
+  });
+
   it('exposes the node inspector registry used for validation', () => {
     expect(nodeInspectorRegistry).toBeInstanceOf(Map);
     expect(getNodeInspector('frame')?.allowsChildren).toBe(true);

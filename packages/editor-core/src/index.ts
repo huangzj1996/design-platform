@@ -1,4 +1,12 @@
 export {
+  alignElement,
+  findElementParent,
+  frameAlignmentCell,
+  frameAlignmentProps,
+  type ElementAlignment,
+  type FrameAlignmentCell,
+} from './document/alignment';
+export {
   addElement,
   createBlankDocument,
   createDefaultElement,

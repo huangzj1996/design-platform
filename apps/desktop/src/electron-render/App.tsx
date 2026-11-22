@@ -6,10 +6,12 @@ import type {
 import { validateDesignDocument } from '@design-ai/design-schema';
 import {
   addElement,
+  alignElement,
   createDefaultElement,
   createElementId,
   deleteElement,
   updateElement,
+  type ElementAlignment,
   type ElementPatch,
 } from '@design-ai/editor-core';
 import { CircleUser, Play } from 'lucide-react';
@@ -469,6 +471,18 @@ export function App({
     });
   };
 
+  const handleAlign = (alignment: ElementAlignment) => {
+    updateActiveEditor((current) => {
+      if (current.document === null || current.selectionId === null) {
+        return current;
+      }
+      return commitEdit(
+        current,
+        alignElement(current.document, current.selectionId, alignment),
+      );
+    });
+  };
+
   const handleAddRoot = (type: ElementType) => {
     updateActiveEditor((current) => {
       if (current.document === null) {
@@ -613,6 +627,7 @@ export function App({
             onSelect={handleSelect}
             onAddRoot={handleAddRoot}
             onUpdate={handleUpdate}
+            onAlign={handleAlign}
             onAddChild={handleAddChild}
             onDelete={handleDelete}
             createCanvasEngine={createCanvasEngine}

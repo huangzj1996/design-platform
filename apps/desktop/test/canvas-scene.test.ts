@@ -191,6 +191,47 @@ describe('buildCanvasScene', () => {
     });
   });
 
+  it('keeps frame clipping and independent fill opacity', () => {
+    const scene = buildCanvasScene(
+      documentFrom({
+        version: 1,
+        children: [
+          {
+            id: 'clipper',
+            type: 'frame',
+            layout: 'none',
+            width: 100,
+            height: 80,
+            clipContent: true,
+            fillOpacity: 0.4,
+            fill: '#ffffff',
+            children: [
+              {
+                id: 'overflowing',
+                type: 'rectangle',
+                x: 10,
+                y: 10,
+                width: 200,
+                height: 30,
+                fill: '#ff0000',
+                fillOpacity: 0.25,
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(findSceneNode(scene, 'clipper')).toMatchObject({
+      clipContent: true,
+      fillOpacity: 0.4,
+    });
+    expect(findSceneNode(scene, 'overflowing')).toMatchObject({
+      fillOpacity: 0.25,
+      box: { width: 200 },
+    });
+  });
+
   it('keeps text content and typography', () => {
     const scene = buildCanvasScene(
       documentFrom({

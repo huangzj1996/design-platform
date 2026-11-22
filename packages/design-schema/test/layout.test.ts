@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  findLayoutNode,
   layoutDesignDocument,
   measureElementSize,
   measureText,
@@ -698,6 +699,51 @@ describe('layoutDesignDocument', () => {
       fontSize: 20,
       fill: '#3366ff',
     });
+  });
+
+  it('finds a resolved layout node by element id anywhere in the tree', () => {
+    const layout = layoutOf({
+      version: 1,
+      children: [
+        {
+          id: 'outer',
+          type: 'frame',
+          layout: 'vertical',
+          width: 200,
+          height: 100,
+          children: [
+            {
+              id: 'inner',
+              type: 'frame',
+              layout: 'horizontal',
+              width: 100,
+              height: 20,
+              children: [text('label', 'Hi')],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(findLayoutNode(layout, 'outer')?.box).toEqual({
+      x: 0,
+      y: 0,
+      width: 200,
+      height: 100,
+    });
+    expect(findLayoutNode(layout, 'inner')?.box).toEqual({
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 20,
+    });
+    expect(findLayoutNode(layout, 'label')?.box).toEqual({
+      x: 0,
+      y: 0,
+      width: 12,
+      height: 19.2,
+    });
+    expect(findLayoutNode(layout, 'missing')).toBeUndefined();
   });
 
   it('accepts every native element type with explicit or measured sizes', () => {
