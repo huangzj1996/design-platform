@@ -15,6 +15,7 @@ export const PencilDiagnosticCodes = {
   duplicateId: 'duplicate_id',
   unsupportedNode: 'unsupported_node',
   unsupportedProperty: 'unsupported_property',
+  unsupportedVariable: 'unsupported_variable',
   skippedNode: 'skipped_node',
   emptyImport: 'empty_import',
 } as const;
