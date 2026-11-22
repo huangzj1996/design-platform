@@ -58,7 +58,10 @@ function parseProject(value: unknown): SessionProject | null {
   return { filePath, openedAt };
 }
 
-function parseProjects(value: unknown, limit: number): SessionProject[] {
+function parseProjects(
+  value: unknown,
+  limit = Number.POSITIVE_INFINITY,
+): SessionProject[] {
   if (!Array.isArray(value)) {
     return [];
   }
@@ -86,7 +89,7 @@ export function parseSession(value: unknown): AppSession {
   if (!isRecord(value)) {
     return emptySession();
   }
-  const projects = parseProjects(value.projects, Number.POSITIVE_INFINITY);
+  const projects = parseProjects(value.projects);
   const recent = parseProjects(value.recent, MAX_RECENT_PROJECTS);
   const activeTab =
     typeof value.activeTab === 'string' &&

@@ -21,8 +21,10 @@ import {
   type PendingAction,
 } from './editor-state';
 
+/** Id of the home tab; the persisted session stores the same marker. */
 export const HOME_TAB_ID = 'home';
 const NEW_CHAT_TAB_LABEL = '新建聊天';
+/** Matches the session store's cap so both keep the same list size. */
 const MAX_RECENT_PROJECTS = 20;
 
 /** One open design document and its tab in the top bar. */
@@ -84,18 +86,15 @@ export function recordRecent(
 
 /** Rebuilds the project tabs and recent list persisted by the previous run. */
 export function restoreWorkspace(session: AppSession): WorkspaceState {
-  let nextProjectNumber = 1;
-  const projects = session.projects.map((record): ProjectTab => {
-    const project: ProjectTab = {
-      id: `project-${nextProjectNumber}`,
+  const projects = session.projects.map(
+    (record, index): ProjectTab => ({
+      id: `project-${index + 1}`,
       label: documentName(record.filePath),
       openedAt: record.openedAt,
       // The document stays unloaded until the user selects the tab.
       state: { ...initialEditorState, filePath: record.filePath },
-    };
-    nextProjectNumber += 1;
-    return project;
-  });
+    }),
+  );
   const active = projects.find(
     (project) => project.state.filePath === session.activeTab,
   );
@@ -103,7 +102,7 @@ export function restoreWorkspace(session: AppSession): WorkspaceState {
   return {
     activeTabId: active?.id ?? HOME_TAB_ID,
     projects,
-    nextProjectNumber,
+    nextProjectNumber: projects.length + 1,
     recent: mergeRecent(session),
     homeDiagnostics: [],
     homeDiagnosticsTitle: OPEN_FAILURE_TITLE,
@@ -257,6 +256,27 @@ export function applyCreateErrorToWorkspace(
   );
 }
 
+/** Loads a document into an existing tab and makes it the active one. */
+function applyOpenToTab(
+  workspace: WorkspaceState,
+  projectId: string,
+  result: Extract<OpenDesignFileResult, { status: 'opened' | 'imported' }>,
+  filePath: string,
+): WorkspaceState {
+  const openedAt = openedNow();
+  return {
+    ...replaceProject(workspace, projectId, (project) => ({
+      ...project,
+      label: documentName(filePath),
+      openedAt,
+      state: applyOpenResult(project.state, result),
+    })),
+    activeTabId: projectId,
+    recent: recordRecent(workspace.recent, filePath, openedAt),
+    homeDiagnostics: [],
+  };
+}
+
 /**
  * Applies an open result. A file already open in a tab reloads that tab and
  * selects it, updating a created design's 新建聊天 label to its file name.
@@ -274,7 +294,6 @@ export function applyOpenToWorkspace(
 
   const filePath =
     result.status === 'opened' ? result.filePath : result.sourcePath;
-  const openedAt = openedNow();
   const existing = workspace.projects.find(
     (project) =>
       project.state.filePath === filePath ||
@@ -282,24 +301,13 @@ export function applyOpenToWorkspace(
   );
 
   if (existing !== undefined) {
-    return {
-      ...replaceProject(workspace, existing.id, (project) => ({
-        ...project,
-        label: documentName(filePath),
-        openedAt,
-        state: applyOpenResult(project.state, result),
-      })),
-      activeTabId: existing.id,
-      recent: recordRecent(workspace.recent, filePath, openedAt),
-      homeDiagnostics: [],
-    };
+    return applyOpenToTab(workspace, existing.id, result, filePath);
   }
 
   return addProject(
     workspace,
     documentName(filePath),
     applyOpenResult(initialEditorState, result),
-    openedAt,
   );
 }
 
@@ -431,16 +439,5 @@ export function applyOpenToProject(
 
   const filePath =
     result.status === 'opened' ? result.filePath : result.sourcePath;
-  const openedAt = openedNow();
-  return {
-    ...replaceProject(workspace, projectId, (current) => ({
-      ...current,
-      label: documentName(filePath),
-      openedAt,
-      state: applyOpenResult(current.state, result),
-    })),
-    activeTabId: projectId,
-    recent: recordRecent(workspace.recent, filePath, openedAt),
-    homeDiagnostics: [],
-  };
+  return applyOpenToTab(workspace, projectId, result, filePath);
 }

@@ -30,7 +30,6 @@ import {
   editDocument,
   initialEditorState,
   markSaving,
-  OPEN_FAILURE_TITLE,
   selectElement,
   type EditorState,
   type PendingAction,
@@ -58,7 +57,6 @@ import {
   setPendingActionForActive,
   showHome,
   showHomeOpenError,
-  showHomeWithDiagnostics,
   updateProjectState,
   workspaceToSession,
   type WorkspaceState,
@@ -216,7 +214,9 @@ export function App({
       try {
         session = await loadSessionRef.current();
       } catch {
-        sessionReadyRef.current = true;
+        if (!cancelled) {
+          sessionReadyRef.current = true;
+        }
         return;
       }
       if (cancelled) {
@@ -224,39 +224,28 @@ export function App({
       }
 
       const restored = restoreWorkspace(session);
-      const restoredActive = activeProjectOf(restored);
-      const activePath =
-        restoredActive === null ? null : projectPath(restoredActive);
-      if (restoredActive !== null && activePath !== null) {
-        sessionReadyRef.current = true;
-        try {
-          const result = await openAtRef.current(activePath);
-          if (cancelled || workspaceRef.current !== initialWorkspaceState) {
-            return;
-          }
-          setWorkspace(
-            result.status === 'failed'
-              ? showHomeWithDiagnostics(
-                  restored,
-                  result.errors,
-                  OPEN_FAILURE_TITLE,
-                )
-              : applyOpenToProject(restored, restoredActive.id, result),
-          );
-        } catch (error) {
-          if (!cancelled && workspaceRef.current === initialWorkspaceState) {
-            setWorkspace(showHomeOpenError(restored, error));
-          }
+      sessionReadyRef.current = true;
+      // The stored position only applies while the user has not touched the
+      // window yet.
+      const untouched = () => workspaceRef.current === initialWorkspaceState;
+      const active = activeProjectOf(restored);
+      const activePath = active === null ? null : projectPath(active);
+      if (active === null || activePath === null) {
+        if (hasSessionContent(session) && untouched()) {
+          setWorkspace(restored);
         }
         return;
       }
 
-      sessionReadyRef.current = true;
-      if (
-        hasSessionContent(session) &&
-        workspaceRef.current === initialWorkspaceState
-      ) {
-        setWorkspace(restored);
+      try {
+        const result = await openAtRef.current(activePath);
+        if (!cancelled && untouched()) {
+          setWorkspace(applyOpenToProject(restored, active.id, result));
+        }
+      } catch (error) {
+        if (!cancelled && untouched()) {
+          setWorkspace(showHomeOpenError(restored, error));
+        }
       }
     };
 
@@ -331,17 +320,13 @@ export function App({
     }
   };
 
-  const persistSession = async () => {
+  /** A close only proceeds after the latest design and position persist. */
+  const finishClose = async () => {
     try {
       await saveSessionRef.current(workspaceToSession(workspaceRef.current));
     } catch {
       // A failed session write must not block a close whose design saved.
     }
-  };
-
-  /** A close only proceeds after the latest design and position persist. */
-  const finishClose = async () => {
-    await persistSession();
     confirmClose();
   };
 
@@ -366,11 +351,7 @@ export function App({
   const loadProject = async (projectId: string, filePath: string) => {
     try {
       const result = await openAtRef.current(filePath);
-      setWorkspace((current) =>
-        result.status === 'failed'
-          ? showHomeWithDiagnostics(current, result.errors, OPEN_FAILURE_TITLE)
-          : applyOpenToProject(current, projectId, result),
-      );
+      setWorkspace((current) => applyOpenToProject(current, projectId, result));
     } catch (error) {
       setWorkspace((current) => showHomeOpenError(current, error));
     }
@@ -383,15 +364,12 @@ export function App({
     }
     const target = current.projects.find((project) => project.id === projectId);
     const filePath = target === undefined ? null : projectPath(target);
-    const needsLoad =
-      target !== undefined &&
-      target.state.document === null &&
-      filePath !== null;
 
     if (!(await saveBeforeAction({ type: 'project', projectId }))) {
       return;
     }
-    if (needsLoad && filePath !== null) {
+    // A restored tab stays unloaded until the user selects it.
+    if (target?.state.document === null && filePath !== null) {
       await loadProject(projectId, filePath);
       return;
     }

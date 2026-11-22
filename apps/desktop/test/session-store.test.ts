@@ -3,7 +3,10 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SessionStore } from '../src/electron-main/session-store';
-import type { AppSession } from '../src/electron-preload/contract';
+import {
+  HOME_SESSION_TAB,
+  type AppSession,
+} from '../src/electron-preload/contract';
 
 let directory: string;
 let sessionFilePath: string;
@@ -51,7 +54,7 @@ describe('SessionStore', () => {
     const store = new SessionStore({ filePath: sessionFilePath });
 
     await expect(store.load()).resolves.toEqual({
-      activeTab: 'home',
+      activeTab: HOME_SESSION_TAB,
       projects: [],
       recent: [],
     });
@@ -66,7 +69,7 @@ describe('SessionStore', () => {
     const store = new SessionStore({ filePath: sessionFilePath });
 
     await expect(store.load()).resolves.toEqual({
-      activeTab: 'home',
+      activeTab: HOME_SESSION_TAB,
       projects: [],
       recent: [],
     });
@@ -96,7 +99,7 @@ describe('SessionStore', () => {
     const store = new SessionStore({ filePath: sessionFilePath });
 
     await expect(store.load()).resolves.toEqual({
-      activeTab: 'home',
+      activeTab: HOME_SESSION_TAB,
       projects: [{ filePath: validPath, openedAt: later }],
       recent: [{ filePath: recentPath, openedAt: earlier }],
     });

@@ -20,8 +20,9 @@ import { createDesignFile as createBlankDesignFile } from '../src/electron-main/
 import { readDesignFile } from '../src/electron-main/read-design-file';
 import { DesignFileSaver } from '../src/electron-main/save-design-file';
 import { SessionStore } from '../src/electron-main/session-store';
-import type {
-  AppSession,
+import {
+  HOME_SESSION_TAB,
+  type AppSession,
   CreateDesignFileResult,
   OpenDesignFileResult,
   SaveDesignFileInput,
@@ -318,7 +319,7 @@ describe('session restore', () => {
 
     expect(confirmCloseCalls).toBe(1);
     await expect(sessionStore.load()).resolves.toEqual({
-      activeTab: 'home',
+      activeTab: HOME_SESSION_TAB,
       projects: [],
       recent: [],
     });
@@ -361,7 +362,7 @@ describe('session restore', () => {
     await requestClose();
 
     const session = await sessionStore.load();
-    expect(session.activeTab).toBe('home');
+    expect(session.activeTab).toBe(HOME_SESSION_TAB);
     expect(session.projects.map((project) => project.filePath)).toEqual([
       firstPath,
       secondPath,

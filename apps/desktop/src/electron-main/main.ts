@@ -71,6 +71,16 @@ const createWindow = () => {
 const registerDesignFileHandlers = (projectDirectory: string) => {
   const saver = new DesignFileSaver({ projectDirectory });
 
+  /** The validated snapshot read from disk becomes the saved baseline. */
+  const rememberOpened = (
+    result: OpenDesignFileResult,
+  ): OpenDesignFileResult => {
+    if (result.status === 'opened') {
+      saver.rememberSaved(result.filePath, result.document);
+    }
+    return result;
+  };
+
   ipcMain.handle(
     OPEN_DESIGN_FILE_CHANNEL,
     async (event): Promise<OpenDesignFileResult> => {
@@ -92,12 +102,7 @@ const registerDesignFileHandlers = (projectDirectory: string) => {
         return { status: 'cancelled' };
       }
 
-      const result = await readDesignFile(selection.filePaths[0]);
-      if (result.status === 'opened') {
-        // The validated snapshot read from disk becomes the saved baseline.
-        saver.rememberSaved(result.filePath, result.document);
-      }
-      return result;
+      return rememberOpened(await readDesignFile(selection.filePaths[0]));
     },
   );
 
@@ -118,11 +123,7 @@ const registerDesignFileHandlers = (projectDirectory: string) => {
         };
       }
 
-      const result = await readDesignFile(filePath);
-      if (result.status === 'opened') {
-        saver.rememberSaved(result.filePath, result.document);
-      }
-      return result;
+      return rememberOpened(await readDesignFile(filePath));
     },
   );
 

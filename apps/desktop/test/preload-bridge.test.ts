@@ -4,6 +4,7 @@ import {
   CLOSE_REQUEST_CHANNEL,
   CONFIRM_CLOSE_CHANNEL,
   CREATE_DESIGN_FILE_CHANNEL,
+  HOME_SESSION_TAB,
   LOAD_SESSION_CHANNEL,
   OPEN_DESIGN_FILE_CHANNEL,
   OPEN_DESIGN_FILE_PATH_CHANNEL,
@@ -94,7 +95,7 @@ describe('preload bridge', () => {
 
   it('saves the session through the session channel', async () => {
     const session: AppSession = {
-      activeTab: 'home',
+      activeTab: HOME_SESSION_TAB,
       projects: [
         { filePath: '/tmp/设计稿.json', openedAt: '2026-11-22T10:30:00.000Z' },
       ],
