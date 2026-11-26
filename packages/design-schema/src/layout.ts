@@ -144,6 +144,8 @@ export interface LayoutNode<Element = DesignElement> {
   /** Position and size relative to the parent's border box. */
   box: LayoutBox;
   children: LayoutNode<Element>[];
+  /** Resolved lines for v2 text, including any content beyond a fixed height. */
+  textLines?: string[];
 }
 
 export interface DesignLayout<Element = DesignElement> {
@@ -189,14 +191,24 @@ type ParentLayout =
   | { kind: 'root' }
   | { kind: 'content'; contentWidth?: number; contentHeight?: number };
 
-interface LayoutContext {
-  issues: LayoutIssue[];
-  /** When set, children may only fill axes with a resolved parent size. */
-  missingDimensions?: Set<string>;
-  frameMeasurements?: FrameMeasurements;
+interface StrictLayoutOptions {
+  dimensionField: (element: DesignElement, axis: Axis) => string;
 }
 
-type FrameMeasurements = ReadonlyMap<FrameElement, ResolvedSize>;
+interface LayoutContext {
+  issues: LayoutIssue[];
+  strict?: StrictLayoutOptions & {
+    /** Children may only fill axes with a resolved parent size. */
+    missingDimensions: Set<string>;
+    measurements: SizeMeasurements;
+  };
+}
+
+interface SizeMeasurements {
+  frames: Map<FrameElement, ResolvedSize>;
+  textFillWidths: Map<TextElement, number>;
+  text: Map<TextElement, TextMeasurement>;
+}
 
 const round = (value: number): number =>
   Math.round((value + Number.EPSILON) * 100) / 100;
@@ -221,13 +233,24 @@ export function measureText(
   style: TextMeasurementStyle = {},
   maxWidth?: number,
 ): TextMeasurement {
+  return measureTextWithRounding(text, style, maxWidth, round);
+}
+
+function measureTextWithRounding(
+  text: string,
+  style: TextMeasurementStyle,
+  maxWidth: number | undefined,
+  roundMetric: (value: number) => number,
+): TextMeasurement {
   const { fontSize, lineHeight } = resolvedTextStyle(style);
   const wraps = style.textWrap !== 'none' && maxWidth !== undefined;
   const lines: string[] = [];
 
   for (const paragraph of text.split('\n')) {
     if (wraps) {
-      lines.push(...wrapParagraph(paragraph, maxWidth, fontSize));
+      for (const line of wrapParagraph(paragraph, maxWidth, fontSize)) {
+        lines.push(line);
+      }
     } else {
       lines.push(paragraph);
     }
@@ -239,8 +262,8 @@ export function measureText(
   );
 
   return {
-    width: round(width),
-    height: round(lines.length * lineHeight),
+    width: roundMetric(width),
+    height: roundMetric(lines.length * lineHeight),
     lineCount: lines.length,
     lines,
   };
@@ -279,23 +302,46 @@ function textWidthConstraint(
   return undefined;
 }
 
+function measureStrictText(
+  element: TextElement,
+  measurements: SizeMeasurements,
+): TextMeasurement {
+  const cached = measurements.text.get(element);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const constraint = isFillContainer(element.width)
+    ? measurements.textFillWidths.get(element)
+    : textWidthConstraint(element);
+  const measurement = measureTextWithRounding(
+    element.text.replace(/\r\n?/g, '\n'),
+    element,
+    constraint,
+    roundFinite,
+  );
+  measurements.text.set(element, measurement);
+  return measurement;
+}
+
 function intrinsicContentSize(
   element: DesignElement,
   axis: Axis,
   parent?: ParentLayout,
-  frameMeasurements?: FrameMeasurements,
+  measurements?: SizeMeasurements,
 ): number | undefined {
   switch (element.type) {
     case 'text': {
-      if (axis === 'width') {
-        return measureText(element.text, element).width;
+      if (measurements !== undefined) {
+        return measureStrictText(element, measurements)[axis];
       }
-      const constraint = textWidthConstraint(element, parent);
-      return measureText(element.text, element, constraint).height;
+      const constraint =
+        axis === 'height' ? textWidthConstraint(element, parent) : undefined;
+      return measureText(element.text, element, constraint)[axis];
     }
     case 'frame': {
-      if (frameMeasurements !== undefined) {
-        return frameMeasurements.get(element)?.[axis];
+      if (measurements !== undefined) {
+        return measurements.frames.get(element)?.[axis];
       }
       if ((element.layout ?? 'horizontal') === 'none') {
         return undefined;
@@ -314,7 +360,7 @@ function intrinsicContentSize(
 function intrinsicDimension(
   element: DesignElement,
   axis: Axis,
-  frameMeasurements?: FrameMeasurements,
+  measurements?: SizeMeasurements,
 ): number | undefined {
   const value = element[axis];
   if (typeof value === 'number') {
@@ -325,11 +371,11 @@ function intrinsicDimension(
       return value.fallback;
     }
     return (
-      intrinsicContentSize(element, axis, undefined, frameMeasurements) ??
+      intrinsicContentSize(element, axis, undefined, measurements) ??
       value.fallback
     );
   }
-  return intrinsicContentSize(element, axis, undefined, frameMeasurements);
+  return intrinsicContentSize(element, axis, undefined, measurements);
 }
 
 function maxDefined(values: Array<number | undefined>): number | undefined {
@@ -348,17 +394,17 @@ function maxDefined(values: Array<number | undefined>): number | undefined {
 function measureAutoFrameAxis(
   frame: FrameElement,
   axis: Axis,
-  frameMeasurements?: FrameMeasurements,
+  measurements?: SizeMeasurements,
 ): number | undefined {
   const layout = frame.layout ?? 'horizontal';
   const [top, right, bottom, left] = frame.padding ?? DEFAULT_PADDING;
   const gap = frame.gap ?? 0;
   const children = frame.children ?? [];
-  const gapTotal = gap * Math.max(0, children.length - 1);
+  const gapTotal = totalGap(gap, children.length);
   const paddingTotal = axis === 'width' ? left + right : top + bottom;
   const mainAxis = layout === 'horizontal' ? 'width' : 'height';
   const sizes = children.map((child) =>
-    intrinsicDimension(child, axis, frameMeasurements),
+    intrinsicDimension(child, axis, measurements),
   );
 
   if (axis === mainAxis) {
@@ -376,8 +422,8 @@ function measureAutoFrameAxis(
   return contentSize === undefined ? undefined : paddingTotal + contentSize;
 }
 
-/** Measures nested v2 Frames from the leaves upward using the shared rules. */
-function measureFrames(roots: DesignElement[]): FrameMeasurements {
+/** Allocates widths before measuring heights, which can depend on text wrapping. */
+function measureSizes(roots: DesignElement[]): SizeMeasurements {
   const frames: FrameElement[] = [];
   const pending = roots.filter((element) => element.type === 'frame');
   while (pending.length > 0) {
@@ -393,17 +439,71 @@ function measureFrames(roots: DesignElement[]): FrameMeasurements {
     }
   }
 
-  const measurements = new Map<FrameElement, ResolvedSize>();
-  for (let index = frames.length - 1; index >= 0; index -= 1) {
-    const frame = frames[index];
+  const measurements: SizeMeasurements = {
+    frames: new Map(),
+    textFillWidths: new Map(),
+    text: new Map(),
+  };
+  frames.reverse();
+  for (const frame of frames) {
     if (frame.layout !== 'none') {
-      measurements.set(frame, {
+      measurements.frames.set(frame, {
         width: measureAutoFrameAxis(frame, 'width', measurements),
-        height: measureAutoFrameAxis(frame, 'height', measurements),
       });
     }
   }
+
+  measureTextFillWidths(roots, undefined, measurements);
+
+  for (const [frame, size] of measurements.frames) {
+    size.height = measureAutoFrameAxis(frame, 'height', measurements);
+  }
   return measurements;
+}
+
+function measureTextFillWidths(
+  elements: DesignElement[],
+  fillWidth: number | undefined,
+  measurements: SizeMeasurements,
+): void {
+  for (const element of elements) {
+    if (
+      element.type === 'text' &&
+      isFillContainer(element.width) &&
+      fillWidth !== undefined
+    ) {
+      measurements.textFillWidths.set(element, fillWidth);
+    }
+    if (element.type !== 'frame') {
+      continue;
+    }
+
+    const width = isFillContainer(element.width)
+      ? fillWidth
+      : intrinsicDimension(element, 'width', measurements);
+    const children = element.children ?? [];
+    const [, right, , left] = element.padding ?? DEFAULT_PADDING;
+    let childFillWidth: number | undefined;
+    if (width !== undefined && Number.isFinite(width)) {
+      childFillWidth = Math.max(0, width - left - right);
+      if ((element.layout ?? 'horizontal') === 'horizontal') {
+        const fills = children.filter((child) => isFillContainer(child.width));
+        if (fills.length > 0) {
+          const sizes = children.map((child) => {
+            const size = intrinsicDimension(child, 'width', measurements);
+            return size !== undefined && Number.isFinite(size) ? size : 0;
+          });
+          childFillWidth = fillShare(
+            childFillWidth,
+            totalGap(element.gap ?? 0, children.length),
+            sizes,
+            fills.length,
+          );
+        }
+      }
+    }
+    measureTextFillWidths(children, childFillWidth, measurements);
+  }
 }
 
 function missingSizeMessage(axis: Axis, allowFallback: boolean): string {
@@ -440,20 +540,20 @@ function resolveSize(
             element,
             axis,
             parent,
-            context.frameMeasurements,
+            context.strict?.measurements,
           );
   } else {
     basis = intrinsicContentSize(
       element,
       axis,
       parent,
-      context.frameMeasurements,
+      context.strict?.measurements,
     );
   }
 
   if (
     basis !== undefined &&
-    (context.missingDimensions === undefined || Number.isFinite(basis))
+    (context.strict === undefined || Number.isFinite(basis))
   ) {
     return basis;
   }
@@ -462,11 +562,11 @@ function resolveSize(
   }
 
   const dimensionPath = `${path}.${axis}`;
-  context.missingDimensions?.add(dimensionPath);
+  context.strict?.missingDimensions.add(dimensionPath);
   context.issues.push({
-    path: dimensionPath,
+    path: `${path}.${context.strict?.dimensionField(element, axis) ?? axis}`,
     axis,
-    message: missingSizeMessage(axis, context.missingDimensions === undefined),
+    message: missingSizeMessage(axis, context.strict === undefined),
   });
   return 0;
 }
@@ -510,6 +610,20 @@ function mainOffsets(
   }
 }
 
+function totalGap(gap: number, count: number): number {
+  return gap * Math.max(0, count - 1);
+}
+
+function fillShare(
+  contentSize: number,
+  gapTotal: number,
+  sizes: number[],
+  count: number,
+): number {
+  const usedSize = sizes.reduce((sum, size) => sum + size, 0);
+  return Math.max(0, (contentSize - gapTotal - usedSize) / count);
+}
+
 function crossOffset(
   align: FrameAlignItems,
   containerSize: number,
@@ -547,8 +661,7 @@ function layoutTree(
   const pending = placements
     .map((placement) => ({ placement, target: roots }))
     .reverse();
-  const roundBoxValue =
-    context.missingDimensions === undefined ? round : roundFinite;
+  const roundBoxValue = context.strict === undefined ? round : roundFinite;
   let task = pending.pop();
   while (task !== undefined) {
     const { element, path, parent, x, y, size } = task.placement;
@@ -566,6 +679,12 @@ function layoutTree(
       },
       children: [],
     };
+    if (element.type === 'text' && context.strict !== undefined) {
+      node.textLines = measureStrictText(
+        element,
+        context.strict.measurements,
+      ).lines;
+    }
     task.target.push(node);
 
     if (element.type === 'frame') {
@@ -600,10 +719,10 @@ function placeFrameChildren(
   const layout = frame.layout ?? 'horizontal';
   const parent: ParentLayout = {
     kind: 'content',
-    contentWidth: context.missingDimensions?.has(`${path}.width`)
+    contentWidth: context.strict?.missingDimensions.has(`${path}.width`)
       ? undefined
       : contentWidth,
-    contentHeight: context.missingDimensions?.has(`${path}.height`)
+    contentHeight: context.strict?.missingDimensions.has(`${path}.height`)
       ? undefined
       : contentHeight,
   };
@@ -652,15 +771,17 @@ function placeFrameChildren(
     );
   });
 
-  const gapTotal = gap * Math.max(0, children.length - 1);
-  const usedMain = mainSizes.reduce((sum, size) => sum + size, 0);
-  const availableMain = contentMain - gapTotal - usedMain;
-  const share =
-    mainFillIndexes.length === 0
-      ? 0
-      : Math.max(0, availableMain / mainFillIndexes.length);
-  for (const index of mainFillIndexes) {
-    mainSizes[index] = share;
+  const gapTotal = totalGap(gap, children.length);
+  if (mainFillIndexes.length > 0) {
+    const share = fillShare(
+      contentMain,
+      gapTotal,
+      mainSizes,
+      mainFillIndexes.length,
+    );
+    for (const index of mainFillIndexes) {
+      mainSizes[index] = share;
+    }
   }
 
   const totalMain = mainSizes.reduce((sum, size) => sum + size, 0) + gapTotal;
@@ -724,18 +845,21 @@ export function measureElementSize(
  * rules back document validation and canvas rendering.
  */
 export function layoutDesignDocument(document: DesignDocument): DesignLayout {
-  return layoutDocument(resolveDesignDocument(document).children, false);
+  return layoutDocument(resolveDesignDocument(document).children);
 }
 
 /** Runs the shared engine after variable bindings have been resolved. */
 export function layoutDocument(
   elements: DesignElement[],
-  checkParentSizeBasis: boolean,
+  strictOptions?: StrictLayoutOptions,
 ): DesignLayout {
   const context: LayoutContext = { issues: [] };
-  if (checkParentSizeBasis) {
-    context.missingDimensions = new Set();
-    context.frameMeasurements = measureFrames(elements);
+  if (strictOptions !== undefined) {
+    context.strict = {
+      ...strictOptions,
+      missingDimensions: new Set(),
+      measurements: measureSizes(elements),
+    };
   }
   const roots = layoutTree(
     elements.map((element, index) => ({
@@ -755,7 +879,7 @@ export function layoutDocument(
     height = Math.max(height, node.box.y + node.box.height);
   }
 
-  const roundExtent = checkParentSizeBasis ? roundFinite : round;
+  const roundExtent = strictOptions === undefined ? round : roundFinite;
   return {
     roots,
     issues: context.issues,

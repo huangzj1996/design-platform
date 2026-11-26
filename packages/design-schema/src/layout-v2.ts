@@ -77,12 +77,29 @@ function projectElements(
       y: numericValue(source.y, variables),
     };
     if (source.type === 'text') {
-      const { content } = source.textStyle;
+      const {
+        content,
+        textGrowth = 'auto',
+        width,
+        height,
+        fontSize,
+        lineHeight,
+      } = source.textStyle;
       const text = resolveVariableValue(content, variables);
       elements.push({
         ...position,
         type: 'text',
         text: typeof text === 'string' ? text : content,
+        width:
+          textGrowth === 'auto'
+            ? undefined
+            : layoutDimension(width, variables, false),
+        height:
+          textGrowth === 'fixed-width-height'
+            ? layoutDimension(height, variables, false)
+            : undefined,
+        fontSize: numericValue(fontSize, variables),
+        lineHeight: numericValue(lineHeight, variables),
       });
       continue;
     }
@@ -135,11 +152,12 @@ function attachSource(
   nodes: LayoutNode[],
   sources: DesignElementV2[],
 ): LayoutNode<DesignElementV2>[] {
-  return nodes.map(({ box, children }, index) => {
+  return nodes.map(({ box, children, textLines }, index) => {
     const element = sources[index];
     return {
       element,
       box,
+      ...(textLines === undefined ? {} : { textLines }),
       children: attachSource(
         children,
         element.type === 'frame' ? (element.children ?? []) : [],
@@ -148,13 +166,16 @@ function attachSource(
   });
 }
 
-/** Computes layout boxes while retaining each node's v2 declarations. */
+/** Computes layout boxes and text lines while retaining each node's v2 declarations. */
 export function layoutDesignDocumentV2(
   document: DesignDocumentV2,
 ): DesignLayout<DesignElementV2> {
   const layout = layoutDocument(
     projectElements(document.children, document.variables),
-    true,
+    {
+      dimensionField: (element, axis) =>
+        element.type === 'text' ? `textStyle.${axis}` : axis,
+    },
   );
   return { ...layout, roots: attachSource(layout.roots, document.children) };
 }

@@ -48,6 +48,13 @@ const dimensionSchemaV2 = z.union([
 const layoutSchemaV2 = z.enum(frameLayouts);
 const justifyContentSchemaV2 = z.enum(frameJustifyContent);
 const alignItemsSchemaV2 = z.enum([...frameAlignItems, 'stretch']);
+const textGrowthSchemaV2 = z.enum([
+  'auto',
+  'fixed-width',
+  'fixed-width-height',
+]);
+const textAlignSchemaV2 = z.enum(['left', 'center', 'right', 'justify']);
+const positiveNumberSchema = z.number().positive();
 const paddingSidesSchemaV2 = z
   .array(z.unknown())
   .refine(
@@ -70,6 +77,18 @@ export interface FrameLayoutFieldsV2 {
     | [NumericValueV2, NumericValueV2, NumericValueV2, NumericValueV2];
   justifyContent?: z.infer<typeof justifyContentSchemaV2>;
   alignItems?: z.infer<typeof alignItemsSchemaV2>;
+}
+
+export interface TextStyleV2 {
+  content: string;
+  textGrowth?: z.infer<typeof textGrowthSchemaV2>;
+  width?: DimensionV2;
+  height?: DimensionV2;
+  fontFamily?: string;
+  fontSize?: NumericValueV2;
+  fontWeight?: NumericValueV2;
+  lineHeight?: NumericValueV2;
+  textAlign?: z.infer<typeof textAlignSchemaV2>;
 }
 
 export const dimensionFieldV2 = zodField(
@@ -109,6 +128,62 @@ export const frameLayoutFieldsV2 = {
   padding: paddingFieldV2,
   justifyContent: zodField(justifyContentSchemaV2, '无效的主轴分布'),
   alignItems: zodField(alignItemsSchemaV2, '无效的交叉轴对齐'),
+};
+
+const textStyleFieldsV2 = {
+  content: zodField(z.string(), '必须是字符串', 'string'),
+  textGrowth: zodField(textGrowthSchemaV2, '无效的文字增长模式'),
+  width: dimensionFieldV2,
+  height: dimensionFieldV2,
+  fontFamily: zodField(
+    z.string().min(1),
+    'fontFamily 必须是非空字符串',
+    'string',
+  ),
+  fontSize: zodField(
+    positiveNumberSchema,
+    'fontSize 必须是正有限数值',
+    'number',
+  ),
+  fontWeight: zodField(
+    z.number().int().min(1).max(1000),
+    'fontWeight 必须是 1 到 1000 之间的整数',
+    'number',
+  ),
+  lineHeight: zodField(
+    positiveNumberSchema,
+    'lineHeight 必须是正有限的字号倍数',
+    'number',
+  ),
+  textAlign: zodField(textAlignSchemaV2, '无效的文字对齐'),
+};
+
+export const textStyleFieldV2: FieldValidator = (
+  value,
+  path,
+  variables = {},
+) => {
+  if (!isPlainObject(value)) {
+    return [fail(path, 'textStyle 必须是对象')];
+  }
+
+  const requiredFields = ['content'];
+  if (
+    value.textGrowth === 'fixed-width' ||
+    value.textGrowth === 'fixed-width-height'
+  ) {
+    requiredFields.push('width');
+  }
+  if (value.textGrowth === 'fixed-width-height') {
+    requiredFields.push('height');
+  }
+
+  return validateObjectFields(
+    value,
+    path,
+    { fields: textStyleFieldsV2, requiredFields },
+    variables,
+  );
 };
 
 function zodField(

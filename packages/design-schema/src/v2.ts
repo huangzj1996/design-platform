@@ -1,6 +1,4 @@
-import { createDiagnostic, DiagnosticCodes } from './diagnostics';
 import {
-  isPlainObject,
   nonEmptyStringField,
   numberField,
   opacityField,
@@ -8,22 +6,20 @@ import {
 } from './fields';
 import { layoutDesignDocumentV2 } from './layout-v2';
 import { layoutIssueToDiagnostic } from './layout';
-import type {
-  DesignVariables,
-  FieldValidator,
-  NodeInspector,
-  ValidationResult,
-} from './types';
+import type { DesignVariables, NodeInspector, ValidationResult } from './types';
 import {
   dimensionFieldV2,
   frameLayoutFieldsV2,
   parseDocumentJson,
+  textStyleFieldV2,
   validateDocumentStructure,
-  validateObjectFields,
   type DimensionV2,
   type FrameLayoutFieldsV2,
   type NumericValueV2,
+  type TextStyleV2,
 } from './validation';
+
+export type { TextStyleV2 } from './validation';
 
 export const DESIGN_DOCUMENT_VERSION_V2 = 2 as const;
 
@@ -50,7 +46,7 @@ export type DesignElementV2 =
   | (SizedElementV2 & { type: 'rectangle' })
   | (SizedElementV2 & { type: 'ellipse' })
   | (SizedElementV2 & { type: 'icon'; library: string; icon: string })
-  | (ElementStyleV2 & { type: 'text'; textStyle: { content: string } });
+  | (ElementStyleV2 & { type: 'text'; textStyle: TextStyleV2 });
 
 export interface DesignDocumentV2 {
   version: typeof DESIGN_DOCUMENT_VERSION_V2;
@@ -71,24 +67,6 @@ const sizedFields = {
   ...commonFields,
   width: dimensionFieldV2,
   height: dimensionFieldV2,
-};
-
-const textStyleSchema = {
-  fields: { content: stringField },
-  requiredFields: ['content'],
-};
-
-const textStyleField: FieldValidator = (value, path, variables = {}) => {
-  if (!isPlainObject(value)) {
-    return [
-      createDiagnostic(
-        DiagnosticCodes.invalidStructure,
-        path,
-        'textStyle 必须是对象',
-      ),
-    ];
-  }
-  return validateObjectFields(value, path, textStyleSchema, variables);
 };
 
 const inspectors: readonly NodeInspector[] = [
@@ -113,7 +91,7 @@ const inspectors: readonly NodeInspector[] = [
     type: 'text',
     allowsChildren: false,
     requiredFields: ['textStyle'],
-    fields: { ...commonFields, textStyle: textStyleField },
+    fields: { ...commonFields, textStyle: textStyleFieldV2 },
   },
 ];
 
