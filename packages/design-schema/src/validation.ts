@@ -10,9 +10,9 @@ import { isSystemAbsolutePath } from './path';
 import {
   DESIGN_DOCUMENT_VERSION,
   type DesignDocument,
-  type DesignElement,
   type DesignVariables,
   type FieldValidator,
+  type NodeInspector,
   type ValidationResult,
   type VariableType,
   type VariableValue,
@@ -34,8 +34,17 @@ const VARIABLE_TYPES: readonly VariableType[] = [
 ];
 
 interface ValidationState {
+  version: number;
   errors: Diagnostic[];
   ids: Map<string, string>;
+  variables: DesignVariables;
+  inspectNode: (type: string) => NodeInspector | undefined;
+}
+
+interface DocumentStructure<Version extends number> {
+  version: Version;
+  children: unknown[];
+  filePath?: string;
   variables: DesignVariables;
 }
 
@@ -55,6 +64,13 @@ function fieldPath(parentPath: string, field: string): string {
  * Parses JSON text and validates the resulting native design document.
  */
 export function parseDesignDocument(text: string): ValidationResult {
+  return parseDocumentJson(text, validateDesignDocument);
+}
+
+export function parseDocumentJson<Document>(
+  text: string,
+  validate: (input: unknown) => ValidationResult<Document>,
+): ValidationResult<Document> {
   let input: unknown;
   try {
     input = JSON.parse(text);
@@ -72,7 +88,7 @@ export function parseDesignDocument(text: string): ValidationResult {
     };
   }
 
-  return validateDesignDocument(input);
+  return validate(input);
 }
 
 /**
@@ -81,35 +97,16 @@ export function parseDesignDocument(text: string): ValidationResult {
  * for its `type`.
  */
 export function validateDesignDocument(input: unknown): ValidationResult {
-  if (!isPlainObject(input)) {
-    return {
-      ok: false,
-      errors: [fail(ROOT_PATH, '设计稿根节点必须是对象')],
-    };
+  const result = validateDocumentStructure(
+    input,
+    DESIGN_DOCUMENT_VERSION,
+    getNodeInspector,
+  );
+  if (!result.ok) {
+    return result;
   }
 
-  const state: ValidationState = {
-    errors: [],
-    ids: new Map(),
-    variables: {},
-  };
-  validateVersion(input, state);
-  validateRootFields(input, state);
-  const filePath = validateFilePath(input, state);
-  state.variables = validateVariables(input, state);
-  const children = validateChildren(input, state);
-
-  if (state.errors.length > 0) {
-    return { ok: false, errors: state.errors };
-  }
-
-  const document: DesignDocument = {
-    version: DESIGN_DOCUMENT_VERSION,
-    children,
-    variables: state.variables,
-    ...(filePath === undefined ? {} : { filePath }),
-  };
-
+  const document = result.document as DesignDocument;
   const layout = layoutDesignDocument(document);
   if (layout.issues.length > 0) {
     return {
@@ -121,8 +118,49 @@ export function validateDesignDocument(input: unknown): ValidationResult {
   return { ok: true, document };
 }
 
+export function validateDocumentStructure<Version extends number>(
+  input: unknown,
+  version: Version,
+  inspectNode: ValidationState['inspectNode'],
+): ValidationResult<DocumentStructure<Version>> {
+  if (!isPlainObject(input)) {
+    return {
+      ok: false,
+      errors: [fail(ROOT_PATH, '设计稿根节点必须是对象')],
+    };
+  }
+
+  const state: ValidationState = {
+    version,
+    errors: [],
+    ids: new Map(),
+    variables: {},
+    inspectNode,
+  };
+  validateVersion(input, version, state);
+  validateRootFields(input, state);
+  const filePath = validateFilePath(input, state);
+  state.variables = validateVariables(input, state);
+  const children = validateChildren(input, state);
+
+  if (state.errors.length > 0) {
+    return { ok: false, errors: state.errors };
+  }
+
+  return {
+    ok: true,
+    document: {
+      version,
+      children,
+      variables: state.variables,
+      ...(filePath === undefined ? {} : { filePath }),
+    },
+  };
+}
+
 function validateVersion(
   input: Record<string, unknown>,
+  expectedVersion: number,
   state: ValidationState,
 ): void {
   const version = input.version;
@@ -148,12 +186,12 @@ function validateVersion(
     return;
   }
 
-  if (version !== DESIGN_DOCUMENT_VERSION) {
+  if (version !== expectedVersion) {
     state.errors.push(
       createDiagnostic(
         DiagnosticCodes.unsupportedVersion,
         fieldPath(ROOT_PATH, 'version'),
-        `不支持的设计稿版本 ${version}，当前只支持版本 ${DESIGN_DOCUMENT_VERSION}`,
+        `不支持的设计稿版本 ${version}，当前只支持版本 ${expectedVersion}`,
       ),
     );
   }
@@ -299,17 +337,31 @@ function isValidVariableValue(
 function validateChildren(
   input: Record<string, unknown>,
   state: ValidationState,
-): DesignElement[] {
+): unknown[] {
   const path = fieldPath(ROOT_PATH, 'children');
   if (!Array.isArray(input.children)) {
     state.errors.push(fail(path, '设计稿 children 必须是有序数组'));
     return [];
   }
 
-  input.children.forEach((child, index) => {
-    validateElement(child, childPath(ROOT_PATH, index), state);
-  });
-  return input.children as DesignElement[];
+  validateElementArray(input.children, ROOT_PATH, state);
+  return input.children;
+}
+
+function validateElementArray(
+  children: unknown[],
+  path: string,
+  state: ValidationState,
+): void {
+  if (state.version === DESIGN_DOCUMENT_VERSION) {
+    children.forEach((child, index) => {
+      validateElement(child, childPath(path, index), state);
+    });
+    return;
+  }
+  for (let index = 0; index < children.length; index += 1) {
+    validateElement(children[index], childPath(path, index), state);
+  }
 }
 
 function validateElement(
@@ -341,7 +393,7 @@ function validateElement(
     return;
   }
 
-  const inspector = getNodeInspector(type);
+  const inspector = state.inspectNode(type);
   if (!inspector) {
     state.errors.push(
       createDiagnostic(
@@ -353,15 +405,31 @@ function validateElement(
     return;
   }
 
-  const allowedFields = new Set([
-    'id',
-    'type',
-    'children',
-    ...Object.keys(inspector.fields),
-  ]);
-  for (const key of Object.keys(element)) {
+  const errors = validateObjectFields(
+    element,
+    path,
+    inspector,
+    state.variables,
+    ['id', 'type', 'children'],
+  );
+  for (const error of errors) {
+    state.errors.push(error);
+  }
+  validateElementChildren(element, path, inspector.allowsChildren, state);
+}
+
+export function validateObjectFields(
+  object: Record<string, unknown>,
+  path: string,
+  { fields, requiredFields }: Pick<NodeInspector, 'fields' | 'requiredFields'>,
+  variables: Readonly<DesignVariables>,
+  structuralFields: readonly string[] = [],
+): Diagnostic[] {
+  const errors: Diagnostic[] = [];
+  const allowedFields = new Set([...structuralFields, ...Object.keys(fields)]);
+  for (const key of Object.keys(object)) {
     if (!allowedFields.has(key)) {
-      state.errors.push(
+      errors.push(
         createDiagnostic(
           DiagnosticCodes.unknownField,
           fieldPath(path, key),
@@ -371,9 +439,9 @@ function validateElement(
     }
   }
 
-  for (const field of inspector.requiredFields ?? []) {
-    if (element[field] === undefined) {
-      state.errors.push(
+  for (const field of requiredFields ?? []) {
+    if (object[field] === undefined) {
+      errors.push(
         createDiagnostic(
           DiagnosticCodes.missingField,
           fieldPath(path, field),
@@ -383,20 +451,21 @@ function validateElement(
     }
   }
 
-  for (const [field, validateField] of Object.entries(inspector.fields)) {
-    if (element[field] !== undefined) {
-      state.errors.push(
-        ...validateBoundField(
-          element[field],
-          validateField,
-          fieldPath(path, field),
-          state.variables,
-        ),
+  for (const [field, validateField] of Object.entries(fields)) {
+    if (object[field] !== undefined) {
+      const fieldErrors = validateBoundField(
+        object[field],
+        validateField,
+        fieldPath(path, field),
+        variables,
       );
+      for (const error of fieldErrors) {
+        errors.push(error);
+      }
     }
   }
 
-  validateElementChildren(element, path, inspector.allowsChildren, state);
+  return errors;
 }
 
 /**
@@ -413,12 +482,12 @@ function validateBoundField(
 ): Diagnostic[] {
   const literal = unescapeVariableReference(value);
   if (literal !== undefined) {
-    return validator(literal, path);
+    return validator(literal, path, variables);
   }
 
   const name = variableReferenceName(value);
   if (name === undefined) {
-    return validator(value, path);
+    return validator(value, path, variables);
   }
 
   const variable = Object.hasOwn(variables, name) ? variables[name] : undefined;
@@ -445,7 +514,7 @@ function validateBoundField(
     ];
   }
 
-  return validator(variable.value, path);
+  return validator(variable.value, path, variables);
 }
 
 function validateId(
@@ -487,22 +556,23 @@ function validateElementChildren(
   allowsChildren: boolean,
   state: ValidationState,
 ): void {
-  const childrenPath = fieldPath(path, 'children');
-
-  if (!allowsChildren) {
-    if (element.children !== undefined) {
-      state.errors.push(
-        createDiagnostic(
-          DiagnosticCodes.invalidChildren,
-          childrenPath,
-          '叶节点不能包含 children',
-        ),
-      );
-    }
+  const hasChildren =
+    element.children !== undefined ||
+    (state.version !== DESIGN_DOCUMENT_VERSION &&
+      Object.hasOwn(element, 'children'));
+  if (!hasChildren) {
     return;
   }
 
-  if (element.children === undefined) {
+  const childrenPath = fieldPath(path, 'children');
+  if (!allowsChildren) {
+    state.errors.push(
+      createDiagnostic(
+        DiagnosticCodes.invalidChildren,
+        childrenPath,
+        '叶节点不能包含 children',
+      ),
+    );
     return;
   }
 
@@ -517,7 +587,5 @@ function validateElementChildren(
     return;
   }
 
-  element.children.forEach((child, index) => {
-    validateElement(child, childPath(path, index), state);
-  });
+  validateElementArray(element.children, path, state);
 }

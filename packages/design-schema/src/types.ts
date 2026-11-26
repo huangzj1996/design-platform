@@ -107,8 +107,8 @@ export interface DesignDocument {
   variables: DesignVariables;
 }
 
-export type ValidationResult =
-  { ok: true; document: DesignDocument } | { ok: false; errors: Diagnostic[] };
+export type ValidationResult<Document = DesignDocument> =
+  { ok: true; document: Document } | { ok: false; errors: Diagnostic[] };
 
 export interface NodeInspector {
   /** Native element type handled by this inspector. */
@@ -122,7 +122,11 @@ export interface NodeInspector {
 }
 
 export interface FieldValidator {
-  (value: unknown, path: string): Diagnostic[];
+  (
+    value: unknown,
+    path: string,
+    variables?: Readonly<DesignVariables>,
+  ): Diagnostic[];
   /**
    * Variable types that may bind to this field when its whole value is a
    * variable reference. Omitted for fields that cannot bind a variable.
