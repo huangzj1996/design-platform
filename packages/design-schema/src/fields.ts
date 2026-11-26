@@ -3,12 +3,11 @@ import {
   DiagnosticCodes,
   type Diagnostic,
 } from './diagnostics';
+import { dimensionModes } from './layout-values';
 import type { FieldValidator, VariableType } from './types';
 
 const HEX_COLOR_PATTERN =
   /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
-
-const DIMENSION_MODES = ['fit_content', 'fill_container'] as const;
 
 export function isPlainObject(
   value: unknown,
@@ -164,11 +163,11 @@ export const dimensionField: FieldValidator = bindable(
 
     if (!('mode' in value)) {
       diagnostics.push(...invalid(`${path}.mode`, '尺寸对象必须包含 mode'));
-    } else if (!isOneOf(value.mode, DIMENSION_MODES)) {
+    } else if (!isOneOf(value.mode, dimensionModes)) {
       diagnostics.push(
         ...invalid(
           `${path}.mode`,
-          `尺寸模式必须是 ${DIMENSION_MODES.join('、')} 之一`,
+          `尺寸模式必须是 ${dimensionModes.join('、')} 之一`,
         ),
       );
     }

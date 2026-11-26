@@ -1,10 +1,16 @@
 import type { Diagnostic } from './diagnostics';
+import type {
+  dimensionModes,
+  frameAlignItems,
+  frameJustifyContent,
+  frameLayouts,
+} from './layout-values';
 
 export const DESIGN_DOCUMENT_VERSION = 1 as const;
 
 export type ElementType = 'frame' | 'rectangle' | 'ellipse' | 'text' | 'icon';
 
-export type DimensionMode = 'fit_content' | 'fill_container';
+export type DimensionMode = (typeof dimensionModes)[number];
 
 export type Dimension =
   | number
@@ -13,12 +19,11 @@ export type Dimension =
       fallback?: number;
     };
 
-export type FrameLayout = 'none' | 'horizontal' | 'vertical';
+export type FrameLayout = (typeof frameLayouts)[number];
 
-export type FrameJustifyContent =
-  'start' | 'center' | 'end' | 'space_between' | 'space_around';
+export type FrameJustifyContent = (typeof frameJustifyContent)[number];
 
-export type FrameAlignItems = 'start' | 'center' | 'end';
+export type FrameAlignItems = (typeof frameAlignItems)[number];
 
 export type TextAlign = 'left' | 'center' | 'right' | 'justify';
 

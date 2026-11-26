@@ -2,11 +2,12 @@ import { createDiagnostic, DiagnosticCodes } from './diagnostics';
 import {
   isPlainObject,
   nonEmptyStringField,
-  nonNegativeNumberField,
   numberField,
   opacityField,
   stringField,
 } from './fields';
+import { layoutDesignDocumentV2 } from './layout-v2';
+import { layoutIssueToDiagnostic } from './layout';
 import type {
   DesignVariables,
   FieldValidator,
@@ -14,31 +15,38 @@ import type {
   ValidationResult,
 } from './types';
 import {
+  dimensionFieldV2,
+  frameLayoutFieldsV2,
   parseDocumentJson,
   validateDocumentStructure,
   validateObjectFields,
+  type DimensionV2,
+  type FrameLayoutFieldsV2,
+  type NumericValueV2,
 } from './validation';
 
 export const DESIGN_DOCUMENT_VERSION_V2 = 2 as const;
 
-type NumericValue = number | `$${string}`;
-
 interface ElementStyleV2 {
   id: string;
   name?: string;
-  opacity?: NumericValue;
-  x?: NumericValue;
-  y?: NumericValue;
-  rotation?: NumericValue;
+  opacity?: NumericValueV2;
+  x?: NumericValueV2;
+  y?: NumericValueV2;
+  rotation?: NumericValueV2;
 }
 
 interface SizedElementV2 extends ElementStyleV2 {
-  width?: NumericValue;
-  height?: NumericValue;
+  width?: DimensionV2;
+  height?: DimensionV2;
 }
 
 export type DesignElementV2 =
-  | (SizedElementV2 & { type: 'frame'; children?: DesignElementV2[] })
+  | (SizedElementV2 &
+      FrameLayoutFieldsV2 & {
+        type: 'frame';
+        children?: DesignElementV2[];
+      })
   | (SizedElementV2 & { type: 'rectangle' })
   | (SizedElementV2 & { type: 'ellipse' })
   | (SizedElementV2 & { type: 'icon'; library: string; icon: string })
@@ -61,8 +69,8 @@ const commonFields = {
 
 const sizedFields = {
   ...commonFields,
-  width: nonNegativeNumberField,
-  height: nonNegativeNumberField,
+  width: dimensionFieldV2,
+  height: dimensionFieldV2,
 };
 
 const textStyleSchema = {
@@ -84,7 +92,11 @@ const textStyleField: FieldValidator = (value, path, variables = {}) => {
 };
 
 const inspectors: readonly NodeInspector[] = [
-  { type: 'frame', allowsChildren: true, fields: sizedFields },
+  {
+    type: 'frame',
+    allowsChildren: true,
+    fields: { ...sizedFields, ...frameLayoutFieldsV2 },
+  },
   { type: 'rectangle', allowsChildren: false, fields: sizedFields },
   { type: 'ellipse', allowsChildren: false, fields: sizedFields },
   {
@@ -112,7 +124,7 @@ export function parseDesignDocumentV2(
   return parseDocumentJson(text, validateDesignDocumentV2);
 }
 
-/** Validates structure and bindings for the version 2 element schema. */
+/** Validates structure, bindings and size dependencies for the version 2 schema. */
 export function validateDesignDocumentV2(
   input: unknown,
 ): ValidationResult<DesignDocumentV2> {
@@ -124,5 +136,9 @@ export function validateDesignDocumentV2(
   if (!result.ok) {
     return result;
   }
-  return { ok: true, document: result.document as DesignDocumentV2 };
+  const document = result.document as DesignDocumentV2;
+  const errors = layoutDesignDocumentV2(document).issues.map(
+    layoutIssueToDiagnostic,
+  );
+  return errors.length > 0 ? { ok: false, errors } : { ok: true, document };
 }

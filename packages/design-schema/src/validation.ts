@@ -1,9 +1,16 @@
+import { z } from 'zod';
 import {
   createDiagnostic,
   DiagnosticCodes,
   type Diagnostic,
 } from './diagnostics';
 import { isHexColor, isOneOf, isPlainObject } from './fields';
+import {
+  dimensionModes,
+  frameAlignItems,
+  frameJustifyContent,
+  frameLayouts,
+} from './layout-values';
 import { layoutDesignDocument, layoutIssueToDiagnostic } from './layout';
 import { getNodeInspector } from './node-inspectors';
 import { isSystemAbsolutePath } from './path';
@@ -32,6 +39,92 @@ const VARIABLE_TYPES: readonly VariableType[] = [
   'number',
   'boolean',
 ];
+
+const nonNegativeNumberSchema = z.number().nonnegative();
+const dimensionSchemaV2 = z.union([
+  nonNegativeNumberSchema,
+  z.enum(dimensionModes),
+]);
+const layoutSchemaV2 = z.enum(frameLayouts);
+const justifyContentSchemaV2 = z.enum(frameJustifyContent);
+const alignItemsSchemaV2 = z.enum([...frameAlignItems, 'stretch']);
+const paddingSidesSchemaV2 = z
+  .array(z.unknown())
+  .refine(
+    (sides) => sides.length === 2 || sides.length === 4,
+    '内边距数组必须包含两个或四个数值',
+  );
+
+type VariableReference = `$${string}`;
+export type NumericValueV2 = number | VariableReference;
+
+export type DimensionV2 = z.infer<typeof dimensionSchemaV2> | VariableReference;
+
+export interface FrameLayoutFieldsV2 {
+  clip?: boolean | VariableReference;
+  layout?: z.infer<typeof layoutSchemaV2>;
+  gap?: NumericValueV2;
+  padding?:
+    | NumericValueV2
+    | [NumericValueV2, NumericValueV2]
+    | [NumericValueV2, NumericValueV2, NumericValueV2, NumericValueV2];
+  justifyContent?: z.infer<typeof justifyContentSchemaV2>;
+  alignItems?: z.infer<typeof alignItemsSchemaV2>;
+}
+
+export const dimensionFieldV2 = zodField(
+  dimensionSchemaV2,
+  '尺寸必须是非负有限数值、fit_content 或 fill_container',
+  'number',
+);
+const spacingField = zodField(
+  nonNegativeNumberSchema,
+  '间距必须是非负有限数值',
+  'number',
+);
+const paddingFieldV2: FieldValidator = Object.assign(
+  (value: unknown, path: string, variables: Readonly<DesignVariables> = {}) => {
+    if (!Array.isArray(value)) {
+      return spacingField(value, path, variables);
+    }
+
+    const sides = paddingSidesSchemaV2.safeParse(value);
+    if (!sides.success) {
+      return sides.error.issues.map((issue) =>
+        createDiagnostic(DiagnosticCodes.invalidValue, path, issue.message),
+      );
+    }
+
+    return sides.data.flatMap((side, index) =>
+      validateBoundField(side, spacingField, `${path}[${index}]`, variables),
+    );
+  },
+  { variableTypes: spacingField.variableTypes },
+);
+
+export const frameLayoutFieldsV2 = {
+  clip: zodField(z.boolean(), 'clip 必须是布尔值', 'boolean'),
+  layout: zodField(layoutSchemaV2, '无效的 Frame 布局'),
+  gap: spacingField,
+  padding: paddingFieldV2,
+  justifyContent: zodField(justifyContentSchemaV2, '无效的主轴分布'),
+  alignItems: zodField(alignItemsSchemaV2, '无效的交叉轴对齐'),
+};
+
+function zodField(
+  schema: z.ZodType,
+  message: string,
+  variableType?: VariableType,
+): FieldValidator {
+  const validate: FieldValidator = (value, path) =>
+    schema.safeParse(value).success
+      ? []
+      : [createDiagnostic(DiagnosticCodes.invalidValue, path, message)];
+  if (variableType !== undefined) {
+    validate.variableTypes = [variableType];
+  }
+  return validate;
+}
 
 interface ValidationState {
   version: number;

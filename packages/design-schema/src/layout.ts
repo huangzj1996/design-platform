@@ -139,15 +139,15 @@ export interface LayoutIssue {
   message: string;
 }
 
-export interface LayoutNode {
-  element: DesignElement;
+export interface LayoutNode<Element = DesignElement> {
+  element: Element;
   /** Position and size relative to the parent's border box. */
   box: LayoutBox;
-  children: LayoutNode[];
+  children: LayoutNode<Element>[];
 }
 
-export interface DesignLayout {
-  roots: LayoutNode[];
+export interface DesignLayout<Element = DesignElement> {
+  roots: LayoutNode<Element>[];
   issues: LayoutIssue[];
   /** Bounding size of all root elements, used by the canvas stage. */
   width: number;
@@ -158,11 +158,13 @@ export interface DesignLayout {
  * Finds the resolved box of one element in a layout tree, for computed
  * positions and sizes shown outside the canvas.
  */
-export function findLayoutNode(
-  layout: DesignLayout,
+export function findLayoutNode<Element extends { id: string }>(
+  layout: DesignLayout<Element>,
   id: string,
-): LayoutNode | undefined {
-  const visit = (nodes: LayoutNode[]): LayoutNode | undefined => {
+): LayoutNode<Element> | undefined {
+  const visit = (
+    nodes: LayoutNode<Element>[],
+  ): LayoutNode<Element> | undefined => {
     for (const node of nodes) {
       if (node.element.id === id) {
         return node;
@@ -185,10 +187,22 @@ interface ResolvedTextStyle {
 /** Size basis a child can inherit from its parent; document roots have none. */
 type ParentLayout =
   | { kind: 'root' }
-  | { kind: 'content'; contentWidth: number; contentHeight: number };
+  | { kind: 'content'; contentWidth?: number; contentHeight?: number };
+
+interface LayoutContext {
+  issues: LayoutIssue[];
+  /** When set, children may only fill axes with a resolved parent size. */
+  missingDimensions?: Set<string>;
+  frameMeasurements?: FrameMeasurements;
+}
+
+type FrameMeasurements = ReadonlyMap<FrameElement, ResolvedSize>;
 
 const round = (value: number): number =>
   Math.round((value + Number.EPSILON) * 100) / 100;
+
+const roundFinite = (value: number): number =>
+  Math.abs(value) > Number.MAX_SAFE_INTEGER / 100 ? value : round(value);
 
 function resolvedTextStyle(style: TextMeasurementStyle): ResolvedTextStyle {
   const fontSize = style.fontSize ?? DEFAULT_FONT_SIZE;
@@ -269,6 +283,7 @@ function intrinsicContentSize(
   element: DesignElement,
   axis: Axis,
   parent?: ParentLayout,
+  frameMeasurements?: FrameMeasurements,
 ): number | undefined {
   switch (element.type) {
     case 'text': {
@@ -279,6 +294,9 @@ function intrinsicContentSize(
       return measureText(element.text, element, constraint).height;
     }
     case 'frame': {
+      if (frameMeasurements !== undefined) {
+        return frameMeasurements.get(element)?.[axis];
+      }
       if ((element.layout ?? 'horizontal') === 'none') {
         return undefined;
       }
@@ -296,6 +314,7 @@ function intrinsicContentSize(
 function intrinsicDimension(
   element: DesignElement,
   axis: Axis,
+  frameMeasurements?: FrameMeasurements,
 ): number | undefined {
   const value = element[axis];
   if (typeof value === 'number') {
@@ -305,24 +324,31 @@ function intrinsicDimension(
     if (value.mode === 'fill_container') {
       return value.fallback;
     }
-    return intrinsicContentSize(element, axis) ?? value.fallback;
+    return (
+      intrinsicContentSize(element, axis, undefined, frameMeasurements) ??
+      value.fallback
+    );
   }
-  return intrinsicContentSize(element, axis);
+  return intrinsicContentSize(element, axis, undefined, frameMeasurements);
 }
 
 function maxDefined(values: Array<number | undefined>): number | undefined {
   if (values.length === 0) {
     return 0;
   }
-  const defined = values.filter(
-    (value): value is number => value !== undefined,
-  );
-  return defined.length === 0 ? undefined : Math.max(...defined);
+  let maximum: number | undefined;
+  for (const value of values) {
+    if (value !== undefined) {
+      maximum = Math.max(maximum ?? value, value);
+    }
+  }
+  return maximum;
 }
 
 function measureAutoFrameAxis(
   frame: FrameElement,
   axis: Axis,
+  frameMeasurements?: FrameMeasurements,
 ): number | undefined {
   const layout = frame.layout ?? 'horizontal';
   const [top, right, bottom, left] = frame.padding ?? DEFAULT_PADDING;
@@ -331,7 +357,9 @@ function measureAutoFrameAxis(
   const gapTotal = gap * Math.max(0, children.length - 1);
   const paddingTotal = axis === 'width' ? left + right : top + bottom;
   const mainAxis = layout === 'horizontal' ? 'width' : 'height';
-  const sizes = children.map((child) => intrinsicDimension(child, axis));
+  const sizes = children.map((child) =>
+    intrinsicDimension(child, axis, frameMeasurements),
+  );
 
   if (axis === mainAxis) {
     if (sizes.some((size) => size === undefined)) {
@@ -348,9 +376,42 @@ function measureAutoFrameAxis(
   return contentSize === undefined ? undefined : paddingTotal + contentSize;
 }
 
-function missingSizeMessage(axis: Axis): string {
+/** Measures nested v2 Frames from the leaves upward using the shared rules. */
+function measureFrames(roots: DesignElement[]): FrameMeasurements {
+  const frames: FrameElement[] = [];
+  const pending = roots.filter((element) => element.type === 'frame');
+  while (pending.length > 0) {
+    const frame = pending.pop();
+    if (frame === undefined) {
+      break;
+    }
+    frames.push(frame);
+    for (const child of frame.children ?? []) {
+      if (child.type === 'frame') {
+        pending.push(child);
+      }
+    }
+  }
+
+  const measurements = new Map<FrameElement, ResolvedSize>();
+  for (let index = frames.length - 1; index >= 0; index -= 1) {
+    const frame = frames[index];
+    if (frame.layout !== 'none') {
+      measurements.set(frame, {
+        width: measureAutoFrameAxis(frame, 'width', measurements),
+        height: measureAutoFrameAxis(frame, 'height', measurements),
+      });
+    }
+  }
+  return measurements;
+}
+
+function missingSizeMessage(axis: Axis, allowFallback: boolean): string {
   const label = axis === 'width' ? '宽度' : '高度';
-  return `${label}（${axis}）缺少尺寸依据：需要固定数值、内容尺寸、父容器尺寸或备用值`;
+  const basis = allowFallback
+    ? '固定数值、内容尺寸、父容器尺寸或备用值'
+    : '固定数值、可计算的内容尺寸或父容器尺寸';
+  return `${label}（${axis}）缺少尺寸依据：需要${basis}`;
 }
 
 function childPath(parentPath: string, index: number): string {
@@ -362,7 +423,7 @@ function resolveSize(
   axis: Axis,
   parent: ParentLayout,
   path: string,
-  issues: LayoutIssue[],
+  context: LayoutContext,
 ): number {
   const value = element[axis];
   let basis: number | undefined;
@@ -375,22 +436,37 @@ function resolveSize(
     basis =
       value.mode === 'fill_container'
         ? parentContentSize(parent, axis)
-        : intrinsicContentSize(element, axis, parent);
+        : intrinsicContentSize(
+            element,
+            axis,
+            parent,
+            context.frameMeasurements,
+          );
   } else {
-    basis = intrinsicContentSize(element, axis, parent);
+    basis = intrinsicContentSize(
+      element,
+      axis,
+      parent,
+      context.frameMeasurements,
+    );
   }
 
-  if (basis !== undefined) {
+  if (
+    basis !== undefined &&
+    (context.missingDimensions === undefined || Number.isFinite(basis))
+  ) {
     return basis;
   }
   if (fallback !== undefined) {
     return fallback;
   }
 
-  issues.push({
-    path: `${path}.${axis}`,
+  const dimensionPath = `${path}.${axis}`;
+  context.missingDimensions?.add(dimensionPath);
+  context.issues.push({
+    path: dimensionPath,
     axis,
-    message: missingSizeMessage(axis),
+    message: missingSizeMessage(axis, context.missingDimensions === undefined),
   });
   return 0;
 }
@@ -454,68 +530,99 @@ interface ResolvedSize {
   height?: number;
 }
 
-function layoutElement(
-  element: DesignElement,
-  path: string,
-  parent: ParentLayout,
-  x: number,
-  y: number,
-  issues: LayoutIssue[],
-  resolved: ResolvedSize = {},
-): LayoutNode {
-  const width =
-    resolved.width ?? resolveSize(element, 'width', parent, path, issues);
-  const height =
-    resolved.height ?? resolveSize(element, 'height', parent, path, issues);
-  const children =
-    element.type === 'frame'
-      ? layoutFrameChildren(element, width, height, path, issues)
-      : [];
-
-  return {
-    element,
-    box: {
-      x: round(x),
-      y: round(y),
-      width: round(width),
-      height: round(height),
-    },
-    children,
-  };
+interface ElementPlacement {
+  element: DesignElement;
+  path: string;
+  parent: ParentLayout;
+  x: number;
+  y: number;
+  size?: ResolvedSize;
 }
 
-function layoutFrameChildren(
+function layoutTree(
+  placements: ElementPlacement[],
+  context: LayoutContext,
+): LayoutNode[] {
+  const roots: LayoutNode[] = [];
+  const pending = placements
+    .map((placement) => ({ placement, target: roots }))
+    .reverse();
+  const roundBoxValue =
+    context.missingDimensions === undefined ? round : roundFinite;
+  let task = pending.pop();
+  while (task !== undefined) {
+    const { element, path, parent, x, y, size } = task.placement;
+    const width =
+      size?.width ?? resolveSize(element, 'width', parent, path, context);
+    const height =
+      size?.height ?? resolveSize(element, 'height', parent, path, context);
+    const node: LayoutNode = {
+      element,
+      box: {
+        x: roundBoxValue(x),
+        y: roundBoxValue(y),
+        width: roundBoxValue(width),
+        height: roundBoxValue(height),
+      },
+      children: [],
+    };
+    task.target.push(node);
+
+    if (element.type === 'frame') {
+      const children = placeFrameChildren(
+        element,
+        width,
+        height,
+        path,
+        context,
+      );
+      for (let index = children.length - 1; index >= 0; index -= 1) {
+        pending.push({ placement: children[index], target: node.children });
+      }
+    }
+    task = pending.pop();
+  }
+  return roots;
+}
+
+function placeFrameChildren(
   frame: FrameElement,
   width: number,
   height: number,
   path: string,
-  issues: LayoutIssue[],
-): LayoutNode[] {
+  context: LayoutContext,
+): ElementPlacement[] {
   const padding = frame.padding ?? DEFAULT_PADDING;
   const [top, right, bottom, left] = padding;
   const contentWidth = Math.max(0, width - left - right);
   const contentHeight = Math.max(0, height - top - bottom);
   const children = frame.children ?? [];
   const layout = frame.layout ?? 'horizontal';
-  const parent: ParentLayout = { kind: 'content', contentWidth, contentHeight };
+  const parent: ParentLayout = {
+    kind: 'content',
+    contentWidth: context.missingDimensions?.has(`${path}.width`)
+      ? undefined
+      : contentWidth,
+    contentHeight: context.missingDimensions?.has(`${path}.height`)
+      ? undefined
+      : contentHeight,
+  };
 
   if (layout === 'none') {
-    return children.map((child, index) =>
-      layoutElement(
-        child,
-        childPath(path, index),
-        parent,
-        left + (child.x ?? 0),
-        top + (child.y ?? 0),
-        issues,
-      ),
-    );
+    return children.map((child, index) => ({
+      element: child,
+      path: childPath(path, index),
+      parent,
+      x: left + (child.x ?? 0),
+      y: top + (child.y ?? 0),
+    }));
   }
 
   const mainAxis = layout === 'horizontal' ? 'width' : 'height';
   const crossAxis = layout === 'horizontal' ? 'height' : 'width';
   const contentMain = layout === 'horizontal' ? contentWidth : contentHeight;
   const contentCross = layout === 'horizontal' ? contentHeight : contentWidth;
+  const canFillMainAxis = parentContentSize(parent, mainAxis) !== undefined;
   const gap = frame.gap ?? 0;
 
   const mainSizes: number[] = new Array<number>(children.length).fill(0);
@@ -524,7 +631,7 @@ function layoutFrameChildren(
 
   children.forEach((child, index) => {
     const pathToChild = childPath(path, index);
-    if (isFillContainer(child[mainAxis])) {
+    if (canFillMainAxis && isFillContainer(child[mainAxis])) {
       mainFillIndexes.push(index);
     } else {
       mainSizes[index] = resolveSize(
@@ -532,13 +639,17 @@ function layoutFrameChildren(
         mainAxis,
         parent,
         pathToChild,
-        issues,
+        context,
       );
     }
 
-    crossSizes[index] = isFillContainer(child[crossAxis])
-      ? contentCross
-      : resolveSize(child, crossAxis, parent, pathToChild, issues);
+    crossSizes[index] = resolveSize(
+      child,
+      crossAxis,
+      parent,
+      pathToChild,
+      context,
+    );
   });
 
   const gapTotal = gap * Math.max(0, children.length - 1);
@@ -567,20 +678,19 @@ function layoutFrameChildren(
     const cross = crossOffset(align, contentCross, crossSizes[index] ?? 0);
     const x = layout === 'horizontal' ? left + main : left + cross;
     const y = layout === 'horizontal' ? top + cross : top + main;
-    const resolved: ResolvedSize =
+    const size: ResolvedSize =
       layout === 'horizontal'
         ? { width: mainSizes[index], height: crossSizes[index] }
         : { width: crossSizes[index], height: mainSizes[index] };
 
-    return layoutElement(
-      child,
-      childPath(path, index),
+    return {
+      element: child,
+      path: childPath(path, index),
       parent,
       x,
       y,
-      issues,
-      resolved,
-    );
+      size,
+    };
   });
 }
 
@@ -597,11 +707,11 @@ export interface ElementSize {
 export function measureElementSize(
   element: DesignElement,
 ): ElementSize | undefined {
-  const issues: LayoutIssue[] = [];
+  const context: LayoutContext = { issues: [] };
   const parent: ParentLayout = { kind: 'root' };
-  const width = resolveSize(element, 'width', parent, '$', issues);
-  const height = resolveSize(element, 'height', parent, '$', issues);
-  if (issues.length > 0) {
+  const width = resolveSize(element, 'width', parent, '$', context);
+  const height = resolveSize(element, 'height', parent, '$', context);
+  if (context.issues.length > 0) {
     return undefined;
   }
   return { width: round(width), height: round(height) };
@@ -614,17 +724,28 @@ export function measureElementSize(
  * rules back document validation and canvas rendering.
  */
 export function layoutDesignDocument(document: DesignDocument): DesignLayout {
-  const resolvedDocument = resolveDesignDocument(document);
-  const issues: LayoutIssue[] = [];
-  const roots = resolvedDocument.children.map((element, index) =>
-    layoutElement(
+  return layoutDocument(resolveDesignDocument(document).children, false);
+}
+
+/** Runs the shared engine after variable bindings have been resolved. */
+export function layoutDocument(
+  elements: DesignElement[],
+  checkParentSizeBasis: boolean,
+): DesignLayout {
+  const context: LayoutContext = { issues: [] };
+  if (checkParentSizeBasis) {
+    context.missingDimensions = new Set();
+    context.frameMeasurements = measureFrames(elements);
+  }
+  const roots = layoutTree(
+    elements.map((element, index) => ({
       element,
-      `$.children[${index}]`,
-      { kind: 'root' },
-      element.x ?? 0,
-      element.y ?? 0,
-      issues,
-    ),
+      path: childPath('$', index),
+      parent: { kind: 'root' },
+      x: element.x ?? 0,
+      y: element.y ?? 0,
+    })),
+    context,
   );
 
   let width = 0;
@@ -634,7 +755,13 @@ export function layoutDesignDocument(document: DesignDocument): DesignLayout {
     height = Math.max(height, node.box.y + node.box.height);
   }
 
-  return { roots, issues, width: round(width), height: round(height) };
+  const roundExtent = checkParentSizeBasis ? roundFinite : round;
+  return {
+    roots,
+    issues: context.issues,
+    width: roundExtent(width),
+    height: roundExtent(height),
+  };
 }
 
 /** Converts a layout issue into a document diagnostic. */

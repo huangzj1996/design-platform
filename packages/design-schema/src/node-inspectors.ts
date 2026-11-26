@@ -11,6 +11,11 @@ import {
   positiveNumberField,
   stringField,
 } from './fields';
+import {
+  frameAlignItems,
+  frameJustifyContent,
+  frameLayouts,
+} from './layout-values';
 import type { ElementType, NodeInspector } from './types';
 
 const commonFields = {
@@ -38,17 +43,11 @@ const frameInspector: NodeInspector = {
     ...sizedFields,
     ...commonFields,
     clipContent: booleanField,
-    layout: enumField(['none', 'horizontal', 'vertical']),
+    layout: enumField(frameLayouts),
     gap: nonNegativeNumberField,
     padding: paddingField,
-    justifyContent: enumField([
-      'start',
-      'center',
-      'end',
-      'space_between',
-      'space_around',
-    ]),
-    alignItems: enumField(['start', 'center', 'end']),
+    justifyContent: enumField(frameJustifyContent),
+    alignItems: enumField(frameAlignItems),
   },
 };
 
