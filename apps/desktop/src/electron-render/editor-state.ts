@@ -34,6 +34,8 @@ export type SaveStatus = 'idle' | 'saving' | 'error';
 export const OPEN_FAILURE_TITLE = '无法打开设计稿';
 export const CREATE_FAILURE_TITLE = '无法新建设计稿';
 export const MOVE_FAILURE_TITLE = '无法移动元素';
+export const DELETE_FAILURE_TITLE = '无法删除元素';
+export const HISTORY_FAILURE_TITLE = '无法撤销或重做';
 
 export interface EditorState {
   /** Session owning this tab's document, selection and inspector state. */
@@ -232,27 +234,24 @@ export function editDocument(
 }
 
 /**
- * Commits one drag landing through the session. Invalid coordinates keep the
- * last valid snapshot and surface the command diagnostics.
+ * Applies one document-changing command through the session. Invalid commands
+ * keep the last valid snapshot and its history; unchanged commands do not
+ * touch the save baseline.
  */
-export function moveElementInState(
+function applyDocumentCommand(
   state: EditorState,
-  elementId: string,
-  position: Partial<ElementPosition>,
+  command: EditorCommand,
+  failureTitle: string,
 ): EditorState {
   if (state.session === null) {
     return state;
   }
-  const result = state.session.dispatch({
-    type: 'move-element',
-    elementId,
-    position,
-  });
+  const result = state.session.dispatch(command);
   if (!result.ok) {
     return {
       ...state,
       diagnostics: result.diagnostics,
-      diagnosticsTitle: MOVE_FAILURE_TITLE,
+      diagnosticsTitle: failureTitle,
     };
   }
   if (!result.changed) {
@@ -265,6 +264,44 @@ export function moveElementInState(
     dirty: true,
     editVersion: state.editVersion + 1,
   };
+}
+
+/**
+ * Commits one drag landing through the session. Invalid coordinates keep the
+ * last valid snapshot and surface the command diagnostics.
+ */
+export function moveElementInState(
+  state: EditorState,
+  elementId: string,
+  position: Partial<ElementPosition>,
+): EditorState {
+  return applyDocumentCommand(
+    state,
+    { type: 'move-element', elementId, position },
+    MOVE_FAILURE_TITLE,
+  );
+}
+
+/** Deletes one element as a single undo step, dropping it from the selection. */
+export function deleteElementInState(
+  state: EditorState,
+  elementId: string,
+): EditorState {
+  return applyDocumentCommand(
+    state,
+    { type: 'delete-element', elementId },
+    DELETE_FAILURE_TITLE,
+  );
+}
+
+/** Restores the design document before the last committed edit. */
+export function undoInState(state: EditorState): EditorState {
+  return applyDocumentCommand(state, { type: 'undo' }, HISTORY_FAILURE_TITLE);
+}
+
+/** Reapplies the design document restored by the last undo. */
+export function redoInState(state: EditorState): EditorState {
+  return applyDocumentCommand(state, { type: 'redo' }, HISTORY_FAILURE_TITLE);
 }
 
 /** Commands that only change view state, never the design document. */
@@ -324,18 +361,18 @@ export function applySaveResult(
   }
 
   // The saved snapshot records its own path so reopening keeps the target.
-  const document = withDocumentPath(state.snapshot.document, result.filePath);
-  const replaced = state.session.dispatch({
-    type: 'replace-document',
-    document,
+  // Recording it is not a design edit, so it leaves undo and redo intact.
+  const saved = state.session.dispatch({
+    type: 'set-document-path',
+    filePath: result.filePath,
   });
-  if (!replaced.ok) {
+  if (!saved.ok) {
     return state;
   }
 
   return {
     ...state,
-    snapshot: replaced.snapshot,
+    snapshot: saved.snapshot,
     filePath: result.filePath,
     dirty: state.dirty && state.editVersion !== savedVersion,
     saveStatus: 'idle',

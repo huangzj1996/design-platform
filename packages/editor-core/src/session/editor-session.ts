@@ -7,10 +7,13 @@ import {
   type Diagnostic,
 } from '@design-ai/design-schema';
 import { findElementParent } from '../document/alignment';
-import { findElement } from '../document/edit';
+import { deleteElement, findElement } from '../document/edit';
 import { moveElement, type ElementPosition } from '../document/move';
 
 type FrameElement = Extract<DesignElement, { type: 'frame' }>;
+
+/** How many design document snapshots one session keeps for undo. */
+export const EDIT_HISTORY_LIMIT = 100;
 
 /** Immutable state read by the canvas, layer tree and inspector. */
 export interface EditorSnapshot {
@@ -30,7 +33,15 @@ export type EditorCommand =
       elementId: string;
       /** Design declaration coordinates, relative to the parent content box. */
       position: Partial<ElementPosition>;
-    };
+    }
+  | { type: 'delete-element'; elementId: string }
+  | {
+      /** Records the save target without adding a design history step. */
+      type: 'set-document-path';
+      filePath: string;
+    }
+  | { type: 'undo' }
+  | { type: 'redo' };
 
 export interface EditorCommandResult {
   /** False when the command was invalid; the snapshot is then unchanged. */
@@ -58,6 +69,10 @@ export interface EditorSession {
   getSnapshot(): EditorSnapshot;
   /** Listens for published snapshots and returns an unsubscribe function. */
   subscribe(listener: (snapshot: EditorSnapshot) => void): () => void;
+  /** Whether an earlier design document snapshot can be restored. */
+  canUndo(): boolean;
+  /** Whether an undone design document snapshot can be restored again. */
+  canRedo(): boolean;
   readonly selectors: EditorSelectors;
 }
 
@@ -157,6 +172,10 @@ export function createEditorSession(document: DesignDocument): EditorSession {
   };
   const listeners = new Set<(snapshot: EditorSnapshot) => void>();
   const selectors = createSelectors();
+  /** Documents before each committed edit, oldest first, bounded. */
+  let undoStack: DesignDocument[] = [];
+  /** Documents superseded by undo, most recently undone last. */
+  let redoStack: DesignDocument[] = [];
 
   function publish(next: EditorSnapshot): EditorCommandResult {
     snapshot = next;
@@ -191,6 +210,24 @@ export function createEditorSession(document: DesignDocument): EditorSession {
     return publish({ ...snapshot, inspectorExpanded: expanded });
   }
 
+  /** Records the document before a committed edit and invalidates redo. */
+  function recordEdit(): void {
+    undoStack.push(snapshot.document);
+    if (undoStack.length > EDIT_HISTORY_LIMIT) {
+      undoStack.shift();
+    }
+    redoStack.length = 0;
+  }
+
+  /** Publishes an edited or restored document, keeping valid selections. */
+  function publishDocument(document: DesignDocument): EditorCommandResult {
+    const selectedElementIds = normalizeSelection(
+      snapshot.selectedElementIds,
+      document,
+    );
+    return publish({ ...snapshot, document, selectedElementIds });
+  }
+
   function replaceDocument(document: DesignDocument): EditorCommandResult {
     if (document === snapshot.document) {
       return noChange();
@@ -199,15 +236,8 @@ export function createEditorSession(document: DesignDocument): EditorSession {
     if (!validation.ok) {
       return invalid(validation.errors);
     }
-    const selectedElementIds = normalizeSelection(
-      snapshot.selectedElementIds,
-      validation.document,
-    );
-    return publish({
-      ...snapshot,
-      document: validation.document,
-      selectedElementIds,
-    });
+    recordEdit();
+    return publishDocument(validation.document);
   }
 
   function moveElementCommand(command: {
@@ -235,7 +265,62 @@ export function createEditorSession(document: DesignDocument): EditorSession {
     if (!validation.ok) {
       return invalid(validation.errors);
     }
-    return publish({ ...snapshot, document: validation.document });
+    recordEdit();
+    return publishDocument(validation.document);
+  }
+
+  function deleteElementCommand(elementId: string): EditorCommandResult {
+    if (findElement(snapshot.document, elementId) === undefined) {
+      return invalid([
+        createDiagnostic(
+          DiagnosticCodes.elementNotFound,
+          '$',
+          `找不到要删除的元素 "${elementId}"`,
+        ),
+      ]);
+    }
+    const validation = validateDesignDocument(
+      deleteElement(snapshot.document, elementId),
+    );
+    if (!validation.ok) {
+      return invalid(validation.errors);
+    }
+    recordEdit();
+    return publishDocument(validation.document);
+  }
+
+  function setDocumentPath(filePath: string): EditorCommandResult {
+    if (snapshot.document.filePath === filePath) {
+      return noChange();
+    }
+    // The save target belongs to every version of the document, so restored
+    // snapshots keep pointing at it without becoming history steps.
+    const withPath = (document: DesignDocument): DesignDocument =>
+      document.filePath === filePath ? document : { ...document, filePath };
+    undoStack = undoStack.map(withPath);
+    redoStack = redoStack.map(withPath);
+    return publish({ ...snapshot, document: withPath(snapshot.document) });
+  }
+
+  function undoCommand(): EditorCommandResult {
+    const document = undoStack.pop();
+    if (document === undefined) {
+      return noChange();
+    }
+    redoStack.push(snapshot.document);
+    return publishDocument(document);
+  }
+
+  function redoCommand(): EditorCommandResult {
+    const document = redoStack.pop();
+    if (document === undefined) {
+      return noChange();
+    }
+    undoStack.push(snapshot.document);
+    if (undoStack.length > EDIT_HISTORY_LIMIT) {
+      undoStack.shift();
+    }
+    return publishDocument(document);
   }
 
   return {
@@ -249,6 +334,14 @@ export function createEditorSession(document: DesignDocument): EditorSession {
           return replaceDocument(command.document);
         case 'move-element':
           return moveElementCommand(command);
+        case 'delete-element':
+          return deleteElementCommand(command.elementId);
+        case 'set-document-path':
+          return setDocumentPath(command.filePath);
+        case 'undo':
+          return undoCommand();
+        case 'redo':
+          return redoCommand();
       }
     },
 
@@ -261,6 +354,14 @@ export function createEditorSession(document: DesignDocument): EditorSession {
       return () => {
         listeners.delete(listener);
       };
+    },
+
+    canUndo() {
+      return undoStack.length > 0;
+    },
+
+    canRedo() {
+      return redoStack.length > 0;
     },
 
     selectors,

@@ -7,6 +7,7 @@ import {
 } from '@design-ai/editor-core';
 import { CircleUser, Menu, PanelLeft, Play } from 'lucide-react';
 import {
+  useEffect,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -102,6 +103,12 @@ export interface EditorProps {
   onAlign: (alignment: ElementAlignment) => void;
   onAddChild: (type: ElementType) => void;
   onDelete: () => void;
+  /** Whether the tab's session can restore an earlier design document. */
+  canUndo: boolean;
+  /** Whether the tab's session can reapply the last undone document. */
+  canRedo: boolean;
+  onUndo: () => void;
+  onRedo: () => void;
   /** Canvas engine factory, injectable for tests. */
   createCanvasEngine?: CanvasEngineFactory;
 }
@@ -128,6 +135,10 @@ export function Editor({
   onAlign,
   onAddChild,
   onDelete,
+  canUndo,
+  canRedo,
+  onUndo,
+  onRedo,
   createCanvasEngine,
 }: EditorProps) {
   const [tool, setTool] = useState<CanvasTool>('pointer');
@@ -141,6 +152,38 @@ export function Editor({
   const panStart = useRef<PanStart | null>(null);
   const sidebarResizeStart = useRef<SidebarResizeStart | null>(null);
   const fileMenu = useRef<HTMLDetailsElement>(null);
+
+  // Undo and redo follow the active tab's session history. Text inputs keep
+  // their native editing shortcuts instead.
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) {
+        return;
+      }
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable ||
+          ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
+      ) {
+        return;
+      }
+      const key = event.key.toLowerCase();
+      const redo = key === 'y' || (key === 'z' && event.shiftKey);
+      const undo = key === 'z' && !event.shiftKey;
+      if (!undo && !redo) {
+        return;
+      }
+      event.preventDefault();
+      if (undo) {
+        onUndo();
+      } else {
+        onRedo();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onUndo, onRedo]);
 
   const selected =
     document !== null && selectionId !== null
@@ -319,6 +362,22 @@ export function Editor({
                     className="cursor-pointer rounded-md px-2 py-1 text-left text-xs hover:bg-[#F6F6F6] disabled:cursor-progress disabled:opacity-60"
                   >
                     新建设计稿
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => runFileAction(onUndo)}
+                    disabled={busy || !canUndo}
+                    className="cursor-pointer rounded-md px-2 py-1 text-left text-xs hover:bg-[#F6F6F6] disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    撤销
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => runFileAction(onRedo)}
+                    disabled={busy || !canRedo}
+                    className="cursor-pointer rounded-md px-2 py-1 text-left text-xs hover:bg-[#F6F6F6] disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    重做
                   </button>
                 </div>
               </details>

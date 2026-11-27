@@ -1,6 +1,11 @@
 import { validateDesignDocument } from '@design-ai/design-schema';
 import { describe, expect, it, vi } from 'vitest';
-import { createEditorSession } from '../src/session/editor-session';
+import {
+  createEditorSession,
+  EDIT_HISTORY_LIMIT,
+  type EditorSession,
+  type EditorSnapshot,
+} from '../src/session/editor-session';
 
 function documentFrom(input: unknown) {
   const result = validateDesignDocument(input);
@@ -39,6 +44,34 @@ const document = documentFrom({
       ],
     },
     { id: 'title', type: 'text', name: '标题', textStyle: { content: '标题' } },
+  ],
+});
+
+const boundDocument = documentFrom({
+  version: 2,
+  variables: {
+    'chip-x': { type: 'number', value: 12 },
+    'chip-y': { type: 'number', value: 18 },
+  },
+  children: [
+    {
+      id: 'board',
+      type: 'frame',
+      layout: 'none',
+      width: 400,
+      height: 300,
+      children: [
+        {
+          id: 'chip',
+          type: 'rectangle',
+          x: '$chip-x',
+          y: '$chip-y',
+          width: 80,
+          height: 40,
+        },
+        { id: 'sibling', type: 'rectangle', width: 20, height: 20 },
+      ],
+    },
   ],
 });
 
@@ -324,5 +357,265 @@ describe('session.selectors', () => {
     expect(session.selectors.selectedElement(selected)?.id).toBe('rectangle');
     expect(session.selectors.selectedElement(before)).toBeUndefined();
     expect(session.selectors.selectedElements(after)).toEqual([]);
+  });
+});
+
+describe('session history', () => {
+  function childrenOf(
+    session: EditorSession,
+    snapshot: EditorSnapshot,
+    id: string,
+  ) {
+    const element = session.selectors.elementById(snapshot, id);
+    return element?.type === 'frame' ? (element.children ?? []) : [];
+  }
+
+  it('undoes and redoes one move with its declaration and variable binding', () => {
+    const session = createEditorSession(boundDocument);
+    session.dispatch({ type: 'select', elementIds: ['chip'] });
+
+    const moved = session.dispatch({
+      type: 'move-element',
+      elementId: 'chip',
+      position: { x: 40 },
+    });
+    expect(session.selectors.elementById(moved.snapshot, 'chip')).toMatchObject(
+      { x: 40, y: '$chip-y' },
+    );
+    expect(session.canUndo()).toBe(true);
+    expect(session.canRedo()).toBe(false);
+
+    const undone = session.dispatch({ type: 'undo' });
+    expect(undone.ok).toBe(true);
+    expect(undone.changed).toBe(true);
+    expect(undone.snapshot.document).toBe(boundDocument);
+    expect(
+      session.selectors.elementById(undone.snapshot, 'chip'),
+    ).toMatchObject({ x: '$chip-x', y: '$chip-y' });
+    expect(undone.snapshot.selectedElementIds).toEqual(['chip']);
+    expect(session.canUndo()).toBe(false);
+    expect(session.canRedo()).toBe(true);
+
+    const redone = session.dispatch({ type: 'redo' });
+    expect(redone.ok).toBe(true);
+    expect(redone.changed).toBe(true);
+    expect(
+      session.selectors.elementById(redone.snapshot, 'chip'),
+    ).toMatchObject({ x: 40, y: '$chip-y' });
+    expect(redone.snapshot.selectedElementIds).toEqual(['chip']);
+    expect(session.canRedo()).toBe(false);
+  });
+
+  it('undoes and redoes a replaced document', () => {
+    const session = createEditorSession(document);
+    const replacement = documentFrom({
+      version: 2,
+      children: [{ id: 'other', type: 'rectangle', width: 10, height: 10 }],
+    });
+    session.dispatch({ type: 'replace-document', document: replacement });
+    expect(session.getSnapshot().document).toEqual(replacement);
+
+    const undone = session.dispatch({ type: 'undo' });
+    expect(undone.changed).toBe(true);
+    expect(undone.snapshot.document).toBe(document);
+
+    const redone = session.dispatch({ type: 'redo' });
+    expect(redone.changed).toBe(true);
+    expect(redone.snapshot.document).toEqual(replacement);
+  });
+
+  it('keeps selection and inspector changes out of the history', () => {
+    const session = createEditorSession(boundDocument);
+    const listener = vi.fn();
+    session.subscribe(listener);
+
+    session.dispatch({ type: 'select', elementIds: ['chip'] });
+    session.dispatch({ type: 'set-inspector-expanded', expanded: false });
+
+    expect(session.canUndo()).toBe(false);
+    expect(session.canRedo()).toBe(false);
+    const before = session.getSnapshot();
+    const undo = session.dispatch({ type: 'undo' });
+    expect(undo.ok).toBe(true);
+    expect(undo.changed).toBe(false);
+    expect(undo.snapshot).toBe(before);
+    expect(session.getSnapshot().document).toBe(boundDocument);
+    expect(listener).toHaveBeenCalledTimes(2);
+  });
+
+  it('restores a deleted element in place and keeps the remaining selection', () => {
+    const session = createEditorSession(boundDocument);
+    session.dispatch({ type: 'select', elementIds: ['chip', 'sibling'] });
+
+    const deleted = session.dispatch({
+      type: 'delete-element',
+      elementId: 'chip',
+    });
+    expect(deleted.ok).toBe(true);
+    expect(deleted.snapshot.selectedElementIds).toEqual(['sibling']);
+    expect(
+      session.selectors.elementById(deleted.snapshot, 'chip'),
+    ).toBeUndefined();
+
+    const undone = session.dispatch({ type: 'undo' });
+    // The restored element keeps its id, parent and sibling order, but is only
+    // selected again when the current selection still contains it.
+    expect(
+      session.selectors.elementById(undone.snapshot, 'chip'),
+    ).toMatchObject({ id: 'chip', type: 'rectangle' });
+    expect(session.selectors.parentOf(undone.snapshot, 'chip')?.id).toBe(
+      'board',
+    );
+    expect(
+      childrenOf(session, undone.snapshot, 'board').map(
+        (element) => element.id,
+      ),
+    ).toEqual(['chip', 'sibling']);
+    expect(undone.snapshot.selectedElementIds).toEqual(['sibling']);
+    expect(session.selectors.selectedElement(undone.snapshot)?.id).toBe(
+      'sibling',
+    );
+    expect(
+      session.selectors
+        .selectedElements(undone.snapshot)
+        .map((element) => element.id),
+    ).toEqual(['sibling']);
+
+    const redone = session.dispatch({ type: 'redo' });
+    expect(
+      session.selectors.elementById(redone.snapshot, 'chip'),
+    ).toBeUndefined();
+    expect(redone.snapshot.selectedElementIds).toEqual(['sibling']);
+  });
+
+  it('reports diagnostics and keeps the history for an unknown delete target', () => {
+    const session = createEditorSession(boundDocument);
+    const before = session.getSnapshot();
+
+    const result = session.dispatch({
+      type: 'delete-element',
+      elementId: 'missing',
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.changed).toBe(false);
+    expect(result.snapshot).toBe(before);
+    expect(result.diagnostics[0]?.code).toBe('element_not_found');
+    expect(session.canUndo()).toBe(false);
+  });
+
+  it('drops the redo stack after a new document edit', () => {
+    const session = createEditorSession(boundDocument);
+    session.dispatch({
+      type: 'move-element',
+      elementId: 'chip',
+      position: { x: 40 },
+    });
+    session.dispatch({ type: 'undo' });
+    expect(session.canRedo()).toBe(true);
+
+    session.dispatch({
+      type: 'move-element',
+      elementId: 'chip',
+      position: { y: 30 },
+    });
+
+    expect(session.canRedo()).toBe(false);
+    const redo = session.dispatch({ type: 'redo' });
+    expect(redo.changed).toBe(false);
+    expect(
+      session.selectors.elementById(session.getSnapshot(), 'chip'),
+    ).toMatchObject({ x: '$chip-x', y: 30 });
+  });
+
+  it('records a save target without adding a history step or clearing redo', () => {
+    const session = createEditorSession(boundDocument);
+    session.dispatch({
+      type: 'move-element',
+      elementId: 'chip',
+      position: { x: 40 },
+    });
+    session.dispatch({ type: 'undo' });
+    expect(session.canRedo()).toBe(true);
+
+    const saved = session.dispatch({
+      type: 'set-document-path',
+      filePath: '/tmp/chip.json',
+    });
+    expect(saved.ok).toBe(true);
+    expect(saved.changed).toBe(true);
+    expect(saved.snapshot.document.filePath).toBe('/tmp/chip.json');
+    expect(session.canUndo()).toBe(false);
+    expect(session.canRedo()).toBe(true);
+
+    // The path is metadata, so the redo result keeps the save target too.
+    const redone = session.dispatch({ type: 'redo' });
+    expect(redone.changed).toBe(true);
+    expect(
+      session.selectors.elementById(redone.snapshot, 'chip'),
+    ).toMatchObject({ x: 40 });
+    expect(redone.snapshot.document.filePath).toBe('/tmp/chip.json');
+  });
+
+  it('keeps only a bounded number of document snapshots', () => {
+    const session = createEditorSession(
+      documentFrom({
+        version: 2,
+        children: [{ id: 'item', type: 'rectangle', width: 10, height: 10 }],
+      }),
+    );
+    for (let x = 1; x <= EDIT_HISTORY_LIMIT + 5; x += 1) {
+      session.dispatch({
+        type: 'move-element',
+        elementId: 'item',
+        position: { x },
+      });
+    }
+
+    let undone = 0;
+    while (session.dispatch({ type: 'undo' }).changed) {
+      undone += 1;
+    }
+    expect(undone).toBe(EDIT_HISTORY_LIMIT);
+    expect(session.canUndo()).toBe(false);
+  });
+
+  it('keeps history isolated between sessions', () => {
+    const firstDocument = documentFrom({
+      version: 2,
+      children: [{ id: 'first', type: 'rectangle', width: 10, height: 10 }],
+    });
+    const secondDocument = documentFrom({
+      version: 2,
+      children: [{ id: 'second', type: 'rectangle', width: 10, height: 10 }],
+    });
+    const first = createEditorSession(firstDocument);
+    const second = createEditorSession(secondDocument);
+
+    first.dispatch({
+      type: 'move-element',
+      elementId: 'first',
+      position: { x: 10 },
+    });
+    second.dispatch({
+      type: 'move-element',
+      elementId: 'second',
+      position: { x: 20 },
+    });
+
+    const undoneFirst = first.dispatch({ type: 'undo' });
+    expect(undoneFirst.snapshot.document).toBe(firstDocument);
+    expect(
+      second.selectors.elementById(second.getSnapshot(), 'second'),
+    ).toMatchObject({ x: 20 });
+    expect(second.canUndo()).toBe(true);
+    expect(first.canRedo()).toBe(true);
+    expect(second.canRedo()).toBe(false);
+
+    const undoneSecond = second.dispatch({ type: 'undo' });
+    expect(undoneSecond.snapshot.document).toBe(secondDocument);
+    expect(
+      first.selectors.elementById(first.getSnapshot(), 'first')?.x,
+    ).toBeUndefined();
   });
 });

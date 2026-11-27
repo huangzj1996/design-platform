@@ -8,7 +8,6 @@ import {
   alignElement,
   createDefaultElement,
   createElementId,
-  deleteElement,
   dragMoveTarget,
   updateElement,
   type ElementAlignment,
@@ -29,6 +28,7 @@ import type { CanvasEngineFactory } from './canvas-engine';
 import { Editor } from './Editor';
 import {
   applySaveFailure,
+  deleteElementInState,
   documentName,
   documentOf,
   editDocument,
@@ -36,9 +36,11 @@ import {
   inspectorExpandedOf,
   markSaving,
   moveElementInState,
+  redoInState,
   selectElement,
   selectionIdOf,
   toggleInspectorExpanded,
+  undoInState,
   type EditorState,
   type PendingAction,
 } from './editor-state';
@@ -594,13 +596,20 @@ export function App({
 
   const handleDelete = () => {
     updateActiveEditor((current) => {
-      const document = documentOf(current);
       const selectionId = selectionIdOf(current);
-      if (document === null || selectionId === null) {
+      if (selectionId === null) {
         return current;
       }
-      return editDocument(current, deleteElement(document, selectionId), null);
+      return deleteElementInState(current, selectionId);
     });
+  };
+
+  const handleUndo = () => {
+    updateActiveEditor(undoInState);
+  };
+
+  const handleRedo = () => {
+    updateActiveEditor(redoInState);
   };
 
   const document = documentOf(editorState);
@@ -708,6 +717,10 @@ export function App({
             onAlign={handleAlign}
             onAddChild={handleAddChild}
             onDelete={handleDelete}
+            canUndo={editorState.session?.canUndo() ?? false}
+            canRedo={editorState.session?.canRedo() ?? false}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
             createCanvasEngine={createCanvasEngine}
           />
         </>
