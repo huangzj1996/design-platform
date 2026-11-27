@@ -7,6 +7,7 @@ import {
   createEditorSession,
   type EditorSession,
   type EditorSnapshot,
+  type ElementPosition,
 } from '@design-ai/editor-core';
 import { errorMessage } from './error-message';
 import type {
@@ -31,6 +32,7 @@ export type SaveStatus = 'idle' | 'saving' | 'error';
 
 export const OPEN_FAILURE_TITLE = '无法打开设计稿';
 export const CREATE_FAILURE_TITLE = '无法新建设计稿';
+export const MOVE_FAILURE_TITLE = '无法移动元素';
 
 export interface EditorState {
   /** Session owning this tab's document, selection and inspector state. */
@@ -218,6 +220,42 @@ export function editDocument(
   return {
     ...state,
     snapshot: selected.snapshot,
+    dirty: true,
+    editVersion: state.editVersion + 1,
+  };
+}
+
+/**
+ * Commits one drag landing through the session. Invalid coordinates keep the
+ * last valid snapshot and surface the command diagnostics.
+ */
+export function moveElementInState(
+  state: EditorState,
+  elementId: string,
+  position: Partial<ElementPosition>,
+): EditorState {
+  if (state.session === null) {
+    return state;
+  }
+  const result = state.session.dispatch({
+    type: 'move-element',
+    elementId,
+    position,
+  });
+  if (!result.ok) {
+    return {
+      ...state,
+      diagnostics: result.diagnostics,
+      diagnosticsTitle: MOVE_FAILURE_TITLE,
+    };
+  }
+  if (!result.changed) {
+    return state;
+  }
+  return {
+    ...state,
+    snapshot: result.snapshot,
+    diagnostics: [],
     dirty: true,
     editVersion: state.editVersion + 1,
   };

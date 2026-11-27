@@ -33,6 +33,19 @@ class TestCanvasEngine implements CanvasEngine {
     this.options.onSelect(id);
   }
 
+  /**
+   * Simulates dragging an element between parent-local positions, selecting
+   * it first as the real drag start does.
+   */
+  drag(
+    id: string,
+    from: { x: number; y: number },
+    to: { x: number; y: number },
+  ): boolean {
+    this.options.onSelect(id);
+    return this.options.onMoveElement?.(id, from, to) ?? false;
+  }
+
   destroy(): void {
     this.destroyed = true;
   }

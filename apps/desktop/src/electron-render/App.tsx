@@ -9,9 +9,11 @@ import {
   createDefaultElement,
   createElementId,
   deleteElement,
+  dragMoveTarget,
   updateElement,
   type ElementAlignment,
   type ElementPatch,
+  type ElementPosition,
 } from '@design-ai/editor-core';
 import { CircleUser, Play } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -32,6 +34,7 @@ import {
   editDocument,
   initialEditorState,
   markSaving,
+  moveElementInState,
   selectElement,
   selectionIdOf,
   type EditorState,
@@ -488,6 +491,37 @@ export function App({
     updateActiveEditor((current) => selectElement(current, id));
   };
 
+  /**
+   * Converts one drag into a declaration patch and commits it as a single
+   * move command. An empty patch means the pointer never left its axis.
+   */
+  const handleMoveElement = (
+    id: string,
+    from: ElementPosition,
+    to: ElementPosition,
+  ): boolean => {
+    const current = editorStateRef.current;
+    const document = documentOf(current);
+    if (document === null) {
+      return false;
+    }
+    const target = dragMoveTarget(document, id, from, to);
+    if (target === null || (target.x === undefined && target.y === undefined)) {
+      return false;
+    }
+    updateActiveEditor((latest) => {
+      const latestDocument = documentOf(latest);
+      if (latestDocument === null) {
+        return latest;
+      }
+      const latestTarget = dragMoveTarget(latestDocument, id, from, to);
+      return latestTarget === null
+        ? latest
+        : moveElementInState(latest, id, latestTarget);
+    });
+    return true;
+  };
+
   const handleUpdate = (patch: ElementPatch) => {
     updateActiveEditor((current) => {
       const document = documentOf(current);
@@ -652,6 +686,7 @@ export function App({
             onOpen={handleOpen}
             onCreate={handleCreate}
             onSelect={handleSelect}
+            onMoveElement={handleMoveElement}
             onAddRoot={handleAddRoot}
             onUpdate={handleUpdate}
             onAlign={handleAlign}

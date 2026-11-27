@@ -17,6 +17,12 @@ export {
   type ElementPatch,
 } from './document/edit';
 export {
+  declarationPosition,
+  dragMoveTarget,
+  moveElement,
+  type ElementPosition,
+} from './document/move';
+export {
   PencilDiagnosticCodes,
   type PencilDiagnosticCode,
 } from './pencil/diagnostics';

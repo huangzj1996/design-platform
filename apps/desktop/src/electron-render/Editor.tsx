@@ -3,6 +3,7 @@ import {
   findElement,
   type ElementAlignment,
   type ElementPatch,
+  type ElementPosition,
 } from '@design-ai/editor-core';
 import { CircleUser, Menu, PanelLeft, Play } from 'lucide-react';
 import {
@@ -87,6 +88,12 @@ export interface EditorProps {
   onOpen: () => void;
   onCreate: () => void;
   onSelect: (id: string | null) => void;
+  /** Commits a drag between parent-local positions. */
+  onMoveElement: (
+    id: string,
+    from: ElementPosition,
+    to: ElementPosition,
+  ) => boolean;
   onAddRoot: (type: ElementType) => void;
   onUpdate: (patch: ElementPatch) => void;
   onAlign: (alignment: ElementAlignment) => void;
@@ -110,6 +117,7 @@ export function Editor({
   onOpen,
   onCreate,
   onSelect,
+  onMoveElement,
   onAddRoot,
   onUpdate,
   onAlign,
@@ -235,6 +243,7 @@ export function Editor({
           viewport={viewport}
           selectable={tool === 'pointer'}
           onSelect={onSelect}
+          onMoveElement={onMoveElement}
           onPointerDown={startPan}
           onPointerMove={movePan}
           onPointerUp={endPan}

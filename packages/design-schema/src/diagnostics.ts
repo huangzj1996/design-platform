@@ -28,6 +28,7 @@ export const DiagnosticCodes = {
   missingVariable: 'missing_variable',
   variableTypeMismatch: 'variable_type_mismatch',
   missingSizeBasis: 'missing_size_basis',
+  elementNotFound: 'element_not_found',
 } as const;
 
 export type DiagnosticCode =

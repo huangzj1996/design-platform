@@ -1,4 +1,5 @@
 import type { DesignDocument } from '@design-ai/design-schema';
+import type { ElementPosition } from '@design-ai/editor-core';
 import {
   useEffect,
   useEffectEvent,
@@ -23,6 +24,15 @@ export interface CanvasProps {
   /** False while the hand tool owns pointer gestures, so taps do not select. */
   selectable?: boolean;
   onSelect?: (id: string | null) => void;
+  /**
+   * Commits a drag between parent-local positions. Return whether it was
+   * applied so an uncommitted preview is restored.
+   */
+  onMoveElement?: (
+    id: string,
+    from: ElementPosition,
+    to: ElementPosition,
+  ) => boolean;
   /** Pointer handlers, used by the editor's hand tool to pan the viewport. */
   onPointerDown?: PointerEventHandler<HTMLDivElement>;
   onPointerMove?: PointerEventHandler<HTMLDivElement>;
@@ -38,6 +48,7 @@ export function Canvas({
   viewport = DEFAULT_CANVAS_VIEWPORT,
   selectable = true,
   onSelect,
+  onMoveElement,
   onPointerDown,
   onPointerMove,
   onPointerUp,
@@ -51,6 +62,14 @@ export function Canvas({
       onSelect?.(id);
     }
   });
+  const emitMoveElement = useEffectEvent(
+    (id: string, from: ElementPosition, to: ElementPosition) => {
+      if (!selectable) {
+        return false;
+      }
+      return onMoveElement?.(id, from, to) ?? false;
+    },
+  );
 
   const scene = useMemo(
     () => (document === null ? null : buildCanvasScene(document)),
@@ -92,7 +111,10 @@ export function Canvas({
     let engine: CanvasEngine | null = null;
     void (async () => {
       try {
-        const created = await createEngine(host, { onSelect: emitSelect });
+        const created = await createEngine(host, {
+          onSelect: emitSelect,
+          onMoveElement: emitMoveElement,
+        });
         if (disposed) {
           created.destroy();
           return;
@@ -139,7 +161,11 @@ export function Canvas({
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerCancel}
     >
-      <div ref={hostRef} className="canvas-stage" data-testid="canvas-stage" />
+      <div
+        ref={hostRef}
+        className={`canvas-stage ${selectable ? '' : 'pointer-events-none'}`}
+        data-testid="canvas-stage"
+      />
     </div>
   );
 }
