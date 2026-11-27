@@ -35,6 +35,7 @@ export {
 export { stripJsonComments } from './pencil/json-comments';
 export {
   createEditorSession,
+  EDIT_HISTORY_LIMIT,
   type EditorCommand,
   type EditorCommandResult,
   type EditorSelectors,
