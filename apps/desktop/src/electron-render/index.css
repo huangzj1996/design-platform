@@ -1,12 +1,53 @@
 @import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
 
 @theme {
   --font-sans:
     'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica,
     Arial, sans-serif;
+  --color-layer-hover: #ebebeb;
+  --color-layer-selected: #d5e4fc;
+  --color-layer-selected-foreground: #1447e6;
+  --color-layer-hidden-foreground: #020202;
+  --color-layer-descendants: #e9f0fb;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--foreground);
+  --color-popover: var(--card);
+  --color-popover-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--primary);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
 }
 
 :root {
+  --background: #f6f6f6;
+  --foreground: #1f2328;
+  --card: #fff;
+  --primary: #1a1a1a;
+  --primary-foreground: #fff;
+  --secondary: #eceef0;
+  --muted: #f4f4f5;
+  --muted-foreground: #6b7280;
+  --accent: #f4f4f5;
+  --destructive: #cf222e;
+  --border: #ecedef;
+  --input: #d0d7de;
+  --ring: #7599db;
   color-scheme: light;
   font-family:
     'Inter',
@@ -17,8 +58,8 @@
     Helvetica,
     Arial,
     sans-serif;
-  color: #1f2328;
-  background: #f6f6f6;
+  color: var(--foreground);
+  background: var(--background);
 }
 
 * {
@@ -80,16 +121,6 @@ body {
 
 .import-warnings .diagnostic-code {
   color: #9a6700;
-}
-
-.properties-panel {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-height: 0;
-  overflow: auto;
-  padding: 0;
-  background: transparent;
 }
 
 .panel-empty {

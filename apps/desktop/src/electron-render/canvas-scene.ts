@@ -195,6 +195,9 @@ function locateNode(
   offsetY: number,
 ): LocatedNode | null {
   for (const node of nodes) {
+    if (!node.visible) {
+      continue;
+    }
     const x = offsetX + node.box.x;
     const y = offsetY + node.box.y;
     if (node.id === id) {

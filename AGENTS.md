@@ -8,7 +8,7 @@
 
 ## UI 原型
 
-实现或修改 UI 前，必须使用 Pencil MCP 读取 `design-ai.pen` 中对应的画板，并依据原型实现。
+必须明确提出使用 Pencil MCP，才会调用。如"使用 pen mcp、pencil等"。提出使用 Pencil MCP 后需要完全按照给你的节点进行修改，额外的样式在原型图基础上添加。
 
 ## Agent skills
 

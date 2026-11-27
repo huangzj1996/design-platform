@@ -13,7 +13,6 @@ import {
   type TextElement,
 } from '@design-ai/design-schema';
 import {
-  findElement,
   findElementParent,
   frameAlignmentCell,
   frameAlignmentProps,
@@ -36,22 +35,33 @@ import {
   Download,
   Frame,
   LayoutDashboard,
+  Minus,
+  PanelRight,
+  PanelRightClose,
+  PanelRightOpen,
   Plus,
+  Settings,
   Sparkles,
   Square,
   Type,
 } from 'lucide-react';
 import type { ChangeEvent, ReactNode } from 'react';
-import { useMemo } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { ELEMENT_TYPE_LABELS, elementLabel } from './element-labels';
+import { InspectorScrollArea } from './InspectorScrollArea';
 
-export interface PropertiesPanelProps {
-  document: DesignDocument | null;
-  selectionId: string | null;
+interface InspectorFieldsProps {
+  document: DesignDocument;
+  element: DesignElement;
   onUpdate: (patch: ElementPatch) => void;
   onAlign: (alignment: ElementAlignment) => void;
   onAddChild: (type: ElementType) => void;
   onDelete: () => void;
+}
+
+interface PropertiesPanelProps extends InspectorFieldsProps {
+  expanded: boolean;
+  onToggle: () => void;
 }
 
 const DEFAULT_PADDING: [number, number, number, number] = [0, 0, 0, 0];
@@ -74,14 +84,16 @@ const CHILD_TYPES: readonly ElementType[] = [
 ];
 
 const SECTION_CLASS =
-  'flex flex-col gap-1.5 border-b border-[#E9E9E9] px-3.5 py-2';
-const TITLE_CLASS = 'text-[12px] font-semibold text-[#333333]';
+  'flex shrink-0 flex-col gap-1.5 border-b border-[#E9E9E9] px-3.5 py-2.5';
+const TITLE_CLASS = 'text-[12px] font-medium text-[#171717]';
 const CONTROL_CLASS =
-  'flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-lg border border-[#E3E3E3] bg-[#F8F8F8] px-2 text-[11px] text-[#8A8A8A]';
+  'flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-lg border border-[#E4E4E4] bg-[#F7F7F7] px-2 text-[11px] text-[#777777] focus-within:border-ring';
 const INPUT_CLASS =
-  'min-w-0 flex-1 bg-transparent font-mono text-[12px] text-[#262626] outline-none';
+  'min-w-0 flex-1 appearance-none bg-transparent font-mono text-[12px] text-[#171717] outline-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none';
 const ICON_BUTTON_CLASS =
-  'flex size-[30px] cursor-pointer items-center justify-center rounded-[5px] border border-[#E4E4E4] bg-[#F7F7F7] text-[#9CA3AF] transition-colors hover:bg-[#ECECEE] disabled:cursor-not-allowed disabled:text-[#D1D5DB]';
+  'flex h-[30px] min-w-0 cursor-pointer items-center justify-center rounded-[5px] border border-[#E4E4E4] bg-[#F7F7F7] text-[#747D89] transition-colors enabled:hover:bg-[#ECECEE] disabled:cursor-not-allowed disabled:text-[#9CA3AF]';
+const SECTION_ACTION_CLASS =
+  'flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-[#777777] enabled:hover:bg-[#ECECEE] disabled:cursor-not-allowed';
 const SEGMENT_CLASS =
   'flex h-[30px] flex-1 cursor-pointer items-center justify-center gap-1 rounded-md text-[11px] font-medium text-[#6E6E6E]';
 const SEGMENT_ACTIVE_CLASS =
@@ -89,7 +101,7 @@ const SEGMENT_ACTIVE_CLASS =
 const CHECKBOX_CLASS =
   'flex items-center gap-2 text-[11px] font-medium text-[#333333]';
 const DISABLED_ACTION_CLASS =
-  'flex h-[30px] w-full cursor-not-allowed items-center justify-center gap-1.5 rounded-lg bg-[#111111] text-[12px] font-semibold text-white opacity-40';
+  'flex h-[30px] w-full cursor-not-allowed items-center justify-center gap-1.5 rounded-lg bg-[#111111] text-[12px] font-medium text-white';
 
 const ALIGNMENT_BUTTONS: ReadonlyArray<{
   alignment: ElementAlignment;
@@ -216,16 +228,20 @@ function fixedDimension(
 
 interface NumberFieldProps {
   label: string;
+  prefix?: ReactNode;
+  suffix?: string;
   value: number | undefined;
   min?: number;
   max?: number;
-  step?: number;
+  step?: number | 'any';
   disabled?: boolean;
   onChange: (value: number | undefined) => void;
 }
 
 function NumberField({
   label,
+  prefix = label,
+  suffix,
   value,
   min,
   max,
@@ -254,7 +270,11 @@ function NumberField({
 
   return (
     <label className={CONTROL_CLASS}>
-      <span className="shrink-0">{label}</span>
+      {prefix === null ? null : (
+        <span aria-hidden="true" className="shrink-0">
+          {prefix}
+        </span>
+      )}
       <input
         type="number"
         aria-label={label}
@@ -266,6 +286,11 @@ function NumberField({
         onChange={handleChange}
         className={INPUT_CLASS}
       />
+      {suffix ? (
+        <span aria-hidden="true" className="font-mono text-[#171717]">
+          {suffix}
+        </span>
+      ) : null}
     </label>
   );
 }
@@ -332,15 +357,17 @@ function ColorField({
   onChange: (value: string) => void;
 }) {
   return (
-    <label className={CONTROL_CLASS}>
-      <span className="shrink-0">{label}</span>
+    <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 px-2">
       <input
         type="color"
         aria-label={label}
         value={normalizeColor(value)}
         onChange={(event) => onChange(event.target.value)}
-        className="h-5 w-full min-w-0 cursor-pointer bg-transparent p-0"
+        className="size-3.5 shrink-0 cursor-pointer rounded border border-[#D5D9E0] p-0 [&::-webkit-color-swatch]:rounded-sm [&::-webkit-color-swatch]:border-0 [&::-webkit-color-swatch-wrapper]:p-0"
       />
+      <span className="truncate font-mono text-[12px] text-[#171717]">
+        {value ?? normalizeColor(value)}
+      </span>
     </label>
   );
 }
@@ -350,15 +377,20 @@ function Section({
   testId,
   action,
   children,
+  divided = true,
 }: {
   title: string;
   testId?: string;
   action?: ReactNode;
-  children: ReactNode;
+  children?: ReactNode;
+  divided?: boolean;
 }) {
   return (
-    <section data-testid={testId} className={SECTION_CLASS}>
-      <div className="flex h-[22px] items-center justify-between">
+    <section
+      data-testid={testId}
+      className={`${SECTION_CLASS} ${divided ? '' : 'border-b-0 pb-0'}`}
+    >
+      <div className="flex h-[18px] items-center justify-between">
         <span className={TITLE_CLASS}>{title}</span>
         {action}
       </div>
@@ -444,9 +476,10 @@ function PositionSection({
           onChange={(value) => onUpdate({ y: value })}
         />
       </div>
-      <div className="flex gap-2">
+      <div className="grid grid-cols-2 gap-2">
         <NumberField
           label="旋转"
+          prefix="R"
           value={element.rotation ?? 0}
           onChange={(value) => onUpdate({ rotation: value })}
         />
@@ -495,10 +528,12 @@ function LayoutModeControl({
 
 function GapControl({
   justifyContent,
+  gap,
   disabled,
   onUpdate,
 }: {
   justifyContent: FrameJustifyContent;
+  gap: number;
   disabled: boolean;
   onUpdate: (patch: ElementPatch) => void;
 }) {
@@ -506,28 +541,44 @@ function GapControl({
     justifyContent === 'space_between' || justifyContent === 'space_around';
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-1">
       {GAP_OPTIONS.map(({ value, label, testId }) => {
         const checked =
           value === 'fixed' ? !distributed : justifyContent === value;
         return (
-          <label key={value} className={CHECKBOX_CLASS}>
-            <input
-              type="radio"
-              name="gap-distribution"
-              aria-label={label}
-              data-testid={testId}
-              checked={checked}
-              disabled={disabled}
-              onChange={() =>
-                onUpdate({
-                  justifyContent: value === 'fixed' ? 'start' : value,
-                })
-              }
-              className="size-3.5 accent-[#0066FF] disabled:cursor-not-allowed"
-            />
-            <span>{label}</span>
-          </label>
+          <div key={value} className="flex min-h-4 items-center gap-2">
+            <label className={CHECKBOX_CLASS}>
+              <input
+                type="radio"
+                name="gap-distribution"
+                aria-label={label}
+                data-testid={testId}
+                checked={checked}
+                disabled={disabled}
+                onChange={() =>
+                  onUpdate({
+                    justifyContent: value === 'fixed' ? 'start' : value,
+                  })
+                }
+                className="size-3.5 accent-[#0066FF] disabled:cursor-not-allowed"
+              />
+              <span className={value === 'fixed' ? 'sr-only' : undefined}>
+                {label}
+              </span>
+            </label>
+            {value === 'fixed' ? (
+              <div className="w-[42px] [&>label]:h-6 [&_input]:text-center">
+                <NumberField
+                  label="间距"
+                  prefix={null}
+                  value={gap}
+                  min={0}
+                  disabled={disabled || distributed}
+                  onChange={(next) => onUpdate({ gap: next })}
+                />
+              </div>
+            ) : null}
+          </div>
         );
       })}
     </div>
@@ -535,6 +586,7 @@ function GapControl({
 }
 
 function FrameFields({ element, onUpdate }: ElementFieldsProps<FrameElement>) {
+  const [showIndividualPadding, setShowIndividualPadding] = useState(false);
   const padding = element.padding ?? DEFAULT_PADDING;
   const layout = element.layout ?? 'horizontal';
   const autoLayout = layout !== 'none';
@@ -553,11 +605,22 @@ function FrameFields({ element, onUpdate }: ElementFieldsProps<FrameElement>) {
   };
 
   return (
-    <Section title="布局" testId="layout-section">
+    <Section
+      title="弹性布局"
+      testId="layout-section"
+      divided={false}
+      action={
+        <LayoutDashboard
+          aria-hidden="true"
+          size={14}
+          className="text-[#777777]"
+        />
+      }
+    >
       <LayoutModeControl layout={layout} onUpdate={onUpdate} />
 
-      <div className="grid grid-cols-[100px_1fr] gap-3">
-        <div className="flex flex-col gap-2">
+      <div className="grid grid-cols-[minmax(0,5fr)_minmax(0,6fr)] gap-4">
+        <div className="flex flex-col gap-1">
           <span className="text-[11px] font-medium text-[#666666]">对齐</span>
           <div className="grid h-[69px] grid-cols-3 overflow-hidden rounded-lg border border-[#E3E3E3] bg-[#F8F8F8]">
             {ALIGNMENT_MATRIX.map((cells) =>
@@ -578,9 +641,11 @@ function FrameFields({ element, onUpdate }: ElementFieldsProps<FrameElement>) {
                     className="flex cursor-pointer items-center justify-center disabled:cursor-not-allowed"
                   >
                     <span
-                      className={`size-1.5 rounded-full ${
-                        active ? 'bg-[#0066FF]' : 'bg-[#C9CDD3]'
-                      }`}
+                      className={
+                        active
+                          ? 'size-1.5 rounded-full bg-[#0066FF]'
+                          : 'size-[3px] rounded-full bg-[#C9CDD3]'
+                      }
                     />
                   </button>
                 );
@@ -589,48 +654,68 @@ function FrameFields({ element, onUpdate }: ElementFieldsProps<FrameElement>) {
           </div>
         </div>
 
-        <div className="flex min-w-0 flex-col gap-2">
+        <div className="flex min-w-0 flex-col gap-1">
           <span className="text-[11px] font-medium text-[#666666]">间距</span>
           <GapControl
             justifyContent={element.justifyContent ?? 'start'}
+            gap={element.gap ?? 0}
             disabled={!autoLayout}
             onUpdate={onUpdate}
           />
         </div>
       </div>
 
+      <div className="mt-0.5 flex items-center justify-between">
+        <span className={TITLE_CLASS}>内边距</span>
+        <button
+          type="button"
+          aria-label="分别设置四边内边距"
+          data-testid="padding-settings"
+          aria-expanded={showIndividualPadding}
+          onClick={() => setShowIndividualPadding(!showIndividualPadding)}
+          className={SECTION_ACTION_CLASS}
+        >
+          <Settings size={14} />
+        </button>
+      </div>
       <div className="flex gap-2">
         <NumberField
-          label="间距"
-          value={element.gap ?? 0}
+          label="水平内边距"
+          prefix={<PanelRight size={13} />}
+          value={padding[1] === padding[3] ? padding[1] : undefined}
           min={0}
-          disabled={!autoLayout}
-          onChange={(value) => onUpdate({ gap: value })}
+          onChange={(value) => {
+            if (value !== undefined)
+              onUpdate({ padding: [padding[0], value, padding[2], value] });
+          }}
+        />
+        <NumberField
+          label="垂直内边距"
+          prefix={<PanelRight size={13} className="rotate-90" />}
+          value={padding[0] === padding[2] ? padding[0] : undefined}
+          min={0}
+          onChange={(value) => {
+            if (value !== undefined)
+              onUpdate({ padding: [value, padding[1], value, padding[3]] });
+          }}
         />
       </div>
 
-      {PADDING_ROWS.map((row) => (
-        <div key={row[0].label} className="flex gap-2">
-          {row.map(({ index, label }) => (
-            <NumberField
-              key={label}
-              label={label}
-              value={padding[index]}
-              min={0}
-              onChange={(next) => setPadding(index, next)}
-            />
-          ))}
-        </div>
-      ))}
-
-      <CheckboxField
-        label="裁剪内容"
-        testId="clip-content"
-        checked={element.clipContent === true}
-        onChange={(checked) =>
-          onUpdate({ clipContent: checked ? true : undefined })
-        }
-      />
+      {showIndividualPadding
+        ? PADDING_ROWS.map((row) => (
+            <div key={row[0].label} className="flex gap-2">
+              {row.map(({ index, label }) => (
+                <NumberField
+                  key={label}
+                  label={label}
+                  value={padding[index]}
+                  min={0}
+                  onChange={(next) => setPadding(index, next)}
+                />
+              ))}
+            </div>
+          ))
+        : null}
     </Section>
   );
 }
@@ -659,12 +744,14 @@ function DimensionModeControls({
       <div className="flex gap-2">
         <NumberField
           label="宽度"
+          prefix="W"
           value={dimensionDisplayValue(element.width, resolvedWidth)}
           min={0}
           onChange={(value) => onUpdate({ width: value })}
         />
         <NumberField
           label="高度"
+          prefix="H"
           value={dimensionDisplayValue(element.height, resolvedHeight)}
           min={0}
           onChange={(value) => onUpdate({ height: value })}
@@ -770,6 +857,80 @@ function IconFields({ element, onUpdate }: ElementFieldsProps<IconElement>) {
   );
 }
 
+function PercentField({
+  label,
+  value,
+  onChange,
+  prefix,
+}: {
+  label: string;
+  value: number | undefined;
+  onChange: (value: number | undefined) => void;
+  prefix?: string;
+}) {
+  return (
+    <NumberField
+      label={label}
+      prefix={prefix ?? null}
+      suffix={prefix === undefined ? '%' : undefined}
+      value={Number(((value ?? 1) * 100).toFixed(10))}
+      min={0}
+      max={100}
+      step="any"
+      onChange={(next) => onChange(next === undefined ? undefined : next / 100)}
+    />
+  );
+}
+
+function PaintSection({
+  title,
+  testId,
+  onAdd,
+  onRemove,
+  children,
+}: {
+  title: string;
+  testId: string;
+  onAdd: () => void;
+  onRemove: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <Section
+      title={title}
+      testId={testId}
+      action={
+        <button
+          type="button"
+          aria-label={`添加${title}`}
+          data-testid={`${testId}-add`}
+          disabled={children !== null}
+          onClick={onAdd}
+          className={SECTION_ACTION_CLASS}
+        >
+          <Plus size={13} />
+        </button>
+      }
+    >
+      {children === null ? null : (
+        <div className="flex items-center">
+          <div className="flex h-8 min-w-0 flex-1 items-stretch rounded-lg border border-[#E4E4E4] bg-[#F7F7F7] focus-within:border-ring [&>label:last-child]:h-full [&>label:last-child]:max-w-[72px] [&>label:last-child]:rounded-none [&>label:last-child]:border-0 [&>label:last-child]:border-l">
+            {children}
+          </div>
+          <button
+            type="button"
+            aria-label={`移除${title}`}
+            onClick={onRemove}
+            className={SECTION_ACTION_CLASS}
+          >
+            <Minus size={13} />
+          </button>
+        </div>
+      )}
+    </Section>
+  );
+}
+
 function DisabledSections() {
   return (
     <>
@@ -783,37 +944,33 @@ function DisabledSections() {
             aria-label="添加效果（暂不可用）"
             title="添加效果（暂不可用）"
             disabled
-            className="flex size-[18px] cursor-not-allowed items-center justify-center text-[#C2C3C9]"
+            className={SECTION_ACTION_CLASS}
           >
             <Plus size={14} />
           </button>
         }
-      >
-        <p className="text-[11px] text-[#9CA3AF]">暂不支持效果</p>
-      </Section>
+      />
 
       <Section title="导出" testId="export-section">
         <div className="flex gap-2">
-          <label className={`${CONTROL_CLASS} justify-between`}>
-            <span className="shrink-0">倍率</span>
+          <label className={CONTROL_CLASS}>
             <select
               aria-label="导出倍率"
               data-testid="export-scale"
               disabled
               defaultValue="2x"
-              className="min-w-0 bg-transparent text-[12px] text-[#9CA3AF] outline-none"
+              className="w-full cursor-not-allowed bg-transparent text-[12px] text-[#171717] outline-none"
             >
               <option value="2x">2x</option>
             </select>
           </label>
-          <label className={`${CONTROL_CLASS} justify-between`}>
-            <span className="shrink-0">格式</span>
+          <label className={CONTROL_CLASS}>
             <select
               aria-label="导出格式"
               data-testid="export-format"
               disabled
               defaultValue="png"
-              className="min-w-0 bg-transparent text-[12px] text-[#9CA3AF] outline-none"
+              className="w-full cursor-not-allowed bg-transparent text-[12px] text-[#171717] outline-none"
             >
               <option value="png">PNG</option>
             </select>
@@ -833,33 +990,78 @@ function DisabledSections() {
   );
 }
 
-export function PropertiesPanel({
+function ElementActions({
+  element,
+  onUpdate,
+  onAddChild,
+  onDelete,
+}: Pick<
+  PropertiesPanelProps,
+  'element' | 'onUpdate' | 'onAddChild' | 'onDelete'
+>) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="px-3.5 py-2.5">
+      <button
+        type="button"
+        data-testid="element-actions"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        className="flex w-full cursor-pointer items-center justify-between text-[12px] text-[#171717]"
+      >
+        元素操作
+        <ChevronDown size={14} className={open ? 'rotate-180' : undefined} />
+      </button>
+      {open ? (
+        <div className="mt-2 flex flex-col gap-2">
+          <CheckboxField
+            label="可见"
+            checked={element.visible !== false}
+            onChange={(checked) =>
+              onUpdate({ visible: checked ? undefined : false })
+            }
+          />
+          {element.type === 'frame' ? (
+            <div className="flex flex-wrap gap-1.5">
+              {CHILD_TYPES.map((type) => (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => {
+                    setOpen(false);
+                    onAddChild(type);
+                  }}
+                  className="cursor-pointer rounded border border-border bg-background px-2 py-1 text-[11px]"
+                >
+                  添加{ELEMENT_TYPE_LABELS[type]}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          <button
+            type="button"
+            className="cursor-pointer self-start rounded px-1 py-0.5 text-[12px] text-destructive hover:bg-accent"
+            onClick={onDelete}
+          >
+            删除元素
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function InspectorFields({
   document,
-  selectionId,
+  element,
   onUpdate,
   onAlign,
   onAddChild,
   onDelete,
-}: PropertiesPanelProps) {
-  const layout = useMemo(
-    () => (document === null ? null : layoutDesignDocument(document)),
-    [document],
-  );
-  const element =
-    document === null || selectionId === null
-      ? undefined
-      : findElement(document, selectionId);
-
-  if (document === null || element === undefined) {
-    return (
-      <aside className="properties-panel" data-testid="property-panel">
-        <p className="panel-empty p-3.5">未选择元素</p>
-      </aside>
-    );
-  }
-
-  const layoutNode =
-    layout === null ? undefined : findLayoutNode(layout, element.id);
+}: InspectorFieldsProps) {
+  const layout = useMemo(() => layoutDesignDocument(document), [document]);
+  const layoutNode = findLayoutNode(layout, element.id);
   const parentFrame = findElementParent(document, element.id);
   const parentUsesAutoLayout =
     parentFrame !== null && (parentFrame.layout ?? 'horizontal') !== 'none';
@@ -868,26 +1070,12 @@ export function PropertiesPanel({
   const resolvedHeight = layoutNode?.box.height;
 
   return (
-    <aside className="properties-panel" data-testid="property-panel">
-      <div className="flex items-center justify-between gap-2 border-b border-[#E8E8E8] px-3.5 py-3">
-        <div className="flex min-w-0 items-center gap-1.5 text-[#111111]">
-          <ElementTypeIcon element={element} />
-          <span className="truncate text-[13px] font-semibold">
-            {element.type === 'text'
-              ? elementLabel(element)
-              : ELEMENT_TYPE_LABELS[element.type]}
-          </span>
-        </div>
-        <code className="shrink-0 truncate text-[10px] text-[#8A8C93]">
-          {element.id}
-        </code>
-      </div>
-
+    <>
       <button
         type="button"
         data-testid="create-component"
         disabled
-        className="flex h-6 cursor-not-allowed items-center gap-1.5 border-b border-[#E8E8E8] px-3.5 text-[12px] font-semibold text-[#C2C3C9]"
+        className="flex h-10 shrink-0 cursor-not-allowed items-start gap-1.5 border-b border-[#E8E8E8] px-3.5 pt-2 text-[12px] font-medium text-[#171717]"
       >
         <DiamondPlus size={15} strokeWidth={2} />
         创建组件
@@ -897,7 +1085,7 @@ export function PropertiesPanel({
         type="button"
         data-testid="context-row"
         disabled
-        className="flex h-11 w-full cursor-not-allowed items-center justify-between border-b border-[#E9E9E9] px-3.5 text-[12px] font-semibold text-[#C2C3C9]"
+        className="flex h-11 w-full shrink-0 cursor-not-allowed items-center justify-between border-b border-[#E9E9E9] px-3.5 text-[12px] font-medium text-[#171717]"
       >
         <span>Context</span>
         <ChevronDown size={14} />
@@ -924,60 +1112,83 @@ export function PropertiesPanel({
           resolvedHeight={resolvedHeight}
           onUpdate={onUpdate}
         />
+        {element.type === 'frame' ? (
+          <CheckboxField
+            label="裁剪内容"
+            testId="clip-content"
+            checked={element.clipContent === true}
+            onChange={(checked) =>
+              onUpdate({ clipContent: checked ? true : undefined })
+            }
+          />
+        ) : null}
       </Section>
 
       <Section title="外观" testId="appearance-section">
         <div className="flex gap-2">
-          <NumberField
+          <PercentField
             label="不透明度"
+            prefix="%"
             value={element.opacity}
-            min={0}
-            max={1}
-            step={0.1}
             onChange={(value) => onUpdate({ opacity: value })}
           />
           <NumberField
             label="圆角"
-            value={element.cornerRadius}
+            prefix={<Square size={13} />}
+            value={element.cornerRadius ?? 0}
             min={0}
             onChange={(value) => onUpdate({ cornerRadius: value })}
           />
         </div>
       </Section>
 
-      <Section title="填充" testId="fill-section">
-        <div className="flex gap-2">
-          <ColorField
-            label="填充颜色"
-            value={element.fill}
-            onChange={(value) => onUpdate({ fill: value })}
-          />
-          <NumberField
-            label="填充透明度"
-            value={element.fillOpacity ?? 1}
-            min={0}
-            max={1}
-            step={0.1}
-            onChange={(value) => onUpdate({ fillOpacity: value })}
-          />
-        </div>
-      </Section>
+      <PaintSection
+        title="填充"
+        testId="fill-section"
+        onAdd={() => onUpdate({ fill: '#f3f4f6' })}
+        onRemove={() => onUpdate({ fill: undefined, fillOpacity: undefined })}
+      >
+        {element.fill === undefined &&
+        element.fillOpacity === undefined ? null : (
+          <>
+            <ColorField
+              label="填充颜色"
+              value={element.fill}
+              onChange={(value) => onUpdate({ fill: value })}
+            />
+            <PercentField
+              label="填充透明度"
+              value={element.fillOpacity}
+              onChange={(value) => onUpdate({ fillOpacity: value })}
+            />
+          </>
+        )}
+      </PaintSection>
 
-      <Section title="描边" testId="stroke-section">
-        <div className="flex gap-2">
-          <ColorField
-            label="描边颜色"
-            value={element.stroke}
-            onChange={(value) => onUpdate({ stroke: value })}
-          />
-          <NumberField
-            label="描边宽度"
-            value={element.strokeWidth}
-            min={0}
-            onChange={(value) => onUpdate({ strokeWidth: value })}
-          />
-        </div>
-      </Section>
+      <PaintSection
+        title="描边"
+        testId="stroke-section"
+        onAdd={() => onUpdate({ stroke: '#000000', strokeWidth: 1 })}
+        onRemove={() => onUpdate({ stroke: undefined, strokeWidth: undefined })}
+      >
+        {element.stroke === undefined &&
+        element.strokeWidth === undefined ? null : (
+          <>
+            <ColorField
+              label="描边颜色"
+              value={element.stroke}
+              onChange={(value) => onUpdate({ stroke: value })}
+            />
+            <NumberField
+              label="描边宽度"
+              prefix={null}
+              value={element.strokeWidth ?? 1}
+              min={0}
+              onChange={(value) => onUpdate({ strokeWidth: value })}
+            />
+          </>
+        )}
+      </PaintSection>
 
       {element.type === 'text' ? (
         <TextFields element={element} onUpdate={onUpdate} />
@@ -986,45 +1197,59 @@ export function PropertiesPanel({
         <IconFields element={element} onUpdate={onUpdate} />
       ) : null}
 
-      <div className="border-b border-[#E9E9E9] px-3.5 py-2">
-        <CheckboxField
-          label="可见"
-          checked={element.visible !== false}
-          onChange={(checked) =>
-            onUpdate({ visible: checked ? undefined : false })
-          }
-        />
-      </div>
-
       <DisabledSections />
+      <ElementActions
+        key={element.id}
+        element={element}
+        onUpdate={onUpdate}
+        onAddChild={onAddChild}
+        onDelete={onDelete}
+      />
+    </>
+  );
+}
 
-      {element.type === 'frame' ? (
-        <div className="child-actions flex flex-col gap-2 border-b border-[#E9E9E9] px-3.5 py-2">
-          <span className={TITLE_CLASS}>添加子元素</span>
-          <div className="button-row flex flex-wrap gap-1.5">
-            {CHILD_TYPES.map((type) => (
-              <button
-                key={type}
-                type="button"
-                onClick={() => onAddChild(type)}
-                className="cursor-pointer rounded-md border border-[#D0D7DE] bg-[#F6F8FA] px-2 py-1 text-[11px] text-[#1F2328]"
-              >
-                添加{ELEMENT_TYPE_LABELS[type]}
-              </button>
-            ))}
-          </div>
+export function PropertiesPanel({
+  expanded,
+  onToggle,
+  ...fields
+}: PropertiesPanelProps) {
+  const contentId = useId();
+  const { element } = fields;
+  const label = elementLabel(element);
+  const toggleLabel = expanded ? '折叠属性面板' : '展开属性面板';
+  const ToggleIcon = expanded ? PanelRightClose : PanelRightOpen;
+
+  return (
+    <aside
+      aria-label="属性面板"
+      className={`pointer-events-auto absolute top-1 right-2 z-20 flex w-[var(--inspector-width)] flex-col overflow-hidden rounded-lg border border-[#ECEDEF] ${expanded ? 'bottom-2 bg-white shadow-[0_4px_18px_#00000014]' : 'bg-[#FAFAFA]'}`}
+      data-testid="property-panel"
+    >
+      <div className="flex shrink-0 items-center justify-between gap-2 py-2 pr-2 pl-3.5">
+        <div className="flex min-w-0 items-center gap-1.5 text-[#111111] [&>svg]:shrink-0">
+          <ElementTypeIcon element={element} />
+          <span className="truncate text-[13px] font-semibold" title={label}>
+            {label}
+          </span>
         </div>
-      ) : null}
-
-      <div className="p-3.5">
         <button
           type="button"
-          className="danger-button cursor-pointer rounded-md border border-[#FF8182] bg-[#FFF5F5] px-2.5 py-1.5 text-[13px] text-[#CF222E]"
-          onClick={onDelete}
+          aria-label={toggleLabel}
+          aria-expanded={expanded}
+          aria-controls={expanded ? contentId : undefined}
+          title={toggleLabel}
+          onClick={onToggle}
+          className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-[#6B7280] transition-colors hover:bg-[#ECEDEF]"
         >
-          删除元素
+          <ToggleIcon size={18} strokeWidth={1.75} aria-hidden="true" />
         </button>
       </div>
+      {expanded ? (
+        <InspectorScrollArea id={contentId}>
+          <InspectorFields {...fields} />
+        </InspectorScrollArea>
+      ) : null}
     </aside>
   );
 }

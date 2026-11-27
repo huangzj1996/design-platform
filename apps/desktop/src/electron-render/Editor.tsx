@@ -20,6 +20,8 @@ import {
 import { CanvasToolbar, type CanvasTool } from './CanvasToolbar';
 import { elementLabel } from './element-labels';
 import { LayerTree } from './LayerTree';
+import { cn } from './lib/utils';
+import { PromptDock } from './PromptDock';
 import { PropertiesPanel } from './PropertiesPanel';
 
 /** Zoom stops used by the canvas zoom control. */
@@ -36,15 +38,16 @@ export function nextZoom(scale: number, direction: -1 | 1): number {
 
 const SIDEBAR_TOGGLE_CLASS =
   'flex size-7 cursor-pointer items-center justify-center rounded-lg text-[#6B7280] transition-colors hover:bg-[#ECEDEF]';
+const MIN_SIDEBAR_CARD_WIDTH = 250;
+const DEFAULT_SIDEBAR_CARD_WIDTH = 280;
+const MIN_SPACE_OUTSIDE_SIDEBAR_CARDS = 380;
 
 interface SidebarToggleProps {
   open: boolean;
   onToggle: () => void;
-  /** Extra positioning, e.g. when the button floats over the canvas. */
-  className?: string;
 }
 
-function SidebarToggle({ open, onToggle, className = '' }: SidebarToggleProps) {
+function SidebarToggle({ open, onToggle }: SidebarToggleProps) {
   return (
     <button
       type="button"
@@ -52,7 +55,7 @@ function SidebarToggle({ open, onToggle, className = '' }: SidebarToggleProps) {
       aria-pressed={open}
       title="切换图层面板"
       onClick={onToggle}
-      className={`${SIDEBAR_TOGGLE_CLASS} ${className}`}
+      className={SIDEBAR_TOGGLE_CLASS}
     >
       <PanelLeft size={16} strokeWidth={2} />
     </button>
@@ -67,6 +70,12 @@ interface PanStart {
   y: number;
 }
 
+interface SidebarResizeStart {
+  pointerId: number;
+  clientX: number;
+  width: number;
+}
+
 export interface EditorProps {
   document: DesignDocument | null;
   selectionId: string | null;
@@ -78,6 +87,7 @@ export interface EditorProps {
   onOpen: () => void;
   onCreate: () => void;
   onSelect: (id: string | null) => void;
+  onToggleVisibility: (id: string) => void;
   onAddRoot: (type: ElementType) => void;
   onUpdate: (patch: ElementPatch) => void;
   onAlign: (alignment: ElementAlignment) => void;
@@ -101,6 +111,7 @@ export function Editor({
   onOpen,
   onCreate,
   onSelect,
+  onToggleVisibility,
   onAddRoot,
   onUpdate,
   onAlign,
@@ -113,13 +124,63 @@ export function Editor({
     DEFAULT_CANVAS_VIEWPORT,
   );
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [inspectorExpanded, setInspectorExpanded] = useState(true);
+  const [sidebarCardWidth, setSidebarCardWidth] = useState(
+    DEFAULT_SIDEBAR_CARD_WIDTH,
+  );
   const panStart = useRef<PanStart | null>(null);
+  const sidebarResizeStart = useRef<SidebarResizeStart | null>(null);
+  const fileMenu = useRef<HTMLDetailsElement>(null);
 
   const selected =
     document !== null && selectionId !== null
       ? findElement(document, selectionId)
       : undefined;
   const zoomPercent = Math.round(viewport.scale * 100);
+  const maxSidebarCardWidth = () =>
+    Math.max(
+      MIN_SIDEBAR_CARD_WIDTH,
+      window.innerWidth - MIN_SPACE_OUTSIDE_SIDEBAR_CARDS,
+    );
+
+  const resizeSidebar = (width: number) => {
+    setSidebarCardWidth(
+      Math.max(MIN_SIDEBAR_CARD_WIDTH, Math.min(width, maxSidebarCardWidth())),
+    );
+  };
+
+  const startSidebarResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || sidebarResizeStart.current !== null) {
+      return;
+    }
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    sidebarResizeStart.current = {
+      pointerId: event.pointerId,
+      clientX: event.clientX,
+      width: Math.min(sidebarCardWidth, maxSidebarCardWidth()),
+    };
+  };
+
+  const moveSidebarResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const start = sidebarResizeStart.current;
+    if (start === null || start.pointerId !== event.pointerId) {
+      return;
+    }
+    resizeSidebar(start.width + event.clientX - start.clientX);
+  };
+
+  const endSidebarResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (sidebarResizeStart.current?.pointerId === event.pointerId) {
+      sidebarResizeStart.current = null;
+    }
+  };
+
+  const runFileAction = (action: () => void) => {
+    if (fileMenu.current !== null) {
+      fileMenu.current.open = false;
+    }
+    action();
+  };
 
   const zoomBy = (direction: -1 | 1) => {
     setViewport((current) => ({
@@ -165,200 +226,259 @@ export function Editor({
   };
 
   return (
-    <div className="flex min-h-0 flex-1 bg-[#F6F6F6]" data-testid="editor">
-      {sidebarOpen ? (
-        <aside
-          data-testid="layer-sidebar"
-          className="flex w-[300px] shrink-0 flex-col"
+    <div
+      className="relative isolate min-h-0 flex-1 bg-[#F6F6F6]"
+      data-testid="editor"
+    >
+      <div className="absolute inset-0 z-0">
+        <Canvas
+          document={document}
+          selectionId={selectionId}
+          viewport={viewport}
+          selectable={tool === 'pointer'}
+          onSelect={onSelect}
+          onPointerDown={startPan}
+          onPointerMove={movePan}
+          onPointerUp={endPan}
+          onPointerCancel={endPan}
+          createEngine={createCanvasEngine}
+        />
+      </div>
+
+      <div className="pointer-events-none absolute inset-0 flex flex-col">
+        <header
+          data-testid="window-chrome"
+          className="relative z-30 flex h-[63px] shrink-0 items-center justify-center px-24"
         >
-          <div className="flex h-12 shrink-0 items-center gap-2 px-5">
+          <div className="pointer-events-auto absolute left-3 flex h-8 items-center gap-2 rounded-full bg-[#F6F6F6] px-1.5">
             <SidebarToggle
               open={sidebarOpen}
-              onToggle={() => setSidebarOpen(false)}
+              onToggle={() => {
+                sidebarResizeStart.current = null;
+                setSidebarOpen((open) => !open);
+              }}
             />
-            <button
-              type="button"
-              aria-label="更多操作（暂不可用）"
-              title="更多操作（暂不可用）"
-              disabled
-              className="flex size-7 cursor-not-allowed items-center justify-center rounded-lg text-[#C2C3C9]"
-            >
-              <Menu size={16} strokeWidth={2} />
-            </button>
-          </div>
-
-          <div className="flex min-h-0 flex-1 flex-col">
-            <div className="flex h-10 shrink-0 items-center gap-3 px-2">
-              <button
-                type="button"
-                data-testid="sidebar-tab-agent"
-                disabled
-                className="flex h-[30px] cursor-not-allowed items-center rounded-lg px-2 text-[13px] text-[#C2C3C9]"
+            {sidebarOpen ? (
+              <details
+                ref={fileMenu}
+                className="relative z-30"
+                onBlur={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget)) {
+                    event.currentTarget.open = false;
+                  }
+                }}
               >
-                Agent
-              </button>
-              <button
-                type="button"
-                data-testid="sidebar-tab-layers"
-                aria-pressed="true"
-                className="flex h-[30px] items-center rounded-lg bg-[#E9E9E9] px-2 text-[13px] font-medium text-[#1A1A1A]"
-              >
-                图层
-              </button>
-            </div>
-
-            <div className="min-h-0 flex-1 overflow-auto px-2 pb-2">
-              <LayerTree
-                document={document}
-                selectionId={selectionId}
-                onSelect={onSelect}
-              />
-            </div>
-
-            <div className="shrink-0 p-2.5">
-              <div className="rounded-[10px] border border-[#ECECEE] bg-white p-3 shadow-[0_6px_24px_#00000012]">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="truncate text-[13px] font-medium text-[#1A1A1A]">
-                    {documentName}
-                  </span>
-                  {saveStatus === null ? null : (
+                <summary
+                  aria-label="更多操作"
+                  title="更多操作"
+                  data-testid="file-actions-toggle"
+                  className={`${SIDEBAR_TOGGLE_CLASS} list-none [&::-webkit-details-marker]:hidden`}
+                >
+                  <Menu size={16} strokeWidth={2} />
+                </summary>
+                <div className="absolute top-full left-0 mt-1 flex w-52 flex-col gap-1 rounded-xl border border-[#ECECEE] bg-white p-2 shadow-[0_4px_18px_#00000014]">
+                  <div className="flex items-center justify-between gap-2 px-2 py-1">
                     <span
-                      data-testid="save-status"
-                      className="shrink-0 text-[11px] text-[#8A8C93]"
+                      className="truncate text-xs font-medium"
+                      title={documentName}
                     >
-                      {saveStatus}
+                      {documentName}
                     </span>
-                  )}
-                </div>
-                <div className="mt-2.5 flex gap-2">
+                    {saveStatus === null ? null : (
+                      <span
+                        data-testid="save-status"
+                        className="shrink-0 text-[11px] text-[#8A8C93]"
+                      >
+                        {saveStatus}
+                      </span>
+                    )}
+                  </div>
                   <button
                     type="button"
-                    onClick={onOpen}
+                    onClick={() => runFileAction(onOpen)}
                     disabled={busy}
-                    className="inline-flex h-7 flex-1 cursor-pointer items-center justify-center rounded-lg bg-[#1A1A1A] text-[12px] font-medium text-white transition-colors hover:bg-[#333333] disabled:cursor-progress disabled:opacity-60"
+                    className="cursor-pointer rounded-md px-2 py-1 text-left text-xs hover:bg-[#F6F6F6] disabled:cursor-progress disabled:opacity-60"
                   >
                     打开设计稿
                   </button>
                   <button
                     type="button"
-                    onClick={onCreate}
+                    onClick={() => runFileAction(onCreate)}
                     disabled={busy}
-                    className="inline-flex h-7 flex-1 cursor-pointer items-center justify-center rounded-lg border border-[#E7E8EA] bg-white text-[12px] font-medium text-[#1A1A1A] transition-colors hover:bg-[#F6F6F6] disabled:cursor-progress disabled:opacity-60"
+                    className="cursor-pointer rounded-md px-2 py-1 text-left text-xs hover:bg-[#F6F6F6] disabled:cursor-progress disabled:opacity-60"
                   >
                     新建设计稿
                   </button>
                 </div>
-              </div>
-            </div>
+              </details>
+            ) : null}
           </div>
-        </aside>
-      ) : null}
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header
-          data-testid="window-chrome"
-          className="relative flex h-12 shrink-0 items-center justify-center"
-        >
-          {!sidebarOpen ? (
-            <SidebarToggle
-              open={sidebarOpen}
-              onToggle={() => setSidebarOpen(true)}
-              className="absolute left-3"
-            />
-          ) : null}
-          {tabBar}
-        </header>
-
-        <section className="relative min-h-0 flex-1">
-          <Canvas
-            document={document}
-            selectionId={selectionId}
-            viewport={viewport}
-            selectable={tool === 'pointer'}
-            onSelect={onSelect}
-            onPointerDown={startPan}
-            onPointerMove={movePan}
-            onPointerUp={endPan}
-            onPointerCancel={endPan}
-            createEngine={createCanvasEngine}
-          />
-          <CanvasToolbar
-            tool={tool}
-            onToolChange={setTool}
-            onCreate={onAddRoot}
-          />
-
-          <div
-            data-testid="zoom-control"
-            className="absolute right-8 bottom-3.5 flex h-10 w-[143px] items-center justify-between rounded-[14px] border border-[#ECECEE] bg-white px-[18px] shadow-[0_4px_18px_#00000010]"
-          >
-            <button
-              type="button"
-              aria-label="缩小"
-              title="缩小"
-              data-testid="zoom-out"
-              disabled={viewport.scale <= ZOOM_LEVELS[0]}
-              onClick={() => zoomBy(-1)}
-              className="cursor-pointer text-[24px] leading-none font-light text-[#666971] transition-colors hover:text-[#1A1A1A] disabled:cursor-not-allowed disabled:text-[#C2C3C9]"
-            >
-              −
-            </button>
-            <span
-              data-testid="zoom-percentage"
-              className="text-[14px] font-medium text-[#575A62]"
-            >
-              {zoomPercent}%
-            </span>
-            <button
-              type="button"
-              aria-label="放大"
-              title="放大"
-              data-testid="zoom-in"
-              disabled={viewport.scale >= ZOOM_LEVELS[ZOOM_LEVELS.length - 1]}
-              onClick={() => zoomBy(1)}
-              className="cursor-pointer text-[20px] leading-none font-normal text-[#666971] transition-colors hover:text-[#1A1A1A] disabled:cursor-not-allowed disabled:text-[#C2C3C9]"
-            >
-              +
-            </button>
-          </div>
-
+          <div className="flex min-w-0 [&>*]:pointer-events-auto">{tabBar}</div>
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute bottom-1.5 left-1/2 h-1.5 w-[276px] -translate-x-1/2 rounded-[3px] bg-[#BDBEC3]"
-          />
+            className="pointer-events-auto absolute right-3 hidden h-8 items-center gap-5 rounded-full bg-[#F6F6F6] px-2 text-[#222222] md:flex"
+          >
+            <CircleUser size={16} strokeWidth={2} />
+            <Play size={16} strokeWidth={2} />
+          </div>
+        </header>
 
-          {selected === undefined ? null : (
-            <div
-              data-testid="selection-pill"
-              className="pointer-events-none absolute bottom-5 left-1/2 -translate-x-1/2 rounded-[14px] border border-[#E7E7E9] bg-[#F6F6F6] px-4 py-1 text-[14px] font-medium text-[#6A6B72]"
+        <div className="flex min-h-0 flex-1">
+          {sidebarOpen ? (
+            <aside
+              data-testid="layer-sidebar"
+              className="flex shrink-0 flex-col pr-2 pl-2.5"
             >
-              {elementLabel(selected)}
-            </div>
-          )}
-        </section>
-      </div>
+              <div
+                className="flex min-h-0 flex-1 flex-col gap-2.5 pb-2.5 [&>section]:pointer-events-auto"
+                style={{
+                  width: sidebarCardWidth,
+                  maxWidth: `max(${MIN_SIDEBAR_CARD_WIDTH}px, calc(100vw - ${MIN_SPACE_OUTSIDE_SIDEBAR_CARDS}px))`,
+                }}
+              >
+                <section
+                  aria-label="图层面板"
+                  className="relative flex min-h-0 flex-1 flex-col rounded-2xl border border-[#ECECEE] bg-white p-2 shadow-[0_6px_24px_#00000012]"
+                >
+                  <div className="flex h-10 shrink-0 items-center gap-3">
+                    <button
+                      type="button"
+                      data-testid="sidebar-tab-agent"
+                      disabled
+                      className="flex h-[30px] cursor-not-allowed items-center rounded-lg px-2 text-[13px] text-[#C2C3C9]"
+                    >
+                      Agent
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="sidebar-tab-layers"
+                      aria-pressed="true"
+                      className="flex h-[30px] items-center rounded-lg bg-[#E9E9E9] px-2 text-[13px] font-medium text-[#1A1A1A]"
+                    >
+                      图层
+                    </button>
+                  </div>
 
-      <aside className="flex w-[259px] shrink-0 flex-col">
-        <div
-          aria-hidden="true"
-          className="flex h-12 shrink-0 items-center justify-end gap-5 px-5 text-[#222222]"
-        >
-          <CircleUser size={16} strokeWidth={2} />
-          <Play size={16} strokeWidth={2} />
-        </div>
-        <div className="min-h-0 flex-1 px-2 pb-2">
-          <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-[#ECEDEF] bg-white shadow-[0_4px_18px_#00000014]">
-            <PropertiesPanel
-              document={document}
-              selectionId={selectionId}
-              onUpdate={onUpdate}
-              onAlign={onAlign}
-              onAddChild={onAddChild}
-              onDelete={onDelete}
+                  <div className="min-h-0 flex-1 overflow-auto">
+                    <LayerTree
+                      document={document}
+                      selectionId={selectionId}
+                      onSelect={onSelect}
+                      onToggleVisibility={onToggleVisibility}
+                    />
+                  </div>
+                  <div
+                    role="separator"
+                    aria-label="调整图层面板宽度"
+                    aria-orientation="vertical"
+                    aria-valuemin={MIN_SIDEBAR_CARD_WIDTH}
+                    aria-valuemax={maxSidebarCardWidth()}
+                    aria-valuenow={Math.min(
+                      sidebarCardWidth,
+                      maxSidebarCardWidth(),
+                    )}
+                    tabIndex={0}
+                    className="absolute inset-y-0 -right-2 w-3 cursor-ew-resize touch-none select-none outline-none after:absolute after:inset-y-2 after:left-1/2 after:w-0.5 after:-translate-x-1/2 after:rounded-full focus-visible:after:bg-[#7599DB]"
+                    onPointerDown={startSidebarResize}
+                    onPointerMove={moveSidebarResize}
+                    onPointerUp={endSidebarResize}
+                    onPointerCancel={endSidebarResize}
+                    onLostPointerCapture={endSidebarResize}
+                    onKeyDown={(event) => {
+                      const width = Math.min(
+                        sidebarCardWidth,
+                        maxSidebarCardWidth(),
+                      );
+                      if (
+                        event.key === 'ArrowLeft' ||
+                        event.key === 'ArrowRight'
+                      ) {
+                        event.preventDefault();
+                        resizeSidebar(
+                          width + (event.key === 'ArrowLeft' ? -10 : 10),
+                        );
+                      }
+                    }}
+                  />
+                </section>
+
+                <PromptDock />
+              </div>
+            </aside>
+          ) : null}
+
+          <div className="relative min-w-0 flex-1 [--inspector-width:min(259px,50%)]">
+            <CanvasToolbar
+              tool={tool}
+              onToolChange={setTool}
+              onCreate={onAddRoot}
+              className={cn(
+                'pointer-events-auto',
+                sidebarOpen ? 'left-0' : 'left-3',
+              )}
             />
+
+            <div
+              data-testid="zoom-control"
+              className={`pointer-events-auto absolute bottom-3.5 flex h-10 w-[143px] items-center justify-between rounded-[14px] border border-[#ECECEE] bg-white px-[18px] shadow-[0_4px_18px_#00000010] ${
+                selected === undefined || !inspectorExpanded
+                  ? 'right-8'
+                  : 'right-[calc(2rem+var(--inspector-width))]'
+              }`}
+            >
+              <button
+                type="button"
+                aria-label="缩小"
+                title="缩小"
+                data-testid="zoom-out"
+                disabled={viewport.scale <= ZOOM_LEVELS[0]}
+                onClick={() => zoomBy(-1)}
+                className="cursor-pointer text-[24px] leading-none font-light text-[#666971] transition-colors hover:text-[#1A1A1A] disabled:cursor-not-allowed disabled:text-[#C2C3C9]"
+              >
+                −
+              </button>
+              <span
+                data-testid="zoom-percentage"
+                className="text-[14px] font-medium text-[#575A62]"
+              >
+                {zoomPercent}%
+              </span>
+              <button
+                type="button"
+                aria-label="放大"
+                title="放大"
+                data-testid="zoom-in"
+                disabled={viewport.scale >= ZOOM_LEVELS[ZOOM_LEVELS.length - 1]}
+                onClick={() => zoomBy(1)}
+                className="cursor-pointer text-[20px] leading-none font-normal text-[#666971] transition-colors hover:text-[#1A1A1A] disabled:cursor-not-allowed disabled:text-[#C2C3C9]"
+              >
+                +
+              </button>
+            </div>
+
+            {selected === undefined ? null : (
+              <div
+                data-testid="selection-pill"
+                className={`pointer-events-none absolute bottom-5 -translate-x-1/2 rounded-[14px] border border-[#E7E7E9] bg-[#F6F6F6] px-4 py-1 text-[14px] font-medium text-[#6A6B72] ${inspectorExpanded ? 'left-[calc((100%-var(--inspector-width))/2)]' : 'left-1/2'}`}
+              >
+                {elementLabel(selected)}
+              </div>
+            )}
+            {document !== null && selected !== undefined ? (
+              <PropertiesPanel
+                document={document}
+                element={selected}
+                expanded={inspectorExpanded}
+                onToggle={() => setInspectorExpanded((expanded) => !expanded)}
+                onUpdate={onUpdate}
+                onAlign={onAlign}
+                onAddChild={onAddChild}
+                onDelete={onDelete}
+              />
+            ) : null}
           </div>
         </div>
-      </aside>
+      </div>
     </div>
   );
 }

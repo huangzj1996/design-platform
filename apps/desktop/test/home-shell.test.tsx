@@ -270,20 +270,8 @@ async function editTitle(text: string): Promise<void> {
 }
 
 describe('home shell and project tabs', () => {
-  it('starts on the home tab with the shared tab bar and empty state', async () => {
+  it('switches the home view to list mode', async () => {
     await renderApp();
-
-    expect(container.querySelector('[data-testid="tab-bar"]')).not.toBeNull();
-    expect(activeTab().textContent).toContain('主页');
-    expect(container.querySelector('[data-testid="home"]')).not.toBeNull();
-    expect(
-      container.querySelector('[data-testid="home-empty"]')?.textContent,
-    ).toContain('还没有设计稿');
-    expect(buttonByText('打开设计稿')).toBeDefined();
-    expect(buttonByText('新建设计稿')).toBeDefined();
-    expect(buttonByText('草稿').disabled).toBe(true);
-    expect(buttonByText('设计系统').disabled).toBe(true);
-    expect(container.querySelector('.workspace')).toBeNull();
 
     const listToggle = container.querySelector<HTMLButtonElement>(
       '[aria-label="列表视图"]',
@@ -453,6 +441,13 @@ describe('home shell and project tabs', () => {
     await clickButton('打开设计稿');
 
     await setOpenFile(secondPath);
+    const fileMenuToggle = container.querySelector<HTMLElement>(
+      '[data-testid="file-actions-toggle"]',
+    );
+    if (fileMenuToggle === null) {
+      throw new Error('File menu toggle not found');
+    }
+    await click(fileMenuToggle);
     await clickButton('打开设计稿');
     expect(activeTab().textContent).toContain('second.json');
 

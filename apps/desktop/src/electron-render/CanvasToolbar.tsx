@@ -18,6 +18,7 @@ export interface CanvasToolbarProps {
   tool: CanvasTool;
   onToolChange: (tool: CanvasTool) => void;
   onCreate: (type: ElementType) => void;
+  className?: string;
 }
 
 const RAIL_BUTTON =
@@ -100,6 +101,7 @@ export function CanvasToolbar({
   tool,
   onToolChange,
   onCreate,
+  className = 'left-3',
 }: CanvasToolbarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -109,7 +111,7 @@ export function CanvasToolbar({
   };
 
   return (
-    <div className="absolute top-1/2 left-3 z-10 -translate-y-1/2">
+    <div className={`absolute top-1/2 z-10 -translate-y-1/2 ${className}`}>
       <div className="relative">
         <div
           data-testid="tool-rail"

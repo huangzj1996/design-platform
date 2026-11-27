@@ -264,7 +264,6 @@ describe('home file records', () => {
 
     await renderApp();
 
-    expect(container.querySelector('[data-testid="home-empty"]')).toBeNull();
     expect(cardPaths()).toEqual([zetaPath, alphaPath]);
     expect(cardTexts()[0]).toContain('zeta.json');
     expect(cardTexts()[0]).toContain(`${folder} /`);

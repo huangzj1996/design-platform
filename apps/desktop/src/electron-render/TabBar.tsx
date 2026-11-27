@@ -1,5 +1,6 @@
 import { Folder, House, LoaderCircle, Plus } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { Button } from '@/components/ui/button';
 import { HOME_TAB_ID, type ProjectTab } from './workspace';
 
 export interface TabBarProps {
@@ -33,7 +34,7 @@ function TabButton({
       role="tab"
       aria-selected={active}
       onClick={onClick}
-      className={`flex h-6 max-w-[220px] cursor-pointer items-center gap-1.5 rounded-xl px-2.5 text-[13px] font-medium transition-colors ${
+      className={`flex h-8 max-w-[220px] shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-2.5 text-[13px] font-medium transition-colors ${
         active
           ? 'bg-[#EDEEF0] text-[#1A1A1A]'
           : 'text-[#9A9AA2] hover:bg-[#F4F4F5]'
@@ -70,12 +71,12 @@ export function TabBar({
   return (
     <nav
       data-testid="tab-bar"
-      className="flex h-8 items-center rounded-2xl border border-[#ECEDEF] bg-white px-1.5 shadow-[0_1px_3px_#0000000F]"
+      className="flex h-10 max-w-full min-w-0 items-center rounded-full border border-[#ECEDEF] bg-white px-1.5 shadow-[0_1px_3px_#0000000F]"
     >
       <div
         role="tablist"
         aria-label="项目标签"
-        className="flex items-center gap-0.5"
+        className="flex min-w-0 items-center gap-0.5 overflow-x-auto [scrollbar-width:none]"
       >
         <TabButton
           active={activeTabId === HOME_TAB_ID}
@@ -96,22 +97,27 @@ export function TabBar({
           />
         ))}
       </div>
-      <span aria-hidden="true" className="mx-1 h-4 w-px bg-[#E7E8EA]" />
-      <button
+      <span
+        aria-hidden="true"
+        className="mx-1 h-4 w-px shrink-0 bg-[#E7E8EA]"
+      />
+      <Button
         type="button"
         aria-label="新建设计稿"
         title="新建设计稿"
         data-testid="tab-create"
         disabled={busy}
         onClick={onCreate}
-        className="flex h-6 cursor-pointer items-center rounded-lg px-2 text-[#9A9AA2] transition-colors hover:bg-[#F4F4F5] hover:text-[#1A1A1A] disabled:cursor-progress disabled:opacity-50"
+        variant="ghost"
+        size="xs"
+        className="cursor-pointer rounded-lg text-[#9A9AA2] disabled:cursor-progress"
       >
         {busy ? (
-          <LoaderCircle size={14} className="animate-spin" />
+          <LoaderCircle className="size-3.5 animate-spin" />
         ) : (
-          <Plus size={14} strokeWidth={2} />
+          <Plus className="size-3.5" strokeWidth={2} />
         )}
-      </button>
+      </Button>
     </nav>
   );
 }

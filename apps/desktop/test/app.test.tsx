@@ -88,6 +88,7 @@ async function clickOpen(): Promise<void> {
     throw new Error('Open button not found');
   }
   await act(async () => {
+    button.closest('details')?.querySelector('summary')?.click();
     button.click();
   });
 }
@@ -148,13 +149,10 @@ describe('desktop open flow', () => {
     await showOpenResult(filePath);
     renderApp();
 
-    expect(
-      container.querySelector('[data-testid="home-empty"]'),
-    ).not.toBeNull();
-
     await clickOpen();
 
-    expect(container.textContent).toContain('空白设计稿');
+    expect(container.querySelector('[data-testid="editor"]')).not.toBeNull();
+    expect(canvas.engine).toBeNull();
     expect(container.querySelector('[role="alert"]')).toBeNull();
   });
 
@@ -347,10 +345,6 @@ describe('desktop open flow', () => {
     await showOpenResult(filePath);
     renderApp();
 
-    expect(
-      container.querySelector('[data-testid="home-empty"]'),
-    ).not.toBeNull();
-
     await clickOpen();
 
     expect(container.textContent).toContain('sample.pen');
@@ -436,7 +430,8 @@ describe('desktop open flow', () => {
     await clickOpen();
 
     expect(container.textContent).toContain('empty.pen');
-    expect(container.textContent).toContain('空白设计稿');
+    expect(container.querySelector('[data-testid="editor"]')).not.toBeNull();
+    expect(canvas.engine).toBeNull();
     expect(container.querySelector('[role="alert"]')).toBeNull();
     expect(
       container.querySelector('[data-testid="import-warnings"]'),

@@ -10,6 +10,7 @@ import {
   createDefaultElement,
   createElementId,
   deleteElement,
+  findElement,
   updateElement,
   type ElementAlignment,
   type ElementPatch,
@@ -501,6 +502,24 @@ export function App({
     });
   };
 
+  const handleToggleVisibility = (id: string) => {
+    updateActiveEditor((current) => {
+      if (current.document === null) {
+        return current;
+      }
+      const element = findElement(current.document, id);
+      if (element === undefined) {
+        return current;
+      }
+      return commitEdit(
+        current,
+        updateElement(current.document, id, {
+          visible: element.visible === false ? undefined : false,
+        }),
+      );
+    });
+  };
+
   const handleAlign = (alignment: ElementAlignment) => {
     updateActiveEditor((current) => {
       if (current.document === null || current.selectionId === null) {
@@ -591,12 +610,12 @@ export function App({
         <>
           <header
             data-testid="window-chrome"
-            className="relative flex h-12 shrink-0 items-center justify-center bg-[#F6F6F6]"
+            className="relative flex h-[63px] shrink-0 items-center justify-center bg-[#F6F6F6] px-3 md:px-24"
           >
             {tabBar}
             <div
               aria-hidden="true"
-              className="absolute right-5 hidden items-center gap-5 text-[#222222] md:flex"
+              className="absolute right-3 hidden h-8 items-center gap-5 rounded-full bg-[#F6F6F6] px-2 text-[#222222] md:flex"
             >
               <CircleUser size={16} strokeWidth={2} />
               <Play size={16} strokeWidth={2} />
@@ -655,6 +674,7 @@ export function App({
             onOpen={handleOpen}
             onCreate={handleCreate}
             onSelect={handleSelect}
+            onToggleVisibility={handleToggleVisibility}
             onAddRoot={handleAddRoot}
             onUpdate={handleUpdate}
             onAlign={handleAlign}

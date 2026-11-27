@@ -21,10 +21,10 @@
 
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { basename, delimiter, dirname, isAbsolute } from 'node:path';
 import * as sandcastle from '@ai-hero/sandcastle';
 import { bwrap } from '@ai-hero/sandcastle/sandboxes/bwrap';
 import { z } from 'zod';
-import { pencilMcpHook, startPencilRelay } from './pencil-relay.mts';
 
 // The planner emits its plan as JSON inside <plan> tags; Output.object extracts
 // and validates it against this schema. We use Zod here, but any Standard
@@ -55,7 +55,23 @@ const prdTitle = /^\s*(?:\[prd\]|prd\s*[:：]|prd\s*$)/i;
 // Raise this if your backlog is large; lower it for a quick smoke-test run.
 const MAX_ITERATIONS = 10;
 
-const agent = sandcastle.claudeCode('deepseek-flash[1m]');
+// bwrap mounts directories from the host PATH read-only. Put the active pnpm
+// executable first so fresh sandboxes can use the workspace's pinned version.
+const pnpmExecutable = process.env.npm_execpath;
+if (
+  pnpmExecutable &&
+  isAbsolute(pnpmExecutable) &&
+  basename(pnpmExecutable) === 'pnpm'
+) {
+  process.env.PATH = [dirname(pnpmExecutable), process.env.PATH]
+    .filter(Boolean)
+    .join(delimiter);
+}
+
+// Must match the model id of the provider configured in .sandcastle/.env.
+// Currently SiliconFlow (ANTHROPIC_BASE_URL=https://api.siliconflow.cn/);
+// `deepseek-flash[1m]` only exists on DeepSeek's own Anthropic endpoint.
+const agent = sandcastle.claudeCode('deepseek-ai/DeepSeek-V4-Flash');
 const codingStandards = readFileSync(
   new URL('./CODING_STANDARDS.md', import.meta.url),
   'utf8',
@@ -68,6 +84,7 @@ const hooks = {
       {
         command:
           'CI=true HUSKY=0 pnpm install --frozen-lockfile --prefer-offline',
+        timeoutMs: 180_000,
       },
     ],
   },
@@ -82,7 +99,6 @@ const copyToWorktree = [
   '.agents/skills/leaferjs',
   '.claude/skills',
   '.mcp.json',
-  '.sandcastle/pencil-mcp.mjs',
 ];
 
 // ---------------------------------------------------------------------------
@@ -172,21 +188,12 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // Promise.allSettled means one failing pipeline doesn't cancel the others.
   // -------------------------------------------------------------------------
 
-  await using pencil = await startPencilRelay();
-  const workerHooks = {
-    sandbox: {
-      onSandboxReady: [
-        ...hooks.sandbox.onSandboxReady,
-        ...(pencil ? [pencilMcpHook] : []),
-      ],
-    },
-  };
   const settled = await Promise.allSettled(
     issues.map(async (issue) => {
       const sandbox = await sandcastle.createSandbox({
         branch: issue.branch,
-        sandbox: bwrap(pencil?.sandboxOptions),
-        hooks: workerHooks,
+        sandbox: bwrap(),
+        hooks,
         copyToWorktree,
       });
 

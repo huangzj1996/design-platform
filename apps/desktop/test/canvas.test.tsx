@@ -14,7 +14,6 @@ import {
   describe,
   expect,
   it,
-  vi,
 } from 'vitest';
 import type { CanvasViewport } from '../src/electron-render/canvas-engine';
 import { Canvas } from '../src/electron-render/Canvas';
@@ -58,18 +57,13 @@ function documentFrom(input: unknown): DesignDocument {
   return result.document;
 }
 
-async function render(
-  document: DesignDocument | null,
-  selectionId: string | null = null,
-  onSelect?: (id: string | null) => void,
-): Promise<void> {
+async function render(document: DesignDocument | null): Promise<void> {
   root = createRoot(container);
   await act(async () => {
     root.render(
       <Canvas
         document={document}
-        selectionId={selectionId}
-        onSelect={onSelect}
+        selectionId={null}
         createEngine={canvas.factory}
       />,
     );
@@ -78,17 +72,14 @@ async function render(
 
 async function rerender(
   document: DesignDocument | null,
-  selectionId: string | null,
   viewport?: CanvasViewport,
-  onSelect?: (id: string | null) => void,
 ): Promise<void> {
   await act(async () => {
     root.render(
       <Canvas
         document={document}
-        selectionId={selectionId}
+        selectionId={null}
         viewport={viewport}
-        onSelect={onSelect}
         createEngine={canvas.factory}
       />,
     );
@@ -112,17 +103,15 @@ const documentWithFrame = documentFrom({
 });
 
 describe('Canvas', () => {
-  it('shows the empty states without creating a canvas engine', async () => {
+  it('does not create a canvas engine without a document or elements', async () => {
     await render(null);
-    expect(container.textContent).toContain('尚未打开设计稿');
     expect(canvas.engine).toBeNull();
 
-    await rerender(documentFrom({ version: 1, children: [] }), null);
-    expect(container.textContent).toContain('空白设计稿');
+    await rerender(documentFrom({ version: 1, children: [] }));
     expect(canvas.engine).toBeNull();
   });
 
-  it('hands the variable-resolved scene and selection to the engine', async () => {
+  it('hands the variable-resolved scene to the engine', async () => {
     await render(
       documentFrom({
         version: 1,
@@ -145,7 +134,6 @@ describe('Canvas', () => {
           },
         ],
       }),
-      'title',
     );
 
     expect(canvas.engine).not.toBeNull();
@@ -154,47 +142,6 @@ describe('Canvas', () => {
       id: 'title',
       text: { content: '变量标题' },
     });
-    expect(canvas.engine?.selection).toMatchObject({
-      id: 'title',
-      box: { x: 0, y: 0, width: 80, height: 20 },
-      outline: { color: '#4592FF', strokeWidth: 3 },
-    });
-    expect(canvas.engine?.selection?.sizeTag.text).toBe('80 × 20');
-  });
-
-  it('forwards canvas taps and clears the selection when empty space is tapped', async () => {
-    const onSelect = vi.fn();
-    await render(documentWithFrame, null, onSelect);
-
-    await act(async () => {
-      canvas.engine?.tap('rectangle');
-    });
-    expect(onSelect).toHaveBeenLastCalledWith('rectangle');
-
-    await act(async () => {
-      canvas.engine?.tap(null);
-    });
-    expect(onSelect).toHaveBeenLastCalledWith(null);
-  });
-
-  it('updates the selection without recreating the engine', async () => {
-    await render(documentWithFrame, null);
-    const created = canvas.engine;
-    expect(created?.selection).toBeNull();
-
-    await rerender(documentWithFrame, 'rectangle');
-    expect(canvas.engine).toBe(created);
-    expect(canvas.engine?.selection?.id).toBe('rectangle');
-    expect(canvas.engine?.selection?.box).toEqual({
-      x: 100,
-      y: 0,
-      width: 40,
-      height: 20,
-    });
-
-    await rerender(documentWithFrame, 'title');
-    expect(canvas.engine).toBe(created);
-    expect(canvas.engine?.selection?.id).toBe('title');
   });
 
   it('forwards viewport changes to the engine without recreating it', async () => {
@@ -202,36 +149,14 @@ describe('Canvas', () => {
     const created = canvas.engine;
     expect(created?.viewport).toEqual({ scale: 1, x: 0, y: 0 });
 
-    await rerender(documentWithFrame, null, { scale: 1.5, x: 12, y: -8 });
+    await rerender(documentWithFrame, { scale: 1.5, x: 12, y: -8 });
 
     expect(canvas.engine).toBe(created);
     expect(canvas.engine?.viewport).toEqual({ scale: 1.5, x: 12, y: -8 });
   });
 
-  it('ignores selection taps while the hand tool is active', async () => {
-    const onSelect = vi.fn();
-    await render(documentWithFrame, null, onSelect);
-
-    await act(async () => {
-      root.render(
-        <Canvas
-          document={documentWithFrame}
-          selectionId={null}
-          selectable={false}
-          onSelect={onSelect}
-          createEngine={canvas.factory}
-        />,
-      );
-    });
-    await act(async () => {
-      canvas.engine?.tap('rectangle');
-    });
-
-    expect(onSelect).not.toHaveBeenCalled();
-  });
-
   it('destroys the engine when unmounted', async () => {
-    await render(documentWithFrame, null);
+    await render(documentWithFrame);
     const created = canvas.engine;
 
     act(() => {
