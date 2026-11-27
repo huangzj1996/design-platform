@@ -144,6 +144,8 @@ describe('createLeaferScene', () => {
 
     expect(selectedElementId(path)).toBe('frame');
     expect(selectedElementId(undefined)).toBeNull();
-    expect(selectedElementId({ data: { elementId: 42 }, parent: null })).toBeNull();
+    expect(
+      selectedElementId({ data: { elementId: 42 }, parent: null }),
+    ).toBeNull();
   });
 });

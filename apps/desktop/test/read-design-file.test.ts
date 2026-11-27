@@ -288,6 +288,47 @@ describe('readDesignFile', () => {
     await expect(readFile(filePath, 'utf8')).resolves.toBe(pencilSample);
   });
 
+  it('turns an imported hidden element into zero opacity', async () => {
+    const filePath = await writeText(
+      'hidden.pen',
+      `{
+        "version": "2.25",
+        "variables": {
+          "show-title": { "type": "boolean", "value": false }
+        },
+        "children": [
+          {
+            "id": "hidden-literal",
+            "type": "rectangle",
+            "width": 20,
+            "height": 20,
+            "enabled": false
+          },
+          {
+            "id": "hidden-binding",
+            "type": "text",
+            "content": "隐藏标题",
+            "enabled": "$show-title"
+          }
+        ]
+      }`,
+    );
+
+    const result = await readDesignFile(filePath);
+
+    expect(result.status).toBe('imported');
+    if (result.status !== 'imported') {
+      return;
+    }
+    expect(result.document.children).toMatchObject([
+      { id: 'hidden-literal', opacity: 0 },
+      { id: 'hidden-binding', opacity: 0 },
+    ]);
+    expect(result.document.variables).toEqual({
+      'show-title': { type: 'boolean', value: false },
+    });
+  });
+
   it('reports Pencil parse, version and all-skipped failures', async () => {
     const cases: Array<[string, string, string]> = [
       ['broken.pen', '{ not json', 'invalid_json'],

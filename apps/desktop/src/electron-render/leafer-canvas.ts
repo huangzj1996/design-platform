@@ -14,7 +14,7 @@ import {
   type CanvasSelection,
 } from './canvas-scene';
 
-export { selectedElementId } from '@design-ai/editor-core/leafer';
+export { selectedElementId };
 
 /**
  * Creates the LeaferJS rendering of one design scene. The scene already holds

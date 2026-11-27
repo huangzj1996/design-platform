@@ -72,21 +72,12 @@ function fillPaint(
       continue;
     }
     const opacity = resolvedNumber(layer.opacity, variables) ?? 1;
-    paints.push(
-      opacity < 1 ? { type: 'solid', color, opacity } : color,
-    );
+    paints.push(opacity < 1 ? { type: 'solid', color, opacity } : color);
   }
   if (paints.length === 0) {
     return undefined;
   }
   return paints.length === 1 ? paints[0] : paints;
-}
-
-function elementFill(
-  element: DesignElement,
-  variables: Readonly<DesignVariables>,
-): Paint | Paint[] | undefined {
-  return fillPaint(element.fill, variables);
 }
 
 function elementStroke(
@@ -155,7 +146,7 @@ function nodeInput(
     y: box.y,
     width: box.width,
     height: box.height,
-    fill: elementFill(element, variables),
+    fill: fillPaint(element.fill, variables),
     stroke,
     strokeWidth,
     cornerRadius: elementCornerRadius(element, variables),
@@ -191,9 +182,7 @@ function createElementNode(
     case 'icon':
       return new Box({
         ...input,
-        fill: input.fill,
-        strokeWidth:
-          input.strokeWidth ?? DEFAULT_ICON_STROKE_WIDTH,
+        strokeWidth: input.strokeWidth ?? DEFAULT_ICON_STROKE_WIDTH,
       });
   }
 }
@@ -212,7 +201,7 @@ function sceneNode(
   const element = node.element;
   const leaferNode = createElementNode(element, node.box, variables);
   const children = node.children.map((child) => sceneNode(child, variables));
-  if (leaferNode instanceof Box) {
+  if (element.type === 'frame') {
     for (const child of children) {
       leaferNode.add(child.node);
     }
@@ -223,8 +212,8 @@ function sceneNode(
     element,
     box: { ...node.box },
     node: leaferNode,
-    ...(leaferNode instanceof Text && leaferNode.text !== undefined
-      ? { text: String(leaferNode.text) }
+    ...(element.type === 'text'
+      ? { text: resolvedString(element.textStyle.content, variables) ?? '' }
       : {}),
     children,
   };

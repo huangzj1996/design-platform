@@ -4,6 +4,8 @@ import {
   type DesignElement,
   type Diagnostic,
 } from '@design-ai/design-schema';
+import { findElementParent } from '../document/alignment';
+import { findElement } from '../document/edit';
 
 type FrameElement = Extract<DesignElement, { type: 'frame' }>;
 
@@ -33,16 +35,10 @@ export interface EditorCommandResult {
 }
 
 export interface EditorSelectors {
-  elementById(
-    snapshot: EditorSnapshot,
-    id: string,
-  ): DesignElement | undefined;
+  elementById(snapshot: EditorSnapshot, id: string): DesignElement | undefined;
   selectedElement(snapshot: EditorSnapshot): DesignElement | undefined;
   selectedElements(snapshot: EditorSnapshot): DesignElement[];
-  parentOf(
-    snapshot: EditorSnapshot,
-    id: string,
-  ): FrameElement | undefined;
+  parentOf(snapshot: EditorSnapshot, id: string): FrameElement | undefined;
   elementsByName(snapshot: EditorSnapshot, name: string): DesignElement[];
 }
 
@@ -58,27 +54,6 @@ export interface EditorSession {
 
 function childElements(element: DesignElement): DesignElement[] {
   return element.type === 'frame' ? (element.children ?? []) : [];
-}
-
-function findElement(
-  elements: readonly DesignElement[],
-  id: string,
-): DesignElement | undefined {
-  const pending = [...elements];
-  while (pending.length > 0) {
-    const element = pending.pop();
-    if (element === undefined) {
-      continue;
-    }
-    if (element.id === id) {
-      return element;
-    }
-    const children = childElements(element);
-    for (let index = children.length - 1; index >= 0; index -= 1) {
-      pending.push(children[index]);
-    }
-  }
-  return undefined;
 }
 
 function existingIds(document: DesignDocument): Set<string> {
@@ -112,10 +87,7 @@ function normalizeSelection(
   return selected;
 }
 
-function sameIds(
-  left: readonly string[],
-  right: readonly string[],
-): boolean {
+function sameIds(left: readonly string[], right: readonly string[]): boolean {
   return (
     left.length === right.length &&
     left.every((id, index) => id === right[index])
@@ -125,7 +97,7 @@ function sameIds(
 function createSelectors(): EditorSelectors {
   return {
     elementById(snapshot, id) {
-      return findElement(snapshot.document.children, id);
+      return findElement(snapshot.document, id);
     },
 
     selectedElement(snapshot) {
@@ -133,38 +105,18 @@ function createSelectors(): EditorSelectors {
         return undefined;
       }
       const [id] = snapshot.selectedElementIds;
-      return id === undefined
-        ? undefined
-        : findElement(snapshot.document.children, id);
+      return id === undefined ? undefined : findElement(snapshot.document, id);
     },
 
     selectedElements(snapshot) {
       return snapshot.selectedElementIds.flatMap((id) => {
-        const element = findElement(snapshot.document.children, id);
+        const element = findElement(snapshot.document, id);
         return element === undefined ? [] : [element];
       });
     },
 
     parentOf(snapshot, id) {
-      const visit = (
-        elements: readonly DesignElement[],
-      ): FrameElement | undefined => {
-        for (const element of elements) {
-          if (element.type !== 'frame') {
-            continue;
-          }
-          const children = element.children ?? [];
-          if (children.some((child) => child.id === id)) {
-            return element;
-          }
-          const nested = visit(children);
-          if (nested !== undefined) {
-            return nested;
-          }
-        }
-        return undefined;
-      };
-      return visit(snapshot.document.children);
+      return findElementParent(snapshot.document, id) ?? undefined;
     },
 
     elementsByName(snapshot, name) {
@@ -205,32 +157,38 @@ export function createEditorSession(document: DesignDocument): EditorSession {
     return { ok: true, snapshot: next, diagnostics: [], changed: true };
   }
 
-  function unchanged(): EditorCommandResult {
-    return { ok: false, snapshot, diagnostics: [], changed: false };
+  /** A valid command that leaves the current snapshot in place. */
+  function noChange(): EditorCommandResult {
+    return { ok: true, snapshot, diagnostics: [], changed: false };
   }
 
   function select(elementIds: readonly string[]): EditorCommandResult {
     const selected = normalizeSelection(elementIds, snapshot.document);
     if (sameIds(selected, snapshot.selectedElementIds)) {
-      return { ...unchanged(), ok: true };
+      return noChange();
     }
     return publish({ ...snapshot, selectedElementIds: selected });
   }
 
   function setInspectorExpanded(expanded: boolean): EditorCommandResult {
     if (snapshot.inspectorExpanded === expanded) {
-      return { ...unchanged(), ok: true };
+      return noChange();
     }
     return publish({ ...snapshot, inspectorExpanded: expanded });
   }
 
   function replaceDocument(document: DesignDocument): EditorCommandResult {
     if (document === snapshot.document) {
-      return { ...unchanged(), ok: true };
+      return noChange();
     }
     const validation = validateDesignDocument(document);
     if (!validation.ok) {
-      return { ok: false, snapshot, diagnostics: validation.errors, changed: false };
+      return {
+        ok: false,
+        snapshot,
+        diagnostics: validation.errors,
+        changed: false,
+      };
     }
     const selectedElementIds = normalizeSelection(
       snapshot.selectedElementIds,

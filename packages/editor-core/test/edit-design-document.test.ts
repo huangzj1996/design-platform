@@ -98,7 +98,11 @@ describe('addElement', () => {
           width: 320,
           height: 240,
           children: [
-            { id: 'existing', type: 'text', textStyle: { content: '已有标题' } },
+            {
+              id: 'existing',
+              type: 'text',
+              textStyle: { content: '已有标题' },
+            },
           ],
         },
       ],

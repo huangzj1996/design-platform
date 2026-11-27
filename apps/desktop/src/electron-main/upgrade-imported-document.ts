@@ -1,4 +1,5 @@
 import {
+  resolveVariableValue,
   validateDesignDocument,
   type DesignDocument,
   type DesignElement,
@@ -12,6 +13,7 @@ import type {
 
 type CurrentFrame = Extract<DesignElement, { type: 'frame' }>;
 type LegacyFrame = Extract<LegacyDesignElement, { type: 'frame' }>;
+type LegacyVariables = LegacyDesignDocument['variables'];
 
 export type UpgradeImportedDocumentResult =
   | { ok: true; document: DesignDocument }
@@ -48,15 +50,21 @@ function strokeOf(element: LegacyDesignElement) {
   };
 }
 
-/** v2 has no visibility flag; a hidden v1 element keeps its layout but paints at 0 opacity. */
-function opacityOf(element: LegacyDesignElement): number | undefined {
-  if (element.visible === false) {
+/**
+ * v2 has no visibility flag; a hidden v1 element keeps its layout but paints
+ * at 0 opacity. The visibility flag may be a boolean variable reference.
+ */
+function opacityOf(
+  element: LegacyDesignElement,
+  variables: LegacyVariables,
+): number | undefined {
+  if (resolveVariableValue(element.visible, variables) === false) {
     return 0;
   }
   return element.opacity;
 }
 
-type DimensionValue = number | `$${string}` | 'fill_container' | 'fit_content';
+type DimensionValue = NonNullable<CurrentFrame['width']>;
 
 function dimension(
   value: LegacyDimension | string | undefined,
@@ -70,8 +78,11 @@ function dimension(
   return value.mode;
 }
 
-function commonFields(element: LegacyDesignElement) {
-  const opacity = opacityOf(element);
+function commonFields(
+  element: LegacyDesignElement,
+  variables: LegacyVariables,
+) {
+  const opacity = opacityOf(element, variables);
   const fill = fillOf(element);
   const stroke = strokeOf(element);
   return {
@@ -97,10 +108,14 @@ function sizedFields(element: LegacyDesignElement) {
   };
 }
 
-function upgradeFrame(element: LegacyFrame): CurrentFrame {
-  const children = element.children?.map(upgradeElement) ?? [];
+function upgradeFrame(
+  element: LegacyFrame,
+  variables: LegacyVariables,
+): CurrentFrame {
+  const children =
+    element.children?.map((child) => upgradeElement(child, variables)) ?? [];
   return {
-    ...commonFields(element),
+    ...commonFields(element, variables),
     type: 'frame',
     ...sizedFields(element),
     ...(element.layout === undefined ? {} : { layout: element.layout }),
@@ -117,15 +132,21 @@ function upgradeFrame(element: LegacyFrame): CurrentFrame {
   };
 }
 
+function textGrowthOf(
+  wraps: boolean,
+  height: DimensionValue | undefined,
+): 'auto' | 'fixed-width' | 'fixed-width-height' {
+  if (!wraps) {
+    return 'auto';
+  }
+  return height === undefined ? 'fixed-width' : 'fixed-width-height';
+}
+
 function textStyleOf(element: Extract<LegacyDesignElement, { type: 'text' }>) {
   const width = dimension(element.width);
   const height = dimension(element.height);
   const wraps = element.textWrap !== 'none' && width !== undefined;
-  const textGrowth: 'auto' | 'fixed-width' | 'fixed-width-height' = wraps
-    ? height === undefined
-      ? 'fixed-width'
-      : 'fixed-width-height'
-    : 'auto';
+  const textGrowth = textGrowthOf(wraps, height);
   return {
     content: element.text,
     textGrowth,
@@ -149,19 +170,22 @@ function textStyleOf(element: Extract<LegacyDesignElement, { type: 'text' }>) {
   };
 }
 
-function upgradeElement(element: LegacyDesignElement): DesignElement {
+function upgradeElement(
+  element: LegacyDesignElement,
+  variables: LegacyVariables,
+): DesignElement {
   switch (element.type) {
     case 'frame':
-      return upgradeFrame(element);
+      return upgradeFrame(element, variables);
     case 'text':
       return {
-        ...commonFields(element),
+        ...commonFields(element, variables),
         type: 'text',
         textStyle: textStyleOf(element),
       };
     case 'icon':
       return {
-        ...commonFields(element),
+        ...commonFields(element, variables),
         type: 'icon',
         ...sizedFields(element),
         library: element.library,
@@ -169,13 +193,13 @@ function upgradeElement(element: LegacyDesignElement): DesignElement {
       };
     case 'rectangle':
       return {
-        ...commonFields(element),
+        ...commonFields(element, variables),
         type: 'rectangle',
         ...sizedFields(element),
       };
     case 'ellipse':
       return {
-        ...commonFields(element),
+        ...commonFields(element, variables),
         type: 'ellipse',
         ...sizedFields(element),
       };
@@ -192,7 +216,9 @@ export function upgradeImportedDocument(
 ): UpgradeImportedDocumentResult {
   const upgraded: DesignDocument = {
     version: 2,
-    children: document.children.map(upgradeElement),
+    children: document.children.map((child) =>
+      upgradeElement(child, document.variables),
+    ),
     variables: document.variables as unknown as DesignDocument['variables'],
   };
   const result = validateDesignDocument(upgraded);

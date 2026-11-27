@@ -21,8 +21,21 @@ const document = documentFrom({
       width: 400,
       height: 300,
       children: [
-        { id: 'rectangle', type: 'rectangle', name: '矩形', width: 80, height: 40 },
-        { id: 'nested', type: 'frame', name: '卡片', width: 120, height: 80, children: [] },
+        {
+          id: 'rectangle',
+          type: 'rectangle',
+          name: '矩形',
+          width: 80,
+          height: 40,
+        },
+        {
+          id: 'nested',
+          type: 'frame',
+          name: '卡片',
+          width: 120,
+          height: 80,
+          children: [],
+        },
       ],
     },
     { id: 'title', type: 'text', name: '标题', textStyle: { content: '标题' } },
@@ -99,12 +112,17 @@ describe('createEditorSession', () => {
           type: 'frame',
           width: 400,
           height: 300,
-          children: [{ id: 'title', type: 'text', textStyle: { content: '新标题' } }],
+          children: [
+            { id: 'title', type: 'text', textStyle: { content: '新标题' } },
+          ],
         },
       ],
     });
 
-    const result = session.dispatch({ type: 'replace-document', document: next });
+    const result = session.dispatch({
+      type: 'replace-document',
+      document: next,
+    });
 
     expect(result.ok).toBe(true);
     expect(result.snapshot.document).toEqual(next);
@@ -163,12 +181,13 @@ describe('createEditorSession', () => {
 });
 
 describe('session.selectors', () => {
-  const session = createEditorSession(document);
-
   it('finds elements by id and resolves the direct parent', () => {
+    const session = createEditorSession(document);
     const snapshot = session.getSnapshot();
 
-    expect(session.selectors.elementById(snapshot, 'nested')?.type).toBe('frame');
+    expect(session.selectors.elementById(snapshot, 'nested')?.type).toBe(
+      'frame',
+    );
     expect(session.selectors.elementById(snapshot, 'missing')).toBeUndefined();
     expect(session.selectors.parentOf(snapshot, 'rectangle')?.id).toBe('frame');
     expect(session.selectors.parentOf(snapshot, 'frame')).toBeUndefined();
@@ -176,11 +195,15 @@ describe('session.selectors', () => {
   });
 
   it('returns the single selected element only for exactly one selection', () => {
+    const session = createEditorSession(document);
     const none = session.getSnapshot();
     expect(session.selectors.selectedElement(none)).toBeUndefined();
     expect(session.selectors.selectedElements(none)).toEqual([]);
 
-    const one = session.dispatch({ type: 'select', elementIds: ['title'] }).snapshot;
+    const one = session.dispatch({
+      type: 'select',
+      elementIds: ['title'],
+    }).snapshot;
     expect(session.selectors.selectedElement(one)?.id).toBe('title');
 
     const many = session.dispatch({
@@ -188,10 +211,9 @@ describe('session.selectors', () => {
       elementIds: ['rectangle', 'title'],
     }).snapshot;
     expect(session.selectors.selectedElement(many)).toBeUndefined();
-    expect(session.selectors.selectedElements(many).map((element) => element.id)).toEqual([
-      'rectangle',
-      'title',
-    ]);
+    expect(
+      session.selectors.selectedElements(many).map((element) => element.id),
+    ).toEqual(['rectangle', 'title']);
   });
 
   it('returns every element with an exact name in tree order', () => {
