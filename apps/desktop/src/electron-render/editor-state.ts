@@ -81,6 +81,11 @@ export function selectionIdOf(state: EditorState): string | null {
   return state.snapshot?.selectedElementIds[0] ?? null;
 }
 
+/** The inspector expansion stored by the tab's session snapshot. */
+export function inspectorExpandedOf(state: EditorState): boolean {
+  return state.snapshot?.inspectorExpanded ?? true;
+}
+
 /** Keeps the document snapshot's path in sync with its actual save target. */
 function withDocumentPath(
   document: DesignDocument,
@@ -271,6 +276,21 @@ export function selectElement(
   const result = state.session.dispatch({
     type: 'select',
     elementIds: selectionId === null ? [] : [selectionId],
+  });
+  return result.changed ? { ...state, snapshot: result.snapshot } : state;
+}
+
+/**
+ * Stores the inspector expansion in the tab's session snapshot. Like a
+ * selection change, it leaves the design document and save baseline alone.
+ */
+export function toggleInspectorExpanded(state: EditorState): EditorState {
+  if (state.session === null) {
+    return state;
+  }
+  const result = state.session.dispatch({
+    type: 'set-inspector-expanded',
+    expanded: !inspectorExpandedOf(state),
   });
   return result.changed ? { ...state, snapshot: result.snapshot } : state;
 }

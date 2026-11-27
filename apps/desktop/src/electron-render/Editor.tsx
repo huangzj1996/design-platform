@@ -80,6 +80,8 @@ interface SidebarResizeStart {
 export interface EditorProps {
   document: DesignDocument | null;
   selectionId: string | null;
+  /** The active tab's inspector expansion, owned by its session snapshot. */
+  inspectorExpanded: boolean;
   /** The shared top tab bar, rendered in the editor window chrome. */
   tabBar: ReactNode;
   documentName: string;
@@ -88,6 +90,7 @@ export interface EditorProps {
   onOpen: () => void;
   onCreate: () => void;
   onSelect: (id: string | null) => void;
+  onToggleInspector: () => void;
   /** Commits a drag between parent-local positions. */
   onMoveElement: (
     id: string,
@@ -110,6 +113,7 @@ export interface EditorProps {
 export function Editor({
   document,
   selectionId,
+  inspectorExpanded,
   tabBar,
   documentName,
   saveStatus,
@@ -117,6 +121,7 @@ export function Editor({
   onOpen,
   onCreate,
   onSelect,
+  onToggleInspector,
   onMoveElement,
   onAddRoot,
   onUpdate,
@@ -130,7 +135,6 @@ export function Editor({
     DEFAULT_CANVAS_VIEWPORT,
   );
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [inspectorExpanded, setInspectorExpanded] = useState(true);
   const [sidebarCardWidth, setSidebarCardWidth] = useState(
     DEFAULT_SIDEBAR_CARD_WIDTH,
   );
@@ -475,7 +479,7 @@ export function Editor({
                 document={document}
                 element={selected}
                 expanded={inspectorExpanded}
-                onToggle={() => setInspectorExpanded((expanded) => !expanded)}
+                onToggle={onToggleInspector}
                 onUpdate={onUpdate}
                 onAlign={onAlign}
                 onAddChild={onAddChild}

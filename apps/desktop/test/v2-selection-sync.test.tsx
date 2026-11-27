@@ -16,7 +16,11 @@ import {
 } from 'vitest';
 import { App } from '../src/electron-render/App';
 import { readDesignFile } from '../src/electron-main/read-design-file';
-import type { OpenDesignFileResult } from '../src/electron-preload/contract';
+import type {
+  OpenDesignFileResult,
+  SaveDesignFileInput,
+  SaveDesignFileResult,
+} from '../src/electron-preload/contract';
 import { hasSceneNode, TestCanvasRegistry } from './test-canvas-engine';
 
 declare global {
@@ -27,6 +31,7 @@ let container: HTMLDivElement;
 let root: Root;
 let directory: string;
 let openDesignFile: () => Promise<OpenDesignFileResult>;
+let saveCalls: SaveDesignFileInput[];
 let canvas: TestCanvasRegistry;
 
 beforeAll(() => {
@@ -42,6 +47,7 @@ beforeEach(async () => {
   directory = await mkdtemp(path.join(tmpdir(), 'design-ai-selection-'));
   container = document.createElement('div');
   document.body.append(container);
+  saveCalls = [];
   canvas = new TestCanvasRegistry();
 });
 
@@ -93,6 +99,16 @@ async function renderApp(): Promise<void> {
     root.render(
       <App
         openDesignFile={() => openDesignFile()}
+        saveDesignFile={async (
+          input: SaveDesignFileInput,
+        ): Promise<SaveDesignFileResult> => {
+          saveCalls.push(input);
+          return {
+            status: 'skipped',
+            filePath: input.filePath ?? '',
+            fingerprint: 'stub',
+          };
+        }}
         createCanvasEngine={canvas.factory}
       />,
     );
@@ -145,6 +161,24 @@ function layerRow(id: string): HTMLElement {
 function inspectorLabel(): string | null {
   const panel = container.querySelector('[data-testid="property-panel"]');
   return panel?.querySelector('[title]')?.getAttribute('title') ?? null;
+}
+
+function inspectorToggle(): HTMLButtonElement {
+  const button = container.querySelector<HTMLButtonElement>(
+    '[data-testid="property-panel"] [data-testid="inspector-toggle"]',
+  );
+  if (button === null) {
+    throw new Error('Inspector toggle not found');
+  }
+  return button;
+}
+
+/** Reads the expanded state of the visible inspector, or null without one. */
+function inspectorExpanded(): boolean | null {
+  if (container.querySelector('[data-testid="property-panel"]') === null) {
+    return null;
+  }
+  return inspectorToggle().getAttribute('aria-expanded') === 'true';
 }
 
 async function clickTab(label: string): Promise<void> {
@@ -279,5 +313,58 @@ describe('v2 opened design selection', () => {
     await clickTab('second.json');
     expect(canvas.engine?.selection?.id).toBe('second-block');
     expect(layerRow('second-block').getAttribute('data-selected')).toBe('true');
+  });
+
+  it('keeps each tab inspector state and selection without saving', async () => {
+    await renderApp();
+    await openDesign('first-state.json', nestedDocument);
+    await act(async () => {
+      layerRow('chip').querySelector<HTMLElement>('.layer-row')?.click();
+    });
+    await settle();
+    expect(inspectorExpanded()).toBe(true);
+
+    await act(async () => {
+      inspectorToggle().click();
+    });
+    await settle();
+    expect(inspectorExpanded()).toBe(false);
+    expect(inspectorLabel()).toBe('chip');
+
+    await openDesign('second-state.json', {
+      version: 2,
+      children: [
+        {
+          id: 'second-board',
+          type: 'frame',
+          width: 200,
+          height: 100,
+          children: [
+            { id: 'second-block', type: 'rectangle', width: 40, height: 20 },
+          ],
+        },
+      ],
+    });
+    await act(async () => {
+      layerRow('second-block')
+        .querySelector<HTMLElement>('.layer-row')
+        ?.click();
+    });
+    await settle();
+    // A fresh tab starts with an expanded inspector of its own.
+    expect(inspectorExpanded()).toBe(true);
+
+    await clickTab('first-state.json');
+    expect(inspectorExpanded()).toBe(false);
+    expect(inspectorLabel()).toBe('chip');
+    expect(canvas.engine?.selection?.id).toBe('chip');
+
+    await clickTab('second-state.json');
+    expect(inspectorExpanded()).toBe(true);
+    expect(inspectorLabel()).toBe('second-block');
+    expect(canvas.engine?.selection?.id).toBe('second-block');
+
+    // Selection and inspector state never persist the design document.
+    expect(saveCalls).toHaveLength(0);
   });
 });

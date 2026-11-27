@@ -241,4 +241,94 @@ describe('session.selectors', () => {
         .map((element) => element.id),
     ).toEqual(['a', 'b']);
   });
+
+  it('answers every query from the snapshot passed in, including an earlier one', () => {
+    const session = createEditorSession(document);
+    const before = session.getSnapshot();
+    const selected = session.dispatch({
+      type: 'select',
+      elementIds: ['rectangle'],
+    }).snapshot;
+    const next = documentFrom({
+      version: 2,
+      children: [
+        {
+          id: 'frame',
+          type: 'frame',
+          layout: 'none',
+          width: 400,
+          height: 300,
+          children: [
+            {
+              id: 'replacement',
+              type: 'rectangle',
+              name: '替换',
+              width: 10,
+              height: 10,
+            },
+          ],
+        },
+      ],
+    });
+    const after = session.dispatch({
+      type: 'replace-document',
+      document: next,
+    }).snapshot;
+
+    // The earlier snapshot keeps its own elements and tree relationships even
+    // after the session has moved on.
+    expect(session.selectors.elementById(before, 'rectangle')?.name).toBe(
+      '矩形',
+    );
+    expect(session.selectors.elementById(after, 'rectangle')).toBeUndefined();
+    expect(session.selectors.parentOf(before, 'rectangle')?.id).toBe('frame');
+    expect(session.selectors.parentOf(after, 'rectangle')).toBeUndefined();
+    expect(
+      session.selectors.elementsByName(before, '矩形').map((element) => ({
+        id: element.id,
+      })),
+    ).toEqual([{ id: 'rectangle' }]);
+    expect(session.selectors.elementsByName(after, '矩形')).toEqual([]);
+    expect(session.selectors.selectedElement(selected)?.id).toBe('rectangle');
+    expect(session.selectors.selectedElement(before)).toBeUndefined();
+    expect(session.selectors.selectedElements(after)).toEqual([]);
+  });
+});
+
+describe('editor sessions', () => {
+  it('keeps selection and inspector state per session', () => {
+    const other = documentFrom({
+      version: 2,
+      children: [
+        {
+          id: 'other',
+          type: 'rectangle',
+          name: '另一份',
+          width: 10,
+          height: 10,
+        },
+      ],
+    });
+    const first = createEditorSession(document);
+    const second = createEditorSession(other);
+
+    const firstSelected = first.dispatch({
+      type: 'select',
+      elementIds: ['rectangle', 'title', 'rectangle'],
+    }).snapshot;
+    first.dispatch({ type: 'set-inspector-expanded', expanded: false });
+    second.dispatch({ type: 'select', elementIds: ['other'] });
+
+    expect(firstSelected.selectedElementIds).toEqual(['rectangle', 'title']);
+    expect(first.getSnapshot().selectedElementIds).toEqual([
+      'rectangle',
+      'title',
+    ]);
+    expect(first.getSnapshot().inspectorExpanded).toBe(false);
+    expect(second.getSnapshot().selectedElementIds).toEqual(['other']);
+    expect(second.getSnapshot().inspectorExpanded).toBe(true);
+    // State commands keep each design document exactly as it was.
+    expect(first.getSnapshot().document).toBe(document);
+    expect(second.getSnapshot().document).toBe(other);
+  });
 });
