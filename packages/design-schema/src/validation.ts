@@ -57,7 +57,7 @@ const textGrowthSchemaV2 = z.enum([
 const textAlignSchemaV2 = z.enum(['left', 'center', 'right', 'justify']);
 const positiveNumberSchema = z.number().positive();
 const unitIntervalSchema = z.number().min(0).max(1);
-const fillColorSchema = z.string().regex(/^#[\da-f]{6}(?:[\da-f]{2})?$/i);
+const hexColorSchemaV2 = z.string().regex(/^#[\da-f]{6}(?:[\da-f]{2})?$/i);
 const paddingSidesSchemaV2 = z
   .array(z.unknown())
   .refine(
@@ -68,9 +68,12 @@ const paddingSidesSchemaV2 = z
 type VariableReference = `$${string}`;
 export type NumericValueV2 = number | VariableReference;
 
-type FillStrokeSchemasV2 = ReturnType<typeof createFillStrokeSchemasV2>;
-export type FillLayerV2 = z.input<FillStrokeSchemasV2['fill']>[number];
-export type StrokeV2 = z.input<FillStrokeSchemasV2['stroke']>;
+type AppearanceSchemasV2 = ReturnType<typeof createAppearanceSchemasV2>;
+export type FillLayerV2 = z.input<AppearanceSchemasV2['fill']>[number];
+export type StrokeV2 = z.input<AppearanceSchemasV2['stroke']>;
+export type CornerRadiusV2 =
+  z.input<AppearanceSchemasV2['cornerRadius']> | VariableReference;
+export type EffectV2 = z.input<AppearanceSchemasV2['effect']>[number];
 
 export type DimensionV2 = z.infer<typeof dimensionSchemaV2> | VariableReference;
 
@@ -137,7 +140,7 @@ export const frameLayoutFieldsV2 = {
   alignItems: zodField(alignItemsSchemaV2, '无效的交叉轴对齐'),
 };
 
-function createFillStrokeSchemasV2(variables: Readonly<DesignVariables>) {
+function createAppearanceSchemasV2(variables: Readonly<DesignVariables>) {
   function bound<Schema extends z.ZodType>(
     schema: Schema,
     ...variableTypes: VariableType[]
@@ -160,7 +163,7 @@ function createFillStrokeSchemasV2(variables: Readonly<DesignVariables>) {
   }
 
   const unitInterval = bound(unitIntervalSchema, 'number');
-  const color = bound(fillColorSchema, 'color');
+  const color = bound(hexColorSchemaV2, 'color');
   const nonNegativeNumber = bound(nonNegativeNumberSchema, 'number');
   const number = bound(z.number(), 'number');
   const url = bound(z.string(), 'string');
@@ -279,34 +282,67 @@ function createFillStrokeSchemasV2(variables: Readonly<DesignVariables>) {
     width: nonNegativeNumber.default(1),
     style: z.enum(['solid', 'dashed', 'dotted']).default('solid'),
   });
-  return { fill, stroke };
+  const cornerRadius = z.union([
+    nonNegativeNumberSchema,
+    z.tuple([
+      nonNegativeNumber,
+      nonNegativeNumber,
+      nonNegativeNumber,
+      nonNegativeNumber,
+    ]),
+  ]);
+  const effect = z.array(
+    z.discriminatedUnion('type', [
+      z.strictObject({
+        type: z.enum(['drop_shadow', 'inner_shadow']),
+        color,
+        offsetX: number,
+        offsetY: number,
+        blurRadius: nonNegativeNumber,
+      }),
+      z.strictObject({
+        type: z.enum(['layer_blur', 'background_blur']),
+        radius: nonNegativeNumber,
+      }),
+    ]),
+  );
+  return { fill, stroke, cornerRadius, effect };
 }
 
-// Both fields use the same layer schema and variable table for a document.
-const fillStrokeSchemas = new WeakMap<
+// Appearance fields share schemas bound to the document's variable table.
+const appearanceSchemas = new WeakMap<
   Readonly<DesignVariables>,
-  FillStrokeSchemasV2
+  AppearanceSchemasV2
 >();
 const noVariables: Readonly<DesignVariables> = {};
 
-export const fillStrokeFieldsV2 = {
-  fill: fillStrokeField('fill'),
-  stroke: fillStrokeField('stroke'),
+export const appearanceFieldsV2 = {
+  fill: appearanceField('fill'),
+  stroke: appearanceField('stroke'),
+  cornerRadius: appearanceField('cornerRadius', 'number'),
+  effect: appearanceField('effect'),
 };
 
-function fillStrokeField(field: keyof FillStrokeSchemasV2): FieldValidator {
-  return (value, path, variables = noVariables) => {
-    let schemas = fillStrokeSchemas.get(variables);
+function appearanceField(
+  field: keyof AppearanceSchemasV2,
+  variableType?: VariableType,
+): FieldValidator {
+  const validate: FieldValidator = (value, path, variables = noVariables) => {
+    let schemas = appearanceSchemas.get(variables);
     if (schemas === undefined) {
-      schemas = createFillStrokeSchemasV2(variables);
-      fillStrokeSchemas.set(variables, schemas);
+      schemas = createAppearanceSchemasV2(variables);
+      appearanceSchemas.set(variables, schemas);
     }
     const parsed = schemas[field].safeParse(value);
     // Use the parsed values for validation while retaining authored fields.
     return parsed.success
       ? []
-      : fillStrokeDiagnostics(parsed.error.issues, value, path);
+      : appearanceDiagnostics(parsed.error.issues, value, path);
   };
+  if (variableType !== undefined) {
+    validate.variableTypes = [variableType];
+  }
+  return validate;
 }
 
 const textStyleFieldsV2 = {
@@ -380,7 +416,7 @@ function zodField(
   return validate;
 }
 
-function fillStrokeDiagnostics(
+function appearanceDiagnostics(
   issues: readonly z.core.$ZodIssue[],
   value: unknown,
   path: string,
@@ -389,7 +425,7 @@ function fillStrokeDiagnostics(
     let issuePath = path;
     let input = value;
     for (const key of issue.path) {
-      issuePath = fillStrokePath(issuePath, key);
+      issuePath = appearancePath(issuePath, key);
       input =
         typeof input === 'object' && input !== null && Object.hasOwn(input, key)
           ? (input as Record<PropertyKey, unknown>)[key]
@@ -400,7 +436,7 @@ function fillStrokeDiagnostics(
       return issue.keys.map((key) =>
         createDiagnostic(
           DiagnosticCodes.unknownField,
-          fillStrokePath(issuePath, key),
+          appearancePath(issuePath, key),
           `节点不支持的字段 "${key}"`,
         ),
       );
@@ -415,8 +451,8 @@ function fillStrokeDiagnostics(
       ];
     }
     if (issue.code === 'invalid_union' && Array.isArray(input)) {
-      // A shader vector can carry diagnostics on individual components.
-      const vectorIssues = issue.errors.find(
+      // A tuple can carry diagnostics on individual components.
+      const tupleIssues = issue.errors.find(
         (branch) =>
           branch.length > 0 &&
           branch.every(
@@ -424,8 +460,8 @@ function fillStrokeDiagnostics(
               typeof index === 'number' && index < input.length,
           ),
       );
-      if (vectorIssues !== undefined) {
-        return fillStrokeDiagnostics(vectorIssues, input, issuePath);
+      if (tupleIssues !== undefined) {
+        return appearanceDiagnostics(tupleIssues, input, issuePath);
       }
     }
     const code =
@@ -440,7 +476,7 @@ function fillStrokeDiagnostics(
   });
 }
 
-function fillStrokePath(path: string, key: PropertyKey): string {
+function appearancePath(path: string, key: PropertyKey): string {
   if (typeof key === 'number') {
     return `${path}[${key}]`;
   }

@@ -8,13 +8,15 @@ import { layoutDesignDocumentV2 } from './layout-v2';
 import { layoutIssueToDiagnostic } from './layout';
 import type { DesignVariables, NodeInspector, ValidationResult } from './types';
 import {
+  appearanceFieldsV2,
   dimensionFieldV2,
-  fillStrokeFieldsV2,
   frameLayoutFieldsV2,
   parseDocumentJson,
   textStyleFieldV2,
   validateDocumentStructure,
+  type CornerRadiusV2,
   type DimensionV2,
+  type EffectV2,
   type FillLayerV2,
   type FrameLayoutFieldsV2,
   type NumericValueV2,
@@ -22,7 +24,13 @@ import {
   type TextStyleV2,
 } from './validation';
 
-export type { FillLayerV2, StrokeV2, TextStyleV2 } from './validation';
+export type {
+  CornerRadiusV2,
+  EffectV2,
+  FillLayerV2,
+  StrokeV2,
+  TextStyleV2,
+} from './validation';
 
 export const DESIGN_DOCUMENT_VERSION_V2 = 2 as const;
 
@@ -35,6 +43,8 @@ interface ElementStyleV2 {
   rotation?: NumericValueV2;
   fill?: FillLayerV2[];
   stroke?: StrokeV2;
+  cornerRadius?: CornerRadiusV2;
+  effect?: EffectV2[];
 }
 
 interface SizedElementV2 extends ElementStyleV2 {
@@ -66,7 +76,7 @@ const commonFields = {
   x: numberField,
   y: numberField,
   rotation: numberField,
-  ...fillStrokeFieldsV2,
+  ...appearanceFieldsV2,
 };
 
 const sizedFields = {

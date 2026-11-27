@@ -37,9 +37,9 @@
 | --- | --- | --- |
 | `frame` | `children`、`layout`、`gap`、`padding`、`justifyContent`、`alignItems`、`clip` | `fill`、`effect`、`stroke`、`cornerRadius` |
 | `rectangle` | — | `fill`、`effect`、`stroke`、`cornerRadius` |
-| `ellipse` | `innerRadius`、`startAngle`、`sweepAngle` | `fill`、`effect`、`stroke` |
-| `text` | `content`、`textGrowth`、`fontFamily`、`fontSize`、`fontWeight`、`fontStyle`、`lineHeight`、`letterSpacing`、`textAlign`、`textAlignVertical`、`underline`、`strikethrough`、`href` | `fill`、`effect`、`stroke` |
-| `icon` | `library`、`icon` | `fill`、`effect`、`stroke`、`weight` |
+| `ellipse` | `innerRadius`、`startAngle`、`sweepAngle` | `fill`、`effect`、`stroke`、`cornerRadius` |
+| `text` | `content`、`textGrowth`、`fontFamily`、`fontSize`、`fontWeight`、`fontStyle`、`lineHeight`、`letterSpacing`、`textAlign`、`textAlignVertical`、`underline`、`strikethrough`、`href` | `fill`、`effect`、`stroke`、`cornerRadius` |
+| `icon` | `library`、`icon` | `fill`、`effect`、`stroke`、`cornerRadius`、`weight` |
 
 ### 容器与矩形
 
@@ -53,8 +53,6 @@
 | `justifyContent` | `start`、`center`、`end`、`space_between`、`space_around`，默认 `start` |
 | `alignItems` | `start`、`center`、`end`，默认 `start` |
 | `clip` | 布尔值或引用，默认 `false`。开启时裁剪超出容器边界的子内容，不改变布局结果 |
-
-`frame` 和 `rectangle` 的 `cornerRadius` 可以是一个非负数值或引用，也可以是四项数组，每项可独立绑定变量。原生 v2 约定数组从左上角开始顺时针排列。省略时为直角。
 
 ### 椭圆
 
@@ -92,6 +90,10 @@
 
 ## 外观值
 
+### 圆角
+
+五种元素均可声明 `cornerRadius`。Frame 和 Rectangle 使用它定义轮廓，省略时为直角。统一圆角使用一个有限非负数值或数值变量引用。逐角圆角使用四项数组，按左上、右上、右下、左下排列，每项为有限非负数值或数值变量引用。
+
 ### 填充与描边
 
 元素的 `fill` 是可选的有序填充层数组，从底到顶绘制。每个填充层是带 `type` 的对象，`opacity` 可省略，范围为 0–1，默认 `1`。颜色值使用 `#RRGGBB` 或 `#RRGGBBAA`。
@@ -125,14 +127,14 @@
 
 ### 效果
 
-`effect` 接受一个效果对象或数组，按声明顺序应用。每个效果都可通过自己的 `enabled` 开关启用或禁用。[Pencil `.pen` 2.25 的 `Effect` 定义](https://docs.pencil.dev/for-developers/the-pen-format#typescript-schema)
+`effect` 是可选的效果数组，按声明顺序保存。每项使用字面值 `type` 选择类型，白名单包含 `type` 和下表列出的必填字段。
 
-| `type` | 字段 |
+| `type` | 必填字段 |
 | --- | --- |
-| `blur` | `radius` |
-| `background_blur` | `radius` |
-| `shadow` | `shadowType`（`inner`、`outer`）、`offset`、`blur`、`color`、`blendMode` |
-| `shader` | `url`、`uniforms` |
+| `drop_shadow`、`inner_shadow` | `color`、`offsetX`、`offsetY`、`blurRadius` |
+| `layer_blur`、`background_blur` | `radius` |
+
+颜色沿用填充的十六进制格式。偏移接受有限数值，`blurRadius` 和 `radius` 接受有限非负数值。颜色、偏移和半径可以引用对应类型的变量。校验器按字段规则检查变量的解析值，成功时保留原始引用和数组顺序。
 
 ## 示例设计稿
 
