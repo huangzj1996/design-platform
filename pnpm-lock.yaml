@@ -348,6 +348,9 @@ importers:
       '@design-ai/design-schema':
         specifier: workspace:*
         version: link:../design-schema
+      '@leafer-ui/draw':
+        specifier: ^2.3.4
+        version: 2.3.4
     devDependencies:
       tsdown:
         specifier: 0.22.9

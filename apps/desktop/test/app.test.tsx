@@ -98,7 +98,7 @@ function sceneNode(id: string) {
 }
 
 const frameWithText = {
-  version: 1,
+  version: 2,
   children: [
     {
       id: 'frame-main',
@@ -107,8 +107,8 @@ const frameWithText = {
       width: 640,
       height: 480,
       children: [
-        { id: 'title', type: 'text', text: '产品标题' },
-        { id: 'caption', type: 'text', text: '说明文字' },
+        { id: 'title', type: 'text', textStyle: { content: '产品标题' } },
+        { id: 'caption', type: 'text', textStyle: { content: '说明文字' } },
       ],
     },
   ],
@@ -143,7 +143,7 @@ const pencilWithWarning = `{
 describe('desktop open flow', () => {
   it('opens a blank document from a real temporary directory', async () => {
     const filePath = await writeJson('blank.json', {
-      version: 1,
+      version: 2,
       children: [],
     });
     await showOpenResult(filePath);
@@ -166,8 +166,8 @@ describe('desktop open flow', () => {
     const frame = sceneNode('frame-main');
     expect(frame.type).toBe('frame');
     expect(sceneNode('title').type).toBe('text');
-    expect(sceneNode('title').text?.content).toBe('产品标题');
-    expect(sceneNode('caption').text?.content).toBe('说明文字');
+    expect(sceneNode('title').text).toBe('产品标题');
+    expect(sceneNode('caption').text).toBe('说明文字');
     expect(frame.children.map((child) => child.id)).toEqual([
       'title',
       'caption',
@@ -176,7 +176,7 @@ describe('desktop open flow', () => {
 
   it('opens a document containing all five element types and preserves icon identifiers', async () => {
     const filePath = await writeJson('elements.json', {
-      version: 1,
+      version: 2,
       children: [
         {
           id: 'frame-all',
@@ -192,20 +192,19 @@ describe('desktop open flow', () => {
               type: 'rectangle',
               width: 80,
               height: 30,
-              fill: '#ff0000',
+              fill: [{ type: 'color', color: '#ff0000' }],
             },
             {
               id: 'ellipse-all',
               type: 'ellipse',
               width: 30,
               height: 30,
-              fill: '#00ff00',
+              fill: [{ type: 'color', color: '#00ff00' }],
             },
             {
               id: 'text-all',
               type: 'text',
-              text: '五种元素',
-              fontSize: 18,
+              textStyle: { content: '五种元素', fontSize: 18 },
             },
             {
               id: 'icon-all',
@@ -228,8 +227,8 @@ describe('desktop open flow', () => {
     expect(frame.type).toBe('frame');
     expect(sceneNode('rect-all').type).toBe('rectangle');
     expect(sceneNode('ellipse-all').type).toBe('ellipse');
-    expect(sceneNode('text-all').text?.content).toBe('五种元素');
-    expect(sceneNode('icon-all').icon).toMatchObject({
+    expect(sceneNode('text-all').text).toBe('五种元素');
+    expect(sceneNode('icon-all').element).toMatchObject({
       library: 'lucide',
       icon: 'arrow-right',
     });
@@ -243,12 +242,11 @@ describe('desktop open flow', () => {
 
   it('renders resolved variables after opening while the file keeps the references', async () => {
     const contents = {
-      version: 1,
+      version: 2,
       variables: {
         'color-brand': { type: 'color', value: '#3366ff' },
         'label-title': { type: 'string', value: '变量标题' },
         'space-gap': { type: 'number', value: 12 },
-        'show-title': { type: 'boolean', value: false },
       },
       children: [
         {
@@ -262,16 +260,15 @@ describe('desktop open flow', () => {
             {
               id: 'variable-title',
               type: 'text',
-              text: '$label-title',
-              fill: '$color-brand',
-              visible: '$show-title',
+              textStyle: { content: '$label-title' },
+              fill: [{ type: 'color', color: '$color-brand' }],
             },
             {
               id: 'variable-block',
               type: 'rectangle',
               width: 40,
               height: 20,
-              fill: '$color-brand',
+              fill: [{ type: 'color', color: '$color-brand' }],
             },
           ],
         },
@@ -283,18 +280,23 @@ describe('desktop open flow', () => {
 
     await clickOpen();
 
-    expect(sceneNode('variable-title').text?.content).toBe('变量标题');
-    expect(sceneNode('variable-title').visible).toBe(false);
-    expect(sceneNode('variable-block').fill).toBe('#3366ff');
+    expect(sceneNode('variable-title').text).toBe('变量标题');
+    expect(sceneNode('variable-title').node.fill).toBe('#3366ff');
+    expect(sceneNode('variable-block').node.fill).toBe('#3366ff');
     expect(sceneNode('variable-block').box.y).toBe(31.2);
     expect(container.querySelector('[role="alert"]')).toBeNull();
 
     const saved = JSON.parse(await readFile(filePath, 'utf8')) as {
-      children: Array<{ gap: string; children: Array<{ text?: string }> }>;
+      children: Array<{
+        gap: string;
+        children: Array<{ textStyle?: { content?: string } }>;
+      }>;
       variables: Record<string, { type: string; value: unknown }>;
     };
     expect(saved.children[0]?.gap).toBe('$space-gap');
-    expect(saved.children[0]?.children[0]?.text).toBe('$label-title');
+    expect(saved.children[0]?.children[0]?.textStyle?.content).toBe(
+      '$label-title',
+    );
     expect(saved.variables['color-brand']).toEqual({
       type: 'color',
       value: '#3366ff',
@@ -310,31 +312,39 @@ describe('desktop open flow', () => {
     await showOpenResult(validPath);
     renderApp();
     await clickOpen();
-    expect(sceneNode('title').text?.content).toBe('产品标题');
+    expect(sceneNode('title').text).toBe('产品标题');
 
     await showOpenResult(invalidPath);
     await clickOpen();
 
-    expect(sceneNode('title').text?.content).toBe('产品标题');
+    expect(sceneNode('title').text).toBe('产品标题');
     const alert = container.querySelector('[role="alert"]');
     expect(alert?.textContent).toContain('invalid_json');
     expect(container.textContent).toContain('$');
     await expect(readFile(invalidPath, 'utf8')).resolves.toBe(invalidContents);
 
     const secondPath = await writeJson('second.json', {
-      version: 1,
+      version: 2,
       children: [
         {
           id: 'frame-second',
           type: 'frame',
-          children: [{ id: 'title-second', type: 'text', text: '第二份标题' }],
+          width: 320,
+          height: 200,
+          children: [
+            {
+              id: 'title-second',
+              type: 'text',
+              textStyle: { content: '第二份标题' },
+            },
+          ],
         },
       ],
     });
     await showOpenResult(secondPath);
     await clickOpen();
 
-    expect(sceneNode('title-second').text?.content).toBe('第二份标题');
+    expect(sceneNode('title-second').text).toBe('第二份标题');
     expect(hasSceneNode(canvas.engine?.scene ?? null, 'title')).toBe(false);
     expect(container.querySelector('[role="alert"]')).toBeNull();
   });
@@ -351,8 +361,10 @@ describe('desktop open flow', () => {
     expect(sceneNode('frame-imported').type).toBe('frame');
     expect(sceneNode('rect-imported').type).toBe('rectangle');
     expect(sceneNode('ellipse-imported').type).toBe('ellipse');
-    expect(sceneNode('text-imported').text?.content).toBe('导入的标题');
-    expect(sceneNode('icon-imported').icon?.icon).toBe('arrow-right');
+    expect(sceneNode('text-imported').text).toBe('导入的标题');
+    expect(sceneNode('icon-imported').element).toMatchObject({
+      icon: 'arrow-right',
+    });
     expect(hasSceneNode(canvas.engine?.scene ?? null, 'hidden')).toBe(false);
 
     const warnings = container.querySelector('[data-testid="import-warnings"]');
@@ -391,9 +403,9 @@ describe('desktop open flow', () => {
 
     await clickOpen();
 
-    expect(sceneNode('frame-variable').fill).toBe('#3366FF');
-    expect(sceneNode('text-variable').text?.content).toBe('导入变量标题');
-    expect(sceneNode('block-variable').fill).toBe('#3366FF');
+    expect(sceneNode('frame-variable').node.fill).toBe('#3366FF');
+    expect(sceneNode('text-variable').text).toBe('导入变量标题');
+    expect(sceneNode('block-variable').node.fill).toBe('#3366FF');
     expect(
       container.querySelector('[data-testid="import-warnings"]'),
     ).toBeNull();
@@ -405,14 +417,14 @@ describe('desktop open flow', () => {
     await showOpenResult(nativePath);
     renderApp();
     await clickOpen();
-    expect(sceneNode('title').text?.content).toBe('产品标题');
+    expect(sceneNode('title').text).toBe('产品标题');
 
     const penPath = path.join(directory, 'future.pen');
     await writeFile(penPath, '{ "version": "2.26", "children": [] }', 'utf8');
     await showOpenResult(penPath);
     await clickOpen();
 
-    expect(sceneNode('title').text?.content).toBe('产品标题');
+    expect(sceneNode('title').text).toBe('产品标题');
     const alert = container.querySelector('[role="alert"]');
     expect(alert?.textContent).toContain('unsupported_version');
     expect(alert?.textContent).toContain('$.version');

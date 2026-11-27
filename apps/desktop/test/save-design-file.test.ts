@@ -4,7 +4,7 @@ import path from 'node:path';
 import {
   validateDesignDocument,
   type DesignDocument,
-} from '@design-ai/design-schema/legacy';
+} from '@design-ai/design-schema';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   DesignFileSaver,
@@ -24,8 +24,8 @@ afterEach(async () => {
 
 function documentWithText(text: string): DesignDocument {
   const result = validateDesignDocument({
-    version: 1,
-    children: [{ id: 'title', type: 'text', text }],
+    version: 2,
+    children: [{ id: 'title', type: 'text', textStyle: { content: text } }],
   });
   if (!result.ok) {
     throw new Error(JSON.stringify(result.errors));
@@ -130,10 +130,10 @@ describe('DesignFileSaver', () => {
     ).resolves.toMatchObject({ status: 'saved' });
     const updated = JSON.parse(await readFile(filePath, 'utf8')) as {
       filePath: string;
-      children: Array<{ text: string }>;
+      children: Array<{ textStyle: { content: string } }>;
     };
     expect(updated.filePath).toBe(filePath);
-    expect(updated.children[0]?.text).toBe('移动后新内容');
+    expect(updated.children[0]?.textStyle.content).toBe('移动后新内容');
   });
 
   it('assigns a default path to an unsaved draft and reuses it afterwards', async () => {
@@ -210,9 +210,9 @@ describe('DesignFileSaver', () => {
     expect(maximumActiveWrites).toBe(1);
     expect(writeCount).toBe(2);
     const saved = JSON.parse(await readFile(filePath, 'utf8')) as {
-      children: Array<{ text: string }>;
+      children: Array<{ textStyle: { content: string } }>;
     };
-    expect(saved.children[0]?.text).toBe('第三次');
+    expect(saved.children[0]?.textStyle.content).toBe('第三次');
   });
 
   it('keeps the last complete file and saved baseline when a write fails, then retries', async () => {
@@ -247,17 +247,17 @@ describe('DesignFileSaver', () => {
     }
 
     const onDisk = JSON.parse(await readFile(filePath, 'utf8')) as {
-      children: Array<{ text: string }>;
+      children: Array<{ textStyle: { content: string } }>;
     };
-    expect(onDisk.children[0]?.text).toBe('稳定版本');
+    expect(onDisk.children[0]?.textStyle.content).toBe('稳定版本');
 
     failWrites = false;
     await expect(
       saver.save({ filePath, document: changed }),
     ).resolves.toMatchObject({ status: 'saved' });
     const retried = JSON.parse(await readFile(filePath, 'utf8')) as {
-      children: Array<{ text: string }>;
+      children: Array<{ textStyle: { content: string } }>;
     };
-    expect(retried.children[0]?.text).toBe('待保存版本');
+    expect(retried.children[0]?.textStyle.content).toBe('待保存版本');
   });
 });

@@ -3,15 +3,8 @@ import {
   layoutDesignDocument,
   type DesignDocument,
   type DesignElement,
-  type Dimension,
-  type DimensionMode,
   type ElementType,
-  type FrameElement,
-  type FrameJustifyContent,
-  type FrameLayout,
-  type IconElement,
-  type TextElement,
-} from '@design-ai/design-schema/legacy';
+} from '@design-ai/design-schema';
 import {
   findElementParent,
   frameAlignmentCell,
@@ -63,6 +56,14 @@ interface PropertiesPanelProps extends InspectorFieldsProps {
   expanded: boolean;
   onToggle: () => void;
 }
+
+type FrameElement = Extract<DesignElement, { type: 'frame' }>;
+type TextElement = Extract<DesignElement, { type: 'text' }>;
+type IconElement = Extract<DesignElement, { type: 'icon' }>;
+type FillLayer = NonNullable<DesignElement['fill']>[number];
+type FrameLayout = NonNullable<FrameElement['layout']>;
+type FrameJustifyContent = NonNullable<FrameElement['justifyContent']>;
+type DimensionMode = 'fixed' | 'fill_container' | 'fit_content';
 
 const DEFAULT_PADDING: [number, number, number, number] = [0, 0, 0, 0];
 const PADDING_ROWS = [
@@ -181,49 +182,115 @@ function normalizeColor(value: string | undefined): string {
     : '#000000';
 }
 
-function isDimensionObject(
-  value: Dimension | undefined,
-): value is Exclude<Dimension, number> {
-  return typeof value === 'object' && value !== null;
+function numeric(value: unknown, fallback = 0): number {
+  return typeof value === 'number' ? value : fallback;
 }
 
-function dimensionMode(value: Dimension | undefined): DimensionMode | 'fixed' {
-  return isDimensionObject(value) ? value.mode : 'fixed';
+function numericOrUndefined(value: unknown): number | undefined {
+  return typeof value === 'number' ? value : undefined;
+}
+
+function dimensionMode(value: unknown): DimensionMode {
+  return value === 'fill_container' || value === 'fit_content'
+    ? value
+    : 'fixed';
 }
 
 function dimensionDisplayValue(
-  value: Dimension | undefined,
+  value: unknown,
   resolved: number | undefined,
 ): number {
   if (typeof value === 'number') {
     return value;
   }
-  if (resolved !== undefined) {
-    return resolved;
-  }
-  return isDimensionObject(value) ? (value.fallback ?? 0) : 0;
-}
-
-function dimensionWithMode(
-  current: Dimension | undefined,
-  mode: DimensionMode,
-  resolved: number | undefined,
-): Dimension {
-  const fallback = isDimensionObject(current) ? current.fallback : current;
-  return { mode, fallback: fallback ?? resolved ?? 0 };
+  return resolved ?? 0;
 }
 
 function fixedDimension(
-  current: Dimension | undefined,
+  current: unknown,
   resolved: number | undefined,
 ): number {
-  if (resolved !== undefined) {
-    return resolved;
+  return typeof current === 'number' ? current : (resolved ?? 0);
+}
+
+/** Normalizes the v2 scalar, two-value and four-value padding forms. */
+function paddingTuple(
+  padding: FrameElement['padding'],
+): [number, number, number, number] {
+  if (padding === undefined) {
+    return DEFAULT_PADDING;
   }
-  if (typeof current === 'number') {
-    return current;
+  if (typeof padding === 'number') {
+    return [padding, padding, padding, padding];
   }
-  return current?.fallback ?? 0;
+  const [top, right] = padding;
+  return padding.length === 2
+    ? [numeric(top), numeric(right), numeric(top), numeric(right)]
+    : [numeric(top), numeric(right), numeric(padding[2]), numeric(padding[3])];
+}
+
+function elementDimension(
+  element: DesignElement,
+  axis: 'width' | 'height',
+): unknown {
+  return element.type === 'text' ? element.textStyle[axis] : element[axis];
+}
+
+function colorFill(layers: readonly FillLayer[] | undefined) {
+  return layers?.find((layer) => layer.type === 'color');
+}
+
+function withFillColor(
+  layers: readonly FillLayer[] | undefined,
+  color: string,
+): FillLayer[] {
+  const next = [...(layers ?? [])];
+  const index = next.findIndex((layer) => layer.type === 'color');
+  if (index < 0) {
+    next.push({ type: 'color', color });
+    return next;
+  }
+  const current = next[index];
+  next[index] =
+    current?.type === 'color' && current.opacity !== undefined
+      ? { type: 'color', color, opacity: current.opacity }
+      : { type: 'color', color };
+  return next;
+}
+
+function withFillOpacity(
+  layers: readonly FillLayer[] | undefined,
+  opacity: number | undefined,
+): FillLayer[] {
+  const next = [...(layers ?? [])];
+  const index = next.findIndex((layer) => layer.type === 'color');
+  if (index < 0) {
+    return next;
+  }
+  const current = next[index];
+  if (current?.type !== 'color') {
+    return next;
+  }
+  next[index] =
+    opacity === undefined
+      ? { type: 'color', color: current.color }
+      : { type: 'color', color: current.color, opacity };
+  return next;
+}
+
+function strokeColor(element: DesignElement): string | undefined {
+  return colorFill(element.stroke?.fill)?.color;
+}
+
+function withStrokeColor(
+  element: DesignElement,
+  color: string,
+): NonNullable<DesignElement['stroke']> {
+  const stroke = element.stroke;
+  if (stroke === undefined) {
+    return { fill: [{ type: 'color', color }] };
+  }
+  return { ...stroke, fill: withFillColor(stroke.fill, color) };
 }
 
 interface NumberFieldProps {
@@ -465,13 +532,13 @@ function PositionSection({
       <div className="flex gap-2">
         <NumberField
           label="X"
-          value={computed ? layoutX : (element.x ?? 0)}
+          value={computed ? layoutX : numeric(element.x)}
           disabled={computed}
           onChange={(value) => onUpdate({ x: value })}
         />
         <NumberField
           label="Y"
-          value={computed ? layoutY : (element.y ?? 0)}
+          value={computed ? layoutY : numeric(element.y)}
           disabled={computed}
           onChange={(value) => onUpdate({ y: value })}
         />
@@ -480,7 +547,7 @@ function PositionSection({
         <NumberField
           label="旋转"
           prefix="R"
-          value={element.rotation ?? 0}
+          value={numeric(element.rotation)}
           onChange={(value) => onUpdate({ rotation: value })}
         />
       </div>
@@ -587,7 +654,7 @@ function GapControl({
 
 function FrameFields({ element, onUpdate }: ElementFieldsProps<FrameElement>) {
   const [showIndividualPadding, setShowIndividualPadding] = useState(false);
-  const padding = element.padding ?? DEFAULT_PADDING;
+  const padding = paddingTuple(element.padding);
   const layout = element.layout ?? 'horizontal';
   const autoLayout = layout !== 'none';
   const direction = layout === 'none' ? 'horizontal' : layout;
@@ -658,7 +725,7 @@ function FrameFields({ element, onUpdate }: ElementFieldsProps<FrameElement>) {
           <span className="text-[11px] font-medium text-[#666666]">间距</span>
           <GapControl
             justifyContent={element.justifyContent ?? 'start'}
-            gap={element.gap ?? 0}
+            gap={numeric(element.gap)}
             disabled={!autoLayout}
             onUpdate={onUpdate}
           />
@@ -729,14 +796,26 @@ function DimensionModeControls({
   resolvedWidth: number | undefined;
   resolvedHeight: number | undefined;
 }) {
+  const width = elementDimension(element, 'width');
+  const height = elementDimension(element, 'height');
+
+  const setDimension = (axis: 'width' | 'height', value: unknown) => {
+    if (element.type === 'text') {
+      onUpdate({
+        textStyle: { ...element.textStyle, [axis]: value },
+      });
+      return;
+    }
+    onUpdate({ [axis]: value });
+  };
+
   const setMode = (axis: 'width' | 'height', mode: DimensionMode | null) => {
-    const current = element[axis];
+    const current = elementDimension(element, axis);
     const resolved = axis === 'width' ? resolvedWidth : resolvedHeight;
-    const next =
-      mode === null
-        ? fixedDimension(current, resolved)
-        : dimensionWithMode(current, mode, resolved);
-    onUpdate({ [axis]: next });
+    setDimension(
+      axis,
+      mode === null ? fixedDimension(current, resolved) : mode,
+    );
   };
 
   return (
@@ -745,23 +824,23 @@ function DimensionModeControls({
         <NumberField
           label="宽度"
           prefix="W"
-          value={dimensionDisplayValue(element.width, resolvedWidth)}
+          value={dimensionDisplayValue(width, resolvedWidth)}
           min={0}
-          onChange={(value) => onUpdate({ width: value })}
+          onChange={(value) => setDimension('width', value)}
         />
         <NumberField
           label="高度"
           prefix="H"
-          value={dimensionDisplayValue(element.height, resolvedHeight)}
+          value={dimensionDisplayValue(height, resolvedHeight)}
           min={0}
-          onChange={(value) => onUpdate({ height: value })}
+          onChange={(value) => setDimension('height', value)}
         />
       </div>
       <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
         <CheckboxField
           label="填满宽度"
           testId="fill-width"
-          checked={dimensionMode(element.width) === 'fill_container'}
+          checked={dimensionMode(width) === 'fill_container'}
           onChange={(checked) =>
             setMode('width', checked ? 'fill_container' : null)
           }
@@ -769,7 +848,7 @@ function DimensionModeControls({
         <CheckboxField
           label="填满高度"
           testId="fill-height"
-          checked={dimensionMode(element.height) === 'fill_container'}
+          checked={dimensionMode(height) === 'fill_container'}
           onChange={(checked) =>
             setMode('height', checked ? 'fill_container' : null)
           }
@@ -777,7 +856,7 @@ function DimensionModeControls({
         <CheckboxField
           label="适应内容宽度"
           testId="hug-width"
-          checked={dimensionMode(element.width) === 'fit_content'}
+          checked={dimensionMode(width) === 'fit_content'}
           onChange={(checked) =>
             setMode('width', checked ? 'fit_content' : null)
           }
@@ -785,7 +864,7 @@ function DimensionModeControls({
         <CheckboxField
           label="适应内容高度"
           testId="hug-height"
-          checked={dimensionMode(element.height) === 'fit_content'}
+          checked={dimensionMode(height) === 'fit_content'}
           onChange={(checked) =>
             setMode('height', checked ? 'fit_content' : null)
           }
@@ -796,6 +875,10 @@ function DimensionModeControls({
 }
 
 function TextFields({ element, onUpdate }: ElementFieldsProps<TextElement>) {
+  const updateStyle = (patch: Partial<TextElement['textStyle']>) => {
+    onUpdate({ textStyle: { ...element.textStyle, ...patch } });
+  };
+
   return (
     <Section title="文字" testId="text-section">
       <label className="flex flex-col gap-1 text-[11px] text-[#666666]">
@@ -803,31 +886,36 @@ function TextFields({ element, onUpdate }: ElementFieldsProps<TextElement>) {
         <textarea
           aria-label="文案"
           rows={3}
-          value={element.text}
-          onChange={(event) => onUpdate({ text: event.target.value })}
+          value={element.textStyle.content}
+          onChange={(event) => updateStyle({ content: event.target.value })}
           className="resize-none rounded-lg border border-[#E3E3E3] bg-[#F8F8F8] px-2 py-1.5 text-[12px] text-[#262626] outline-none"
         />
       </label>
       <div className="flex gap-2">
         <NumberField
           label="字号"
-          value={element.fontSize}
+          value={numericOrUndefined(element.textStyle.fontSize)}
           min={1}
-          onChange={(value) => onUpdate({ fontSize: value })}
+          onChange={(value) => updateStyle({ fontSize: value })}
         />
         <NumberField
           label="字重"
-          value={element.fontWeight}
+          value={numericOrUndefined(element.textStyle.fontWeight)}
           min={1}
-          onChange={(value) => onUpdate({ fontWeight: value })}
+          onChange={(value) => updateStyle({ fontWeight: value })}
         />
       </div>
       <label className={CONTROL_CLASS}>
         <span className="shrink-0">对齐</span>
         <select
           aria-label="文字对齐"
-          value={element.textAlign ?? 'left'}
-          onChange={(event) => onUpdate({ textAlign: event.target.value })}
+          value={element.textStyle.textAlign ?? 'left'}
+          onChange={(event) =>
+            updateStyle({
+              textAlign: event.target
+                .value as TextElement['textStyle']['textAlign'],
+            })
+          }
           className="min-w-0 flex-1 bg-transparent text-[12px] text-[#262626] outline-none"
         >
           <option value="left">左对齐</option>
@@ -992,13 +1080,9 @@ function DisabledSections() {
 
 function ElementActions({
   element,
-  onUpdate,
   onAddChild,
   onDelete,
-}: Pick<
-  PropertiesPanelProps,
-  'element' | 'onUpdate' | 'onAddChild' | 'onDelete'
->) {
+}: Pick<PropertiesPanelProps, 'element' | 'onAddChild' | 'onDelete'>) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -1015,13 +1099,6 @@ function ElementActions({
       </button>
       {open ? (
         <div className="mt-2 flex flex-col gap-2">
-          <CheckboxField
-            label="可见"
-            checked={element.visible !== false}
-            onChange={(checked) =>
-              onUpdate({ visible: checked ? undefined : false })
-            }
-          />
           {element.type === 'frame' ? (
             <div className="flex flex-wrap gap-1.5">
               {CHILD_TYPES.map((type) => (
@@ -1116,9 +1193,9 @@ function InspectorFields({
           <CheckboxField
             label="裁剪内容"
             testId="clip-content"
-            checked={element.clipContent === true}
+            checked={element.clip === true}
             onChange={(checked) =>
-              onUpdate({ clipContent: checked ? true : undefined })
+              onUpdate({ clip: checked ? true : undefined })
             }
           />
         ) : null}
@@ -1129,13 +1206,13 @@ function InspectorFields({
           <PercentField
             label="不透明度"
             prefix="%"
-            value={element.opacity}
+            value={numericOrUndefined(element.opacity)}
             onChange={(value) => onUpdate({ opacity: value })}
           />
           <NumberField
             label="圆角"
             prefix={<Square size={13} />}
-            value={element.cornerRadius ?? 0}
+            value={numeric(element.cornerRadius)}
             min={0}
             onChange={(value) => onUpdate({ cornerRadius: value })}
           />
@@ -1145,21 +1222,24 @@ function InspectorFields({
       <PaintSection
         title="填充"
         testId="fill-section"
-        onAdd={() => onUpdate({ fill: '#f3f4f6' })}
-        onRemove={() => onUpdate({ fill: undefined, fillOpacity: undefined })}
+        onAdd={() => onUpdate({ fill: [{ type: 'color', color: '#f3f4f6' }] })}
+        onRemove={() => onUpdate({ fill: undefined })}
       >
-        {element.fill === undefined &&
-        element.fillOpacity === undefined ? null : (
+        {element.fill === undefined ? null : (
           <>
             <ColorField
               label="填充颜色"
-              value={element.fill}
-              onChange={(value) => onUpdate({ fill: value })}
+              value={colorFill(element.fill)?.color}
+              onChange={(value) =>
+                onUpdate({ fill: withFillColor(element.fill, value) })
+              }
             />
             <PercentField
               label="填充透明度"
-              value={element.fillOpacity}
-              onChange={(value) => onUpdate({ fillOpacity: value })}
+              value={numericOrUndefined(colorFill(element.fill)?.opacity)}
+              onChange={(value) =>
+                onUpdate({ fill: withFillOpacity(element.fill, value) })
+              }
             />
           </>
         )}
@@ -1168,23 +1248,32 @@ function InspectorFields({
       <PaintSection
         title="描边"
         testId="stroke-section"
-        onAdd={() => onUpdate({ stroke: '#000000', strokeWidth: 1 })}
-        onRemove={() => onUpdate({ stroke: undefined, strokeWidth: undefined })}
+        onAdd={() =>
+          onUpdate({
+            stroke: { fill: [{ type: 'color', color: '#000000' }], width: 1 },
+          })
+        }
+        onRemove={() => onUpdate({ stroke: undefined })}
       >
-        {element.stroke === undefined &&
-        element.strokeWidth === undefined ? null : (
+        {element.stroke === undefined ? null : (
           <>
             <ColorField
               label="描边颜色"
-              value={element.stroke}
-              onChange={(value) => onUpdate({ stroke: value })}
+              value={strokeColor(element)}
+              onChange={(value) =>
+                onUpdate({ stroke: withStrokeColor(element, value) })
+              }
             />
             <NumberField
               label="描边宽度"
               prefix={null}
-              value={element.strokeWidth ?? 1}
+              value={numeric(element.stroke.width, 1)}
               min={0}
-              onChange={(value) => onUpdate({ strokeWidth: value })}
+              onChange={(value) =>
+                onUpdate({
+                  stroke: { ...element.stroke, width: value },
+                })
+              }
             />
           </>
         )}
@@ -1201,7 +1290,6 @@ function InspectorFields({
       <ElementActions
         key={element.id}
         element={element}
-        onUpdate={onUpdate}
         onAddChild={onAddChild}
         onDelete={onDelete}
       />

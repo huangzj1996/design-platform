@@ -3,7 +3,7 @@ import {
   type DesignDocument,
   type DesignElement,
   type ElementType,
-} from '@design-ai/design-schema/legacy';
+} from '@design-ai/design-schema';
 
 export type ElementPatch = Record<string, unknown>;
 
@@ -84,7 +84,7 @@ export function createDefaultElement(
         height: 240,
         padding: [16, 16, 16, 16],
         gap: 8,
-        fill: '#ffffff',
+        fill: [{ type: 'color', color: '#ffffff' }],
         cornerRadius: 8,
         children: [],
       };
@@ -94,19 +94,27 @@ export function createDefaultElement(
         type,
         width: 120,
         height: 80,
-        fill: '#dbeafe',
+        fill: [{ type: 'color', color: '#dbeafe' }],
         cornerRadius: 8,
       };
     case 'ellipse':
-      return { id, type, width: 80, height: 80, fill: '#bfdbfe' };
+      return {
+        id,
+        type,
+        width: 80,
+        height: 80,
+        fill: [{ type: 'color', color: '#bfdbfe' }],
+      };
     case 'text':
       return {
         id,
         type,
-        text: '标题',
-        fontSize: 24,
-        fontWeight: 600,
-        fill: '#1f2328',
+        textStyle: {
+          content: '标题',
+          fontSize: 24,
+          fontWeight: 600,
+        },
+        fill: [{ type: 'color', color: '#1f2328' }],
       };
     case 'icon':
       return {
@@ -116,7 +124,7 @@ export function createDefaultElement(
         icon: 'star',
         width: 24,
         height: 24,
-        fill: '#1f2328',
+        fill: [{ type: 'color', color: '#1f2328' }],
       };
   }
 }

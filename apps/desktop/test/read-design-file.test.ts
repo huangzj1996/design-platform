@@ -1,4 +1,4 @@
-import { validateDesignDocument } from '@design-ai/design-schema/legacy';
+import { validateDesignDocument } from '@design-ai/design-schema';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -26,7 +26,7 @@ async function writeJson(name: string, value: unknown): Promise<string> {
 }
 
 const frameWithText = {
-  version: 1,
+  version: 2,
   children: [
     {
       id: 'frame-main',
@@ -35,8 +35,8 @@ const frameWithText = {
       width: 640,
       height: 480,
       children: [
-        { id: 'title', type: 'text', text: '设计标题' },
-        { id: 'caption', type: 'text', text: '说明文字' },
+        { id: 'title', type: 'text', textStyle: { content: '设计标题' } },
+        { id: 'caption', type: 'text', textStyle: { content: '说明文字' } },
       ],
     },
   ],
@@ -72,7 +72,7 @@ const pencilSample = `// Pencil 2.25 样稿，覆盖五种基础元素。
 describe('readDesignFile', () => {
   it('opens a blank design document from a real temporary file', async () => {
     const filePath = await writeJson('blank.json', {
-      version: 1,
+      version: 2,
       children: [],
     });
 
@@ -81,9 +81,9 @@ describe('readDesignFile', () => {
     expect(result).toEqual({
       status: 'opened',
       filePath,
-      document: { version: 1, children: [], variables: {} },
+      document: { version: 2, children: [], variables: {} },
     });
-    await expect(readFile(filePath, 'utf8')).resolves.toContain('"version":1');
+    await expect(readFile(filePath, 'utf8')).resolves.toContain('"version":2');
   });
 
   it('opens a frame containing text and preserves ids, nesting and order', async () => {
@@ -111,6 +111,23 @@ describe('readDesignFile', () => {
     ]);
   });
 
+  it('rejects a native version 1 document', async () => {
+    const filePath = await writeJson('legacy.json', {
+      version: 1,
+      children: [],
+    });
+
+    const result = await readDesignFile(filePath);
+
+    expect(result.status).toBe('failed');
+    if (result.status === 'failed') {
+      expect(result.errors[0]).toMatchObject({
+        code: 'unsupported_version',
+        path: '$.version',
+      });
+    }
+  });
+
   it('reports unparsable JSON without touching the file', async () => {
     const contents = '{ broken';
     const filePath = await writeText('broken.json', contents);
@@ -131,46 +148,55 @@ describe('readDesignFile', () => {
   it('surfaces version, structure, node and id diagnostics', async () => {
     const cases: Array<[string, unknown, string]> = [
       ['missing-version.json', { children: [] }, 'missing_version'],
-      ['version-two.json', { version: 2, children: [] }, 'unsupported_version'],
+      ['version-one.json', { version: 1, children: [] }, 'unsupported_version'],
       [
         'unknown-node.json',
-        { version: 1, children: [{ id: 'a', type: 'chart' }] },
+        { version: 2, children: [{ id: 'a', type: 'chart' }] },
         'unknown_node_type',
       ],
       [
         'unknown-field.json',
         {
-          version: 1,
-          children: [{ id: 'a', type: 'text', text: 'Hi', shadow: {} }],
+          version: 2,
+          children: [
+            {
+              id: 'a',
+              type: 'text',
+              textStyle: { content: 'Hi' },
+              shadow: {},
+            },
+          ],
         },
         'unknown_field',
       ],
       [
         'duplicate-id.json',
         {
-          version: 1,
+          version: 2,
           children: [
-            { id: 'same', type: 'text', text: 'One' },
-            { id: 'same', type: 'text', text: 'Two' },
+            { id: 'same', type: 'text', textStyle: { content: 'One' } },
+            { id: 'same', type: 'text', textStyle: { content: 'Two' } },
           ],
         },
         'duplicate_id',
       ],
       [
         'bad-structure.json',
-        { version: 1, children: 'nope' },
+        { version: 2, children: 'nope' },
         'invalid_structure',
       ],
       [
         'leaf-children.json',
         {
-          version: 1,
+          version: 2,
           children: [
             {
               id: 'a',
               type: 'text',
-              text: 'Hi',
-              children: [{ id: 'b', type: 'text', text: 'Nested' }],
+              textStyle: { content: 'Hi' },
+              children: [
+                { id: 'b', type: 'text', textStyle: { content: 'Nested' } },
+              ],
             },
           ],
         },
@@ -222,7 +248,7 @@ describe('readDesignFile', () => {
     }
 
     expect(result.sourcePath).toBe(filePath);
-    expect(result.document.version).toBe(1);
+    expect(result.document.version).toBe(2);
     expect(result.document.filePath).toBeUndefined();
     expect(result.document.children.map((child) => child.id)).toEqual(['page']);
     expect(result.warnings).toEqual([
@@ -249,6 +275,16 @@ describe('readDesignFile', () => {
       'ellipse',
       'icon',
     ]);
+    expect(page.children?.[0]).toMatchObject({
+      id: 'label',
+      type: 'text',
+      textStyle: { content: '来自 Pencil', fontSize: 16 },
+    });
+    expect(page.children?.[1]).toMatchObject({
+      id: 'box',
+      type: 'rectangle',
+      fill: [{ type: 'color', color: '#FF0000' }],
+    });
     await expect(readFile(filePath, 'utf8')).resolves.toBe(pencilSample);
   });
 

@@ -73,7 +73,7 @@ afterEach(async () => {
 });
 
 const frameWithText = {
-  version: 1,
+  version: 2,
   children: [
     {
       id: 'main',
@@ -85,9 +85,8 @@ const frameWithText = {
         {
           id: 'title',
           type: 'text',
-          text: '旧标题',
-          fontSize: 24,
-          fill: '#111111',
+          textStyle: { content: '旧标题', fontSize: 24 },
+          fill: [{ type: 'color', color: '#111111' }],
         },
       ],
     },
@@ -303,7 +302,7 @@ describe('home file records', () => {
 
     expect(openAtCalls).toEqual([boardPath]);
     expect(activeTab().textContent).toContain('board.json');
-    expect(sceneNode('title').text?.content).toBe('旧标题');
+    expect(sceneNode('title').text).toBe('旧标题');
 
     await clickButton('主页');
 
@@ -327,7 +326,7 @@ describe('home file records', () => {
 
     expect(openAtCalls).toEqual([boardPath]);
     expect(activeTab().textContent).toContain('board.json');
-    expect(sceneNode('title').text?.content).toBe('旧标题');
+    expect(sceneNode('title').text).toBe('旧标题');
 
     await clickButton('主页');
     await clickCard(boardPath);
@@ -346,7 +345,7 @@ describe('home file records', () => {
     await clickCard(boardPath);
 
     expect(openAtCalls).toEqual([boardPath]);
-    expect(sceneNode('title').text?.content).toBe('旧标题');
+    expect(sceneNode('title').text).toBe('旧标题');
   });
 
   it('lists the saved design instead of the imported Pencil source after saving', async () => {
@@ -377,6 +376,6 @@ describe('home file records', () => {
     await clickCard(savedPath);
 
     expect(openAtCalls).toEqual([]);
-    expect(sceneNode('imported').text?.content).toBe('导入后修改');
+    expect(sceneNode('imported').text).toBe('导入后修改');
   });
 });

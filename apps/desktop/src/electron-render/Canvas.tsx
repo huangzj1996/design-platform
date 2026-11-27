@@ -1,4 +1,4 @@
-import type { DesignDocument } from '@design-ai/design-schema/legacy';
+import type { DesignDocument } from '@design-ai/design-schema';
 import {
   useEffect,
   useEffectEvent,

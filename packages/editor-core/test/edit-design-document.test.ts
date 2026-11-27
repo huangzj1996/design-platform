@@ -1,8 +1,8 @@
 import {
   validateDesignDocument,
   type DesignDocument,
-  type FrameElement,
-} from '@design-ai/design-schema/legacy';
+  type DesignElement,
+} from '@design-ai/design-schema';
 import { describe, expect, it } from 'vitest';
 import {
   addElement,
@@ -14,6 +14,8 @@ import {
   updateElement,
 } from '../src/index';
 
+type FrameElement = Extract<DesignElement, { type: 'frame' }>;
+
 function validate(document: DesignDocument): DesignDocument {
   const result = validateDesignDocument(document);
   if (!result.ok) {
@@ -23,10 +25,10 @@ function validate(document: DesignDocument): DesignDocument {
 }
 
 describe('createBlankDocument', () => {
-  it('creates an empty version 1 document that validates', () => {
+  it('creates an empty version 2 document that validates', () => {
     const document = createBlankDocument();
 
-    expect(document).toEqual({ version: 1, children: [], variables: {} });
+    expect(document).toEqual({ version: 2, children: [], variables: {} });
     expect(validate(document)).toEqual(document);
   });
 });
@@ -34,10 +36,10 @@ describe('createBlankDocument', () => {
 describe('createElementId', () => {
   it('derives a unique id from the element type and existing ids', () => {
     const document = validate({
-      version: 1,
+      version: 2,
       children: [
-        { id: 'text-1', type: 'text', text: '一' },
-        { id: 'text-3', type: 'text', text: '三' },
+        { id: 'text-1', type: 'text', textStyle: { content: '一' } },
+        { id: 'text-3', type: 'text', textStyle: { content: '三' } },
       ],
     });
 
@@ -56,7 +58,7 @@ describe('createDefaultElement', () => {
       'icon',
     ] as const) {
       const document = validate({
-        version: 1,
+        version: 2,
         children: [createDefaultElement(type, `${type}-1`)],
       });
 
@@ -87,7 +89,7 @@ describe('addElement', () => {
 
   it('appends a child to a frame and keeps existing children intact', () => {
     const document = validate({
-      version: 1,
+      version: 2,
       children: [
         {
           id: 'container',
@@ -95,7 +97,9 @@ describe('addElement', () => {
           layout: 'vertical',
           width: 320,
           height: 240,
-          children: [{ id: 'existing', type: 'text', text: '已有标题' }],
+          children: [
+            { id: 'existing', type: 'text', textStyle: { content: '已有标题' } },
+          ],
         },
       ],
     });
@@ -119,9 +123,9 @@ describe('addElement', () => {
 
   it('rejects a parent that is missing or cannot own children', () => {
     const document = validate({
-      version: 1,
+      version: 2,
       children: [
-        { id: 'title', type: 'text', text: '标题' },
+        { id: 'title', type: 'text', textStyle: { content: '标题' } },
         { id: 'container', type: 'frame', width: 200, height: 100 },
       ],
     });
@@ -138,7 +142,7 @@ describe('addElement', () => {
 describe('updateElement', () => {
   it('changes only the requested fields of the target element', () => {
     const document = validate({
-      version: 1,
+      version: 2,
       children: [
         {
           id: 'container',
@@ -147,24 +151,23 @@ describe('updateElement', () => {
           width: 320,
           height: 240,
           gap: 8,
-          fill: '#ffffff',
+          fill: [{ type: 'color', color: '#ffffff' }],
           children: [
             {
               id: 'title',
               type: 'text',
-              text: '旧文案',
-              fontSize: 16,
-              fill: '#111111',
+              textStyle: { content: '旧文案', fontSize: 16 },
+              fill: [{ type: 'color', color: '#111111' }],
             },
-            { id: 'other', type: 'text', text: '不动的文案' },
+            { id: 'other', type: 'text', textStyle: { content: '不动的文案' } },
           ],
         },
       ],
     });
 
     const updated = updateElement(document, 'title', {
-      text: '新文案',
-      fill: '#3366ff',
+      textStyle: { content: '新文案', fontSize: 16 },
+      fill: [{ type: 'color', color: '#3366ff' }],
     });
     const frame = updated.children[0] as FrameElement;
 
@@ -173,30 +176,33 @@ describe('updateElement', () => {
     expect(frame.children?.[0]).toMatchObject({
       id: 'title',
       type: 'text',
-      text: '新文案',
-      fontSize: 16,
-      fill: '#3366ff',
+      textStyle: { content: '新文案', fontSize: 16 },
+      fill: [{ type: 'color', color: '#3366ff' }],
     });
-    expect(frame.children?.[1]).toMatchObject({ text: '不动的文案' });
+    expect(frame.children?.[1]).toMatchObject({
+      textStyle: { content: '不动的文案' },
+    });
     expect(validate(updated).children[0]).toMatchObject({ gap: 8 });
   });
 
   it('does not change the document when the id is unknown', () => {
     const document = validate({
-      version: 1,
-      children: [{ id: 'title', type: 'text', text: '标题' }],
+      version: 2,
+      children: [{ id: 'title', type: 'text', textStyle: { content: '标题' } }],
     });
 
-    expect(updateElement(document, 'missing', { text: '新文案' })).toBe(
-      document,
-    );
+    expect(
+      updateElement(document, 'missing', {
+        textStyle: { content: '新文案' },
+      }),
+    ).toBe(document);
   });
 });
 
 describe('deleteElement', () => {
   it('removes an element and preserves its siblings', () => {
     const document = validate({
-      version: 1,
+      version: 2,
       children: [
         {
           id: 'container',
@@ -204,8 +210,8 @@ describe('deleteElement', () => {
           width: 320,
           height: 240,
           children: [
-            { id: 'first', type: 'text', text: '一' },
-            { id: 'second', type: 'text', text: '二' },
+            { id: 'first', type: 'text', textStyle: { content: '一' } },
+            { id: 'second', type: 'text', textStyle: { content: '二' } },
           ],
         },
       ],
@@ -221,7 +227,7 @@ describe('deleteElement', () => {
 
   it('removes a container together with all descendants', () => {
     const document = validate({
-      version: 1,
+      version: 2,
       children: [
         {
           id: 'container',
@@ -234,11 +240,13 @@ describe('deleteElement', () => {
               type: 'frame',
               width: 200,
               height: 100,
-              children: [{ id: 'deep', type: 'text', text: '深层' }],
+              children: [
+                { id: 'deep', type: 'text', textStyle: { content: '深层' } },
+              ],
             },
           ],
         },
-        { id: 'keep', type: 'text', text: '保留' },
+        { id: 'keep', type: 'text', textStyle: { content: '保留' } },
       ],
     });
 

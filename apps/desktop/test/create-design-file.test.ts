@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { validateDesignDocument } from '@design-ai/design-schema/legacy';
+import { validateDesignDocument } from '@design-ai/design-schema';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createDesignFile } from '../src/electron-main/create-design-file';
 
@@ -25,7 +25,7 @@ describe('createDesignFile', () => {
     }
     expect(result.filePath).toBe(path.join(directory, '未命名.json'));
     expect(result.document).toMatchObject({
-      version: 1,
+      version: 2,
       children: [],
       variables: {},
       filePath: result.filePath,
@@ -38,7 +38,7 @@ describe('createDesignFile', () => {
       children: unknown[];
       variables: unknown;
     };
-    expect(written.version).toBe(1);
+    expect(written.version).toBe(2);
     expect(written.filePath).toBe(result.filePath);
     expect(written.children).toEqual([]);
     expect(written.variables).toEqual({});

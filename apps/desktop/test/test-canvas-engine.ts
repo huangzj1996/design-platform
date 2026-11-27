@@ -1,25 +1,36 @@
 import type {
   CanvasEngine,
   CanvasEngineFactory,
+  CanvasEngineOptions,
   CanvasViewport,
 } from '../src/electron-render/canvas-engine';
 import type {
   CanvasScene,
   CanvasSceneNode,
+  CanvasSelection,
 } from '../src/electron-render/canvas-scene';
 
 /** Records the scene and viewport handed to the canvas. */
 class TestCanvasEngine implements CanvasEngine {
   scene: CanvasScene | null = null;
+  selection: CanvasSelection | null = null;
   viewport: CanvasViewport | null = null;
   destroyed = false;
 
-  setScene(scene: CanvasScene): void {
+  constructor(private readonly options: CanvasEngineOptions) {}
+
+  setScene(scene: CanvasScene, selection: CanvasSelection | null): void {
     this.scene = scene;
+    this.selection = selection;
   }
 
   setViewport(viewport: CanvasViewport): void {
     this.viewport = viewport;
+  }
+
+  /** Simulates a pointer tap on the given design element. */
+  tap(id: string | null): void {
+    this.options.onSelect(id);
   }
 
   destroy(): void {
@@ -31,8 +42,8 @@ class TestCanvasEngine implements CanvasEngine {
 export class TestCanvasRegistry {
   engine: TestCanvasEngine | null = null;
 
-  readonly factory: CanvasEngineFactory = () => {
-    this.engine = new TestCanvasEngine();
+  readonly factory: CanvasEngineFactory = (_host, options) => {
+    this.engine = new TestCanvasEngine(options);
     return this.engine;
   };
 }

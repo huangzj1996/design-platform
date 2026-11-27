@@ -3,7 +3,7 @@ import {
   createDiagnostic,
   type DesignDocument,
   type Diagnostic,
-} from '@design-ai/design-schema/legacy';
+} from '@design-ai/design-schema';
 import { errorMessage } from './error-message';
 import {
   DesktopDiagnosticCodes,

@@ -1,7 +1,4 @@
-import type {
-  DesignDocument,
-  ElementType,
-} from '@design-ai/design-schema/legacy';
+import type { DesignDocument, ElementType } from '@design-ai/design-schema';
 import {
   findElement,
   type ElementAlignment,
@@ -90,7 +87,6 @@ export interface EditorProps {
   onOpen: () => void;
   onCreate: () => void;
   onSelect: (id: string | null) => void;
-  onToggleVisibility: (id: string) => void;
   onAddRoot: (type: ElementType) => void;
   onUpdate: (patch: ElementPatch) => void;
   onAlign: (alignment: ElementAlignment) => void;
@@ -114,7 +110,6 @@ export function Editor({
   onOpen,
   onCreate,
   onSelect,
-  onToggleVisibility,
   onAddRoot,
   onUpdate,
   onAlign,
@@ -367,7 +362,6 @@ export function Editor({
                       document={document}
                       selectionId={selectionId}
                       onSelect={onSelect}
-                      onToggleVisibility={onToggleVisibility}
                     />
                   </div>
                   <div

@@ -112,7 +112,7 @@ afterEach(async () => {
 });
 
 const firstDesign = {
-  version: 1,
+  version: 2,
   children: [
     {
       id: 'first-frame',
@@ -120,14 +120,22 @@ const firstDesign = {
       layout: 'vertical',
       width: 400,
       height: 300,
-      children: [{ id: 'first-title', type: 'text', text: '第一份标题' }],
+      children: [
+        {
+          id: 'first-title',
+          type: 'text',
+          textStyle: { content: '第一份标题' },
+        },
+      ],
     },
   ],
 };
 
 const secondDesign = {
-  version: 1,
-  children: [{ id: 'second-title', type: 'text', text: '第二份标题' }],
+  version: 2,
+  children: [
+    { id: 'second-title', type: 'text', textStyle: { content: '第二份标题' } },
+  ],
 };
 
 async function writeJson(name: string, value: unknown): Promise<string> {
@@ -329,7 +337,7 @@ describe('session restore', () => {
     const filePath = await writeJson('board.json', firstDesign);
     await renderApp();
     await openDesign(filePath);
-    expect(sceneNode('first-title').text?.content).toBe('第一份标题');
+    expect(sceneNode('first-title').text).toBe('第一份标题');
 
     await requestClose();
 
@@ -346,7 +354,7 @@ describe('session restore', () => {
 
     expect(container.querySelector('[data-testid="home"]')).toBeNull();
     expect(activeTab().textContent).toContain('board.json');
-    expect(sceneNode('first-title').text?.content).toBe('第一份标题');
+    expect(sceneNode('first-title').text).toBe('第一份标题');
     expect(openAtCalls).toEqual([filePath]);
     expect(confirmCloseCalls).toBe(0);
   });
@@ -390,11 +398,11 @@ describe('session restore', () => {
 
     await clickTab('first.json');
     expect(openAtCalls).toEqual([firstPath]);
-    expect(sceneNode('first-title').text?.content).toBe('第一份标题');
+    expect(sceneNode('first-title').text).toBe('第一份标题');
 
     await clickTab('second.json');
     expect(openAtCalls).toEqual([firstPath, secondPath]);
-    expect(sceneNode('second-title').text?.content).toBe('第二份标题');
+    expect(sceneNode('second-title').text).toBe('第二份标题');
   });
 
   it('restores the active project and loads other tabs only when selected', async () => {
@@ -408,7 +416,7 @@ describe('session restore', () => {
     await restartApp();
 
     expect(activeTab().textContent).toContain('second.json');
-    expect(sceneNode('second-title').text?.content).toBe('第二份标题');
+    expect(sceneNode('second-title').text).toBe('第二份标题');
     expect(openAtCalls).toEqual([secondPath]);
     expect(hasSceneNode(canvas.engine?.scene ?? null, 'first-title')).toBe(
       false,
@@ -417,7 +425,7 @@ describe('session restore', () => {
     await clickTab('first.json');
 
     expect(openAtCalls).toEqual([secondPath, firstPath]);
-    expect(sceneNode('first-title').text?.content).toBe('第一份标题');
+    expect(sceneNode('first-title').text).toBe('第一份标题');
   });
 
   it('returns home with the reason when the active restore target is missing', async () => {
@@ -480,7 +488,7 @@ describe('session restore', () => {
     } satisfies AppSession);
 
     await renderApp();
-    expect(sceneNode('first-title').text?.content).toBe('第一份标题');
+    expect(sceneNode('first-title').text).toBe('第一份标题');
     expect(openAtCalls).toEqual([existingPath]);
 
     await clickTab('missing.json');
@@ -507,7 +515,7 @@ describe('session restore', () => {
     expect(
       container.querySelector('[data-testid="save-error"]'),
     ).not.toBeNull();
-    expect(sceneNode('first-title').text?.content).toBe('关闭前保存');
+    expect(sceneNode('first-title').text).toBe('关闭前保存');
 
     failWrites = false;
     await clickButton('重试保存');
@@ -517,7 +525,9 @@ describe('session restore', () => {
     expect(JSON.parse(await readFile(filePath, 'utf8'))).toMatchObject({
       children: [
         {
-          children: [{ id: 'first-title', text: '关闭前保存' }],
+          children: [
+            { id: 'first-title', textStyle: { content: '关闭前保存' } },
+          ],
         },
       ],
     });
@@ -525,6 +535,6 @@ describe('session restore', () => {
     await restartApp();
 
     expect(activeTab().textContent).toContain('close.json');
-    expect(sceneNode('first-title').text?.content).toBe('关闭前保存');
+    expect(sceneNode('first-title').text).toBe('关闭前保存');
   });
 });

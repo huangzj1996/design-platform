@@ -1,13 +1,15 @@
 import {
   findLayoutNode,
   layoutDesignDocument,
+  resolveVariableValue,
   type DesignDocument,
   type DesignElement,
-  type FrameAlignItems,
-  type FrameElement,
-  type FrameJustifyContent,
-} from '@design-ai/design-schema/legacy';
+} from '@design-ai/design-schema';
 import { updateElement, type ElementPatch } from './edit';
+
+type FrameElement = Extract<DesignElement, { type: 'frame' }>;
+type FrameAlignItems = NonNullable<FrameElement['alignItems']>;
+type FrameJustifyContent = NonNullable<FrameElement['justifyContent']>;
 
 /** Alignment of a free-positioned child against its parent container. */
 export type ElementAlignment =
@@ -21,10 +23,35 @@ export interface FrameAlignmentCell {
 
 type AutoLayoutDirection = 'horizontal' | 'vertical';
 
-const AXIS_VALUES: readonly FrameAlignItems[] = ['start', 'center', 'end'];
+type AlignmentAxis = 'start' | 'center' | 'end';
+
+const AXIS_VALUES: readonly AlignmentAxis[] = ['start', 'center', 'end'];
 
 const round = (value: number): number =>
   Math.round((value + Number.EPSILON) * 100) / 100;
+
+function resolvedPadding(
+  padding: FrameElement['padding'],
+  variables: DesignDocument['variables'],
+): [number, number, number, number] {
+  if (padding === undefined) {
+    return [0, 0, 0, 0];
+  }
+  const side = (value: unknown): number => {
+    const resolved = resolveVariableValue(value, variables);
+    return typeof resolved === 'number' ? resolved : 0;
+  };
+  if (!Array.isArray(padding)) {
+    const inset = side(padding);
+    return [inset, inset, inset, inset];
+  }
+  const [top, right] = padding;
+  const resolvedTop = side(top);
+  const resolvedRight = side(right);
+  return padding.length === 2
+    ? [resolvedTop, resolvedRight, resolvedTop, resolvedRight]
+    : [resolvedTop, resolvedRight, side(padding[2]), side(padding[3])];
+}
 
 function axisIndex(
   value: FrameAlignItems | FrameJustifyContent | undefined,
@@ -127,7 +154,10 @@ export function alignElement(
     return document;
   }
 
-  const [top, right, bottom, left] = parent.padding ?? [0, 0, 0, 0];
+  const [top, right, bottom, left] = resolvedPadding(
+    parent.padding,
+    document.variables,
+  );
   const contentWidth = Math.max(0, parentNode.box.width - left - right);
   const contentHeight = Math.max(0, parentNode.box.height - top - bottom);
   const { width, height } = childNode.box;

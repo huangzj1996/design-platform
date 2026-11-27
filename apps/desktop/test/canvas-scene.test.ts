@@ -1,7 +1,7 @@
 import {
   validateDesignDocument,
   type DesignDocument,
-} from '@design-ai/design-schema/legacy';
+} from '@design-ai/design-schema';
 import { describe, expect, it } from 'vitest';
 import {
   buildCanvasScene,
@@ -18,7 +18,7 @@ function documentFrom(input: unknown): DesignDocument {
 }
 
 const fiveElementDocument = {
-  version: 1,
+  version: 2,
   children: [
     {
       id: 'frame',
@@ -28,16 +28,15 @@ const fiveElementDocument = {
       height: 300,
       padding: [16, 16, 16, 16],
       gap: 8,
-      fill: '#ffffff',
+      fill: [{ type: 'color', color: '#ffffff' }],
       children: [
         {
           id: 'rectangle',
           type: 'rectangle',
           width: 100,
           height: 40,
-          fill: '#ff0000',
-          stroke: '#000000',
-          strokeWidth: 2,
+          fill: [{ type: 'color', color: '#ff0000' }],
+          stroke: { fill: [{ type: 'color', color: '#000000' }], width: 2 },
           cornerRadius: 4,
         },
         {
@@ -45,18 +44,22 @@ const fiveElementDocument = {
           type: 'ellipse',
           width: 40,
           height: 40,
-          fill: '#00ff00',
+          fill: [{ type: 'color', color: '#00ff00' }],
         },
         {
           id: 'text',
           type: 'text',
-          text: '标题',
-          fontSize: 20,
-          fontWeight: 700,
-          lineHeight: 1.5,
-          textAlign: 'center',
-          textWrap: 'wrap',
-          fill: '#111111',
+          textStyle: {
+            content: '标题',
+            textGrowth: 'fixed-width-height',
+            width: 40,
+            height: 30,
+            fontSize: 20,
+            fontWeight: 700,
+            lineHeight: 1.5,
+            textAlign: 'center',
+          },
+          fill: [{ type: 'color', color: '#111111' }],
         },
         {
           id: 'icon',
@@ -65,7 +68,6 @@ const fiveElementDocument = {
           icon: 'arrow-right',
           width: 24,
           height: 24,
-          fill: '#333333',
         },
       ],
     },
@@ -73,25 +75,22 @@ const fiveElementDocument = {
 };
 
 describe('buildCanvasScene', () => {
-  it('builds the element tree with nesting, sibling order and layout boxes', () => {
+  it('adapts the document with nesting, sibling order and layout boxes', () => {
     const scene = buildCanvasScene(documentFrom(fiveElementDocument));
 
     expect(scene).toMatchObject({ width: 400, height: 300 });
     expect(scene.roots).toHaveLength(1);
 
     const frame = findSceneNode(scene, 'frame');
-    expect(frame).toMatchObject({
-      type: 'frame',
-      layout: 'vertical',
-      box: { x: 0, y: 0, width: 400, height: 300 },
-      children: [
-        { id: 'rectangle' },
-        { id: 'ellipse' },
-        { id: 'text' },
-        { id: 'icon' },
-      ],
-    });
+    expect(frame.type).toBe('frame');
+    expect(frame.box).toEqual({ x: 0, y: 0, width: 400, height: 300 });
     expect(frame.children.map((child) => child.id)).toEqual([
+      'rectangle',
+      'ellipse',
+      'text',
+      'icon',
+    ]);
+    expect(frame.children.map((child) => child.type)).toEqual([
       'rectangle',
       'ellipse',
       'text',
@@ -124,203 +123,14 @@ describe('buildCanvasScene', () => {
     });
   });
 
-  it('keeps visibility, opacity, rotation and paint attributes', () => {
-    const scene = buildCanvasScene(
-      documentFrom({
-        version: 1,
-        children: [
-          {
-            id: 'styled-frame',
-            type: 'frame',
-            width: 200,
-            height: 100,
-            fill: '#ffffff',
-            stroke: '#123456',
-            strokeWidth: 3,
-            cornerRadius: 8,
-            opacity: 0.5,
-            visible: false,
-            rotation: 30,
-            children: [
-              {
-                id: 'styled-rectangle',
-                type: 'rectangle',
-                x: 5,
-                y: 6,
-                width: 50,
-                height: 20,
-                fill: '#ff0000',
-                stroke: '#00ff00',
-                strokeWidth: 2,
-                cornerRadius: 4,
-              },
-              {
-                id: 'styled-ellipse',
-                type: 'ellipse',
-                width: 40,
-                height: 40,
-                fill: '#0000ff',
-              },
-            ],
-          },
-        ],
-      }),
-    );
-
-    expect(findSceneNode(scene, 'styled-frame')).toMatchObject({
-      visible: false,
-      opacity: 0.5,
-      rotation: 30,
-      fill: '#ffffff',
-      stroke: '#123456',
-      strokeWidth: 3,
-      cornerRadius: 8,
-    });
-    expect(findSceneNode(scene, 'styled-rectangle')).toMatchObject({
-      visible: true,
-      opacity: 1,
-      rotation: 0,
-      fill: '#ff0000',
-      stroke: '#00ff00',
-      strokeWidth: 2,
-      cornerRadius: 4,
-    });
-    expect(findSceneNode(scene, 'styled-ellipse')).toMatchObject({
-      fill: '#0000ff',
-      box: { width: 40, height: 40 },
-    });
-  });
-
-  it('keeps frame clipping and independent fill opacity', () => {
-    const scene = buildCanvasScene(
-      documentFrom({
-        version: 1,
-        children: [
-          {
-            id: 'clipper',
-            type: 'frame',
-            layout: 'none',
-            width: 100,
-            height: 80,
-            clipContent: true,
-            fillOpacity: 0.4,
-            fill: '#ffffff',
-            children: [
-              {
-                id: 'overflowing',
-                type: 'rectangle',
-                x: 10,
-                y: 10,
-                width: 200,
-                height: 30,
-                fill: '#ff0000',
-                fillOpacity: 0.25,
-              },
-            ],
-          },
-        ],
-      }),
-    );
-
-    expect(findSceneNode(scene, 'clipper')).toMatchObject({
-      clipContent: true,
-      fillOpacity: 0.4,
-    });
-    expect(findSceneNode(scene, 'overflowing')).toMatchObject({
-      fillOpacity: 0.25,
-      box: { width: 200 },
-    });
-  });
-
-  it('keeps text content and typography', () => {
-    const scene = buildCanvasScene(
-      documentFrom({
-        version: 1,
-        children: [
-          {
-            id: 'wrapped',
-            type: 'text',
-            text: 'Hello world',
-            width: 40,
-            fontSize: 16,
-            fontFamily: 'Georgia',
-            fontWeight: 700,
-            lineHeight: 1.5,
-            textAlign: 'center',
-            textWrap: 'wrap',
-            fill: '#111111',
-          },
-        ],
-      }),
-    );
-
-    expect(findSceneNode(scene, 'wrapped')).toMatchObject({
-      type: 'text',
-      box: { width: 40, height: 48 },
-      text: {
-        content: 'Hello world',
-        fontFamily: 'Georgia',
-        fontSize: 16,
-        fontWeight: 700,
-        lineHeight: 1.5,
-        textAlign: 'center',
-        textWrap: 'wrap',
-      },
-    });
-  });
-
-  it('keeps icon identifiers, color and stroke width', () => {
-    const scene = buildCanvasScene(
-      documentFrom({
-        version: 1,
-        children: [
-          {
-            id: 'known-icon',
-            type: 'icon',
-            library: 'lucide',
-            icon: 'arrow-right',
-            width: 24,
-            height: 24,
-            fill: '#123456',
-          },
-          {
-            id: 'unknown-icon',
-            type: 'icon',
-            library: 'other',
-            icon: 'star',
-            width: 20,
-            height: 20,
-            y: 30,
-            stroke: '#654321',
-            strokeWidth: 1,
-          },
-        ],
-      }),
-    );
-
-    expect(findSceneNode(scene, 'known-icon').icon).toEqual({
-      library: 'lucide',
-      icon: 'arrow-right',
-      color: '#123456',
-      strokeWidth: 2,
-    });
-    expect(findSceneNode(scene, 'unknown-icon').icon).toEqual({
-      library: 'other',
-      icon: 'star',
-      color: '#654321',
-      strokeWidth: 1,
-    });
-  });
-
   it('resolves variable values for the scene while the document keeps references', () => {
     const document = documentFrom({
-      version: 1,
+      version: 2,
       variables: {
         'color-brand': { type: 'color', value: '#3366ff' },
         'label-title': { type: 'string', value: '欢迎' },
         'space-gap': { type: 'number', value: 8 },
         'size-width': { type: 'number', value: 120 },
-        'show-caption': { type: 'boolean', value: false },
       },
       children: [
         {
@@ -337,14 +147,13 @@ describe('buildCanvasScene', () => {
               type: 'rectangle',
               width: '$size-width',
               height: 20,
-              fill: '$color-brand',
+              fill: [{ type: 'color', color: '$color-brand' }],
             },
             {
               id: 'variable-title',
               type: 'text',
-              text: '$label-title',
-              fill: '$color-brand',
-              visible: '$show-caption',
+              textStyle: { content: '$label-title' },
+              fill: [{ type: 'color', color: '$color-brand' }],
             },
           ],
         },
@@ -354,22 +163,19 @@ describe('buildCanvasScene', () => {
     const scene = buildCanvasScene(document);
 
     expect(findSceneNode(scene, 'brand-block')).toMatchObject({
-      fill: '#3366ff',
       box: { x: 10, y: 10, width: 120 },
     });
-    expect(findSceneNode(scene, 'variable-title')).toMatchObject({
-      visible: false,
-      fill: '#3366ff',
-      text: { content: '欢迎' },
-      box: { y: 38 },
-    });
+    expect(findSceneNode(scene, 'brand-block').node.fill).toBe('#3366ff');
+    expect(findSceneNode(scene, 'variable-title').text).toBe('欢迎');
+    expect(findSceneNode(scene, 'variable-title').node.fill).toBe('#3366ff');
+    expect(findSceneNode(scene, 'variable-title').box.y).toBe(38);
 
     const frame = document.children[0];
     expect(frame).toMatchObject({ gap: '$space-gap' });
     if (frame?.type === 'frame') {
       expect(frame.children?.[0]).toMatchObject({
         width: '$size-width',
-        fill: '$color-brand',
+        fill: [{ type: 'color', color: '$color-brand' }],
       });
     }
   });

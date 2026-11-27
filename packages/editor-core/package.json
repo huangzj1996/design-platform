@@ -19,6 +19,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./leafer": {
+      "types": "./dist/leafer.d.ts",
+      "default": "./dist/leafer.js"
     }
   },
   "scripts": {
@@ -30,7 +34,8 @@
     "node": "26.x"
   },
   "dependencies": {
-    "@design-ai/design-schema": "workspace:*"
+    "@design-ai/design-schema": "workspace:*",
+    "@leafer-ui/draw": "^2.3.4"
   },
   "devDependencies": {
     "tsdown": "0.22.9",

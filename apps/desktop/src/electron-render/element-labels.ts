@@ -1,7 +1,4 @@
-import type {
-  DesignElement,
-  ElementType,
-} from '@design-ai/design-schema/legacy';
+import type { DesignElement, ElementType } from '@design-ai/design-schema';
 
 /** Display names shared by the layer tree and the properties panel. */
 export const ELEMENT_TYPE_LABELS: Record<ElementType, string> = {
@@ -12,10 +9,16 @@ export const ELEMENT_TYPE_LABELS: Record<ElementType, string> = {
   icon: '图标',
 };
 
-/** Layer tree and canvas labels: text content when present, otherwise the id. */
+/**
+ * Layer tree and canvas labels: an explicit name, then text content, then the
+ * element id.
+ */
 export function elementLabel(element: DesignElement): string {
+  if (element.name !== undefined && element.name.trim().length > 0) {
+    return element.name;
+  }
   if (element.type === 'text') {
-    const text = element.text.trim();
+    const text = element.textStyle.content.trim();
     return text.length === 0 ? element.id : text;
   }
   return element.id;

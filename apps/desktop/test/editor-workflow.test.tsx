@@ -107,7 +107,7 @@ afterEach(async () => {
 });
 
 const frameWithText = {
-  version: 1,
+  version: 2,
   children: [
     {
       id: 'main',
@@ -117,16 +117,15 @@ const frameWithText = {
       height: 300,
       gap: 8,
       padding: [16, 16, 16, 16],
-      fill: '#ffffff',
+      fill: [{ type: 'color', color: '#ffffff' }],
       children: [
         {
           id: 'title',
           type: 'text',
-          text: '旧标题',
-          fontSize: 24,
-          fill: '#111111',
+          textStyle: { content: '旧标题', fontSize: 24 },
+          fill: [{ type: 'color', color: '#111111' }],
         },
-        { id: 'caption', type: 'text', text: '说明文字' },
+        { id: 'caption', type: 'text', textStyle: { content: '说明文字' } },
       ],
     },
   ],
@@ -284,7 +283,7 @@ describe('desktop editing workflow', () => {
     const first = JSON.parse(
       await readFile(path.join(directory, '未命名.json'), 'utf8'),
     ) as { version: number; children: unknown[]; filePath: string };
-    expect(first.version).toBe(1);
+    expect(first.version).toBe(2);
     expect(first.children).toEqual([]);
     expect(first.filePath).toBe(path.join(directory, '未命名.json'));
 
@@ -342,7 +341,7 @@ describe('desktop editing workflow', () => {
       saveCalls[0]?.document.children[0]?.type === 'frame'
         ? saveCalls[0].document.children[0].children?.[0]
         : undefined,
-    ).toMatchObject({ text: '最后一次编辑' });
+    ).toMatchObject({ textStyle: { content: '最后一次编辑' } });
   });
 
   it('skips the write when the content is restored to the saved snapshot', async () => {
@@ -390,8 +389,14 @@ describe('desktop editing workflow', () => {
   it('saves the current draft before switching and applies the opened document', async () => {
     const firstPath = await writeJson('first.json', frameWithText);
     const secondPath = await writeJson('second.json', {
-      version: 1,
-      children: [{ id: 'second-title', type: 'text', text: '第二份标题' }],
+      version: 2,
+      children: [
+        {
+          id: 'second-title',
+          type: 'text',
+          textStyle: { content: '第二份标题' },
+        },
+      ],
     });
     await setOpenFile(firstPath);
     await renderApp();
@@ -412,7 +417,7 @@ describe('desktop editing workflow', () => {
         reopened.document.children[0]?.type === 'frame'
           ? reopened.document.children[0].children?.[0]
           : undefined,
-      ).toMatchObject({ text: '切换前保存' });
+      ).toMatchObject({ textStyle: { content: '切换前保存' } });
     }
   });
 
@@ -431,11 +436,11 @@ describe('desktop editing workflow', () => {
     expect(
       container.querySelector('[data-testid="save-error"]'),
     ).not.toBeNull();
-    expect(sceneNode('title').text?.content).toBe('失败后的编辑');
+    expect(sceneNode('title').text).toBe('失败后的编辑');
     const onDisk = JSON.parse(await readFile(filePath, 'utf8')) as {
-      children: Array<{ children: Array<{ text: string }> }>;
+      children: Array<{ children: Array<{ textStyle: { content: string } }> }>;
     };
-    expect(onDisk.children[0]?.children[0]?.text).toBe('旧标题');
+    expect(onDisk.children[0]?.children[0]?.textStyle.content).toBe('旧标题');
 
     failWrites = false;
     await clickButton('重试保存');
@@ -443,16 +448,24 @@ describe('desktop editing workflow', () => {
     expect(confirmCloseCalls).toBe(1);
     expect(container.querySelector('[data-testid="save-error"]')).toBeNull();
     const retried = JSON.parse(await readFile(filePath, 'utf8')) as {
-      children: Array<{ children: Array<{ text: string }> }>;
+      children: Array<{ children: Array<{ textStyle: { content: string } }> }>;
     };
-    expect(retried.children[0]?.children[0]?.text).toBe('失败后的编辑');
+    expect(retried.children[0]?.children[0]?.textStyle.content).toBe(
+      '失败后的编辑',
+    );
   });
 
   it('waits for a successful retry before switching after a failed save', async () => {
     const firstPath = await writeJson('pending-first.json', frameWithText);
     const secondPath = await writeJson('pending-second.json', {
-      version: 1,
-      children: [{ id: 'pending-second', type: 'text', text: '待切换标题' }],
+      version: 2,
+      children: [
+        {
+          id: 'pending-second',
+          type: 'text',
+          textStyle: { content: '待切换标题' },
+        },
+      ],
     });
     await setOpenFile(firstPath);
     await renderApp();
@@ -483,13 +496,13 @@ describe('desktop editing workflow', () => {
         savedFirst.document.children[0]?.type === 'frame'
           ? savedFirst.document.children[0].children?.[0]
           : undefined,
-      ).toMatchObject({ text: '切换前的编辑' });
+      ).toMatchObject({ textStyle: { content: '切换前的编辑' } });
     }
   });
 
   it('keeps variables and their bindings when another element is edited', async () => {
     const filePath = await writeJson('variables.json', {
-      version: 1,
+      version: 2,
       variables: {
         'label-title': { type: 'string', value: '变量标题' },
         'color-brand': { type: 'color', value: '#3366ff' },
@@ -506,10 +519,10 @@ describe('desktop editing workflow', () => {
             {
               id: 'bound-title',
               type: 'text',
-              text: '$label-title',
-              fill: '$color-brand',
+              textStyle: { content: '$label-title' },
+              fill: [{ type: 'color', color: '$color-brand' }],
             },
-            { id: 'caption', type: 'text', text: '普通说明' },
+            { id: 'caption', type: 'text', textStyle: { content: '普通说明' } },
           ],
         },
       ],
@@ -517,7 +530,7 @@ describe('desktop editing workflow', () => {
     await setOpenFile(filePath);
     await renderApp();
     await clickButton('打开设计稿');
-    expect(sceneNode('bound-title').text?.content).toBe('变量标题');
+    expect(sceneNode('bound-title').text).toBe('变量标题');
 
     await click(layerRow('caption'));
     await setInput('文案', '编辑后的说明');
@@ -538,15 +551,15 @@ describe('desktop editing workflow', () => {
     }
     expect(frame.children?.[0]).toMatchObject({
       id: 'bound-title',
-      text: '$label-title',
-      fill: '$color-brand',
+      textStyle: { content: '$label-title' },
+      fill: [{ type: 'color', color: '$color-brand' }],
     });
     expect(frame.children?.[1]).toMatchObject({
       id: 'caption',
-      text: '编辑后的说明',
+      textStyle: { content: '编辑后的说明' },
     });
 
-    expect(sceneNode('bound-title').text?.content).toBe('变量标题');
+    expect(sceneNode('bound-title').text).toBe('变量标题');
   });
 
   it('records the new absolute path when a saved design with variables is moved and reopened', async () => {
@@ -563,7 +576,7 @@ describe('desktop editing workflow', () => {
     await writeFile(
       originalPath,
       JSON.stringify({
-        version: 1,
+        version: 2,
         filePath: originalPath,
         variables: savedVariables,
         children: [
@@ -578,10 +591,14 @@ describe('desktop editing workflow', () => {
               {
                 id: 'bound-title',
                 type: 'text',
-                text: '$label-title',
-                fill: '$color-brand',
+                textStyle: { content: '$label-title' },
+                fill: [{ type: 'color', color: '$color-brand' }],
               },
-              { id: 'caption', type: 'text', text: '移动前说明' },
+              {
+                id: 'caption',
+                type: 'text',
+                textStyle: { content: '移动前说明' },
+              },
             ],
           },
         ],
@@ -602,7 +619,7 @@ describe('desktop editing workflow', () => {
     await clickButton('打开设计稿');
 
     // Opening the moved file and changing only the selection skips the write.
-    expect(sceneNode('bound-title').text?.content).toBe('变量标题');
+    expect(sceneNode('bound-title').text).toBe('变量标题');
     await click(layerRow('caption'));
     expect(writeLog).toHaveLength(0);
 
@@ -624,8 +641,8 @@ describe('desktop editing workflow', () => {
     expect(written.variables).toEqual(savedVariables);
     expect(written.children[0]?.children[0]).toMatchObject({
       id: 'bound-title',
-      text: '$label-title',
-      fill: '$color-brand',
+      textStyle: { content: '$label-title' },
+      fill: [{ type: 'color', color: '$color-brand' }],
     });
 
     // Reopening the saved file keeps elements and variable references usable.
@@ -639,8 +656,8 @@ describe('desktop editing workflow', () => {
 
     await setOpenFile(movedPath);
     await clickButton('打开设计稿');
-    expect(sceneNode('bound-title').text?.content).toBe('变量标题');
-    expect(sceneNode('caption').text?.content).toBe('移动后说明');
+    expect(sceneNode('bound-title').text).toBe('变量标题');
+    expect(sceneNode('caption').text).toBe('移动后说明');
 
     // Restoring the reopened document's saved content still skips the write.
     await click(layerRow('caption'));
@@ -663,7 +680,7 @@ describe('desktop editing workflow', () => {
     openDesignFile = () => readDesignFile(filePath);
     await clickButton('打开设计稿');
 
-    expect(sceneNode('title').text?.content).toBe('重开前的编辑');
+    expect(sceneNode('title').text).toBe('重开前的编辑');
     expect(
       container.querySelector('[data-testid="property-panel"]'),
     ).toBeNull();
@@ -707,12 +724,12 @@ describe('desktop editing workflow', () => {
       snapshots[0]?.document.children[0]?.type === 'frame'
         ? snapshots[0].document.children[0].children?.[0]
         : undefined,
-    ).toMatchObject({ text: '写入中的第一次编辑' });
+    ).toMatchObject({ textStyle: { content: '写入中的第一次编辑' } });
     expect(
       snapshots[1]?.document.children[0]?.type === 'frame'
         ? snapshots[1].document.children[0].children?.[0]
         : undefined,
-    ).toMatchObject({ text: '写入期间的新编辑' });
+    ).toMatchObject({ textStyle: { content: '写入期间的新编辑' } });
 
     // With the latest content saved, closing no longer needs another write.
     await requestClose();
@@ -744,12 +761,12 @@ describe('desktop editing workflow', () => {
     const savedPath = path.join(directory, '未命名.json');
     const saved = JSON.parse(await readFile(savedPath, 'utf8')) as {
       filePath: string;
-      children: Array<{ id: string; text: string }>;
+      children: Array<{ id: string; textStyle: { content: string } }>;
     };
     expect(saved.filePath).toBe(savedPath);
     expect(saved.children[0]).toMatchObject({
       id: 'imported',
-      text: '导入后修改',
+      textStyle: { content: '导入后修改' },
     });
   });
 
@@ -788,7 +805,7 @@ describe('desktop editing workflow', () => {
     await setOpenFile(penPath);
     await renderApp();
     await clickButton('打开设计稿');
-    expect(sceneNode('imported-title').text?.content).toBe('导入变量标题');
+    expect(sceneNode('imported-title').text).toBe('导入变量标题');
 
     await click(layerRow('imported-caption'));
     await setInput('文案', '导入后说明');
@@ -806,27 +823,29 @@ describe('desktop editing workflow', () => {
       'board-bg': { type: 'color', value: '#0E0E11' },
       'label-title': { type: 'string', value: '导入变量标题' },
     });
-    expect(saved.children[0]).toMatchObject({ fill: '$board-bg' });
+    expect(saved.children[0]).toMatchObject({
+      fill: [{ type: 'color', color: '$board-bg' }],
+    });
     expect(saved.children[0]?.children[0]).toMatchObject({
       id: 'imported-title',
-      text: '$label-title',
-      fill: '$board-bg',
+      textStyle: { content: '$label-title' },
+      fill: [{ type: 'color', color: '$board-bg' }],
     });
     expect(saved.children[0]?.children[1]).toMatchObject({
       id: 'imported-caption',
-      text: '导入后说明',
+      textStyle: { content: '导入后说明' },
     });
 
     // The assigned path and the variable references survive a reopen.
     await setOpenFile(savedPath);
     await clickButton('打开设计稿');
-    expect(sceneNode('imported-title').text?.content).toBe('导入变量标题');
-    expect(sceneNode('imported-frame').fill).toBe('#0E0E11');
+    expect(sceneNode('imported-title').text).toBe('导入变量标题');
+    expect(sceneNode('imported-frame').node.fill).toBe('#0E0E11');
   });
 
   it('saves frame clipping, fill opacity and stroke across reopening', async () => {
     const filePath = await writeJson('clipping.json', {
-      version: 1,
+      version: 2,
       children: [
         {
           id: 'clipper',
@@ -834,7 +853,7 @@ describe('desktop editing workflow', () => {
           layout: 'none',
           width: 100,
           height: 80,
-          fill: '#ffffff',
+          fill: [{ type: 'color', color: '#ffffff' }],
           children: [
             {
               id: 'overflow',
@@ -843,7 +862,7 @@ describe('desktop editing workflow', () => {
               y: 10,
               width: 200,
               height: 30,
-              fill: '#ff0000',
+              fill: [{ type: 'color', color: '#ff0000' }],
             },
           ],
         },
@@ -873,26 +892,32 @@ describe('desktop editing workflow', () => {
     }
     const clipper = reopened.document.children[0];
     expect(clipper).toMatchObject({
-      clipContent: true,
-      fillOpacity: 0.4,
+      clip: true,
       opacity: 0.8,
       cornerRadius: 12,
-      stroke: '#112233',
-      strokeWidth: 2,
+      fill: [{ type: 'color', color: '#ffffff', opacity: 0.4 }],
+      stroke: {
+        fill: [{ type: 'color', color: '#112233' }],
+        width: 2,
+      },
     });
     expect(
       clipper?.type === 'frame' ? clipper.children?.[0] : undefined,
     ).toMatchObject({
-      fillOpacity: 0.5,
+      fill: [{ type: 'color', color: '#ff0000', opacity: 0.5 }],
     });
 
     await setOpenFile(filePath);
     await clickButton('打开设计稿');
-    expect(sceneNode('clipper')).toMatchObject({
-      clipContent: true,
-      fillOpacity: 0.4,
+    expect(sceneNode('clipper').node).toMatchObject({
+      overflow: 'hide',
       opacity: 0.8,
       cornerRadius: 12,
+    });
+    expect(sceneNode('clipper').node.fill).toEqual({
+      type: 'solid',
+      color: '#ffffff',
+      opacity: 0.4,
     });
   });
 });

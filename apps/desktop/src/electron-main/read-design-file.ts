@@ -2,9 +2,10 @@ import { readFile } from 'node:fs/promises';
 import {
   createDiagnostic,
   parseDesignDocument,
-} from '@design-ai/design-schema/legacy';
+} from '@design-ai/design-schema';
 import { importPencilDocument } from '@design-ai/editor-core';
 import { errorMessage } from './error-message';
+import { upgradeImportedDocument } from './upgrade-imported-document';
 import {
   DesktopDiagnosticCodes,
   type OpenDesignFileResult,
@@ -47,10 +48,18 @@ export async function readDesignFile(
     if (!result.ok) {
       return { status: 'failed', filePath, errors: result.errors };
     }
+    const upgraded = upgradeImportedDocument(result.document);
+    if (!upgraded.ok) {
+      return {
+        status: 'failed',
+        filePath,
+        errors: [...result.warnings, ...upgraded.errors],
+      };
+    }
     return {
       status: 'imported',
       sourcePath: filePath,
-      document: result.document,
+      document: upgraded.document,
       warnings: result.warnings,
     };
   }

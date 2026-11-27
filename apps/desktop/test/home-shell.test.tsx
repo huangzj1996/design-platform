@@ -95,7 +95,7 @@ afterEach(async () => {
 });
 
 const frameWithText = {
-  version: 1,
+  version: 2,
   children: [
     {
       id: 'main',
@@ -107,9 +107,8 @@ const frameWithText = {
         {
           id: 'title',
           type: 'text',
-          text: '旧标题',
-          fontSize: 24,
-          fill: '#111111',
+          textStyle: { content: '旧标题', fontSize: 24 },
+          fill: [{ type: 'color', color: '#111111' }],
         },
       ],
     },
@@ -117,8 +116,10 @@ const frameWithText = {
 };
 
 const secondDocument = {
-  version: 1,
-  children: [{ id: 'second-title', type: 'text', text: '第二份标题' }],
+  version: 2,
+  children: [
+    { id: 'second-title', type: 'text', textStyle: { content: '第二份标题' } },
+  ],
 };
 
 async function writeJson(name: string, value: unknown): Promise<string> {
@@ -293,7 +294,7 @@ describe('home shell and project tabs', () => {
     expect(container.querySelector('[data-testid="home"]')).toBeNull();
     expect(tabLabels()).toHaveLength(2);
     expect(activeTab().textContent).toContain('board.json');
-    expect(sceneNode('title').text?.content).toBe('旧标题');
+    expect(sceneNode('title').text).toBe('旧标题');
 
     await clickTab('主页');
     expect(container.querySelector('[data-testid="home"]')).not.toBeNull();
@@ -302,7 +303,7 @@ describe('home shell and project tabs', () => {
 
     expect(tabLabels()).toHaveLength(2);
     expect(activeTab().textContent).toContain('board.json');
-    expect(sceneNode('title').text?.content).toBe('旧标题');
+    expect(sceneNode('title').text).toBe('旧标题');
   });
 
   it('imports a Pencil design from the home empty state', async () => {
@@ -322,7 +323,7 @@ describe('home shell and project tabs', () => {
 
     expect(container.querySelector('[data-testid="home"]')).toBeNull();
     expect(activeTab().textContent).toContain('sample.pen');
-    expect(sceneNode('imported').text?.content).toBe('导入文案');
+    expect(sceneNode('imported').text).toBe('导入文案');
   });
 
   it('creates a design from the tab add button and shows its file name when reopened from home', async () => {
@@ -334,7 +335,7 @@ describe('home shell and project tabs', () => {
     expect(activeTab().textContent).toContain('新建聊天');
     expect(container.textContent).toContain('未命名.json');
     await expect(readFile(createdPath, 'utf8')).resolves.toContain(
-      '"version": 1',
+      '"version": 2',
     );
 
     await clickTab('主页');
@@ -381,11 +382,11 @@ describe('home shell and project tabs', () => {
     expect(container.querySelector('[data-testid="home"]')).not.toBeNull();
     expect(writeLog).toHaveLength(1);
     expect(await readSavedTitle(filePath)).toMatchObject({
-      text: '离开前保存',
+      textStyle: { content: '离开前保存' },
     });
 
     await clickTab('draft.json');
-    expect(sceneNode('title').text?.content).toBe('离开前保存');
+    expect(sceneNode('title').text).toBe('离开前保存');
   });
 
   it('saves the current design before creating another one from the tab bar', async () => {
@@ -402,7 +403,7 @@ describe('home shell and project tabs', () => {
     expect(activeTab().textContent).toContain('新建聊天');
     expect(writeLog).toHaveLength(1);
     expect(await readSavedTitle(filePath)).toMatchObject({
-      text: '新建前保存',
+      textStyle: { content: '新建前保存' },
     });
   });
 
@@ -418,7 +419,7 @@ describe('home shell and project tabs', () => {
 
     expect(container.querySelector('[data-testid="home"]')).toBeNull();
     expect(activeTab().textContent).toContain('failed-home.json');
-    expect(sceneNode('title').text?.content).toBe('失败后仍保留');
+    expect(sceneNode('title').text).toBe('失败后仍保留');
     expect(
       container.querySelector('[data-testid="save-error"]'),
     ).not.toBeNull();
@@ -429,7 +430,7 @@ describe('home shell and project tabs', () => {
     expect(container.querySelector('[data-testid="home"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="save-error"]')).toBeNull();
     expect(await readSavedTitle(filePath)).toMatchObject({
-      text: '失败后仍保留',
+      textStyle: { content: '失败后仍保留' },
     });
   });
 
@@ -458,7 +459,7 @@ describe('home shell and project tabs', () => {
     await clickTab('second.json');
 
     expect(activeTab().textContent).toContain('first.json');
-    expect(sceneNode('title').text?.content).toBe('切换前保存');
+    expect(sceneNode('title').text).toBe('切换前保存');
     expect(
       container.querySelector('[data-testid="save-error"]'),
     ).not.toBeNull();
@@ -467,9 +468,9 @@ describe('home shell and project tabs', () => {
     await clickButton('重试保存');
 
     expect(activeTab().textContent).toContain('second.json');
-    expect(sceneNode('second-title').text?.content).toBe('第二份标题');
+    expect(sceneNode('second-title').text).toBe('第二份标题');
     expect(await readSavedTitle(firstPath)).toMatchObject({
-      text: '切换前保存',
+      textStyle: { content: '切换前保存' },
     });
   });
 

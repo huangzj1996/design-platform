@@ -2,7 +2,7 @@ import {
   validateDesignDocument,
   type DesignDocument,
   type DesignElement,
-} from '@design-ai/design-schema/legacy';
+} from '@design-ai/design-schema';
 import { describe, expect, it } from 'vitest';
 import {
   alignElement,
@@ -85,7 +85,7 @@ describe('frameAlignmentCell', () => {
 describe('findElementParent', () => {
   it('returns the containing frame and null for roots or unknown ids', () => {
     const document = documentOf({
-      version: 1,
+      version: 2,
       children: [
         {
           id: 'board',
@@ -109,7 +109,7 @@ describe('findElementParent', () => {
             },
           ],
         },
-        { id: 'root', type: 'text', text: 'Hi' },
+        { id: 'root', type: 'text', textStyle: { content: 'Hi' } },
       ],
     });
 
@@ -124,7 +124,7 @@ describe('findElementParent', () => {
 describe('alignElement', () => {
   const board = () =>
     documentOf({
-      version: 1,
+      version: 2,
       children: [
         {
           id: 'board',
@@ -163,9 +163,38 @@ describe('alignElement', () => {
     }
   });
 
+  it('resolves padding variable references before aligning', () => {
+    const document = documentOf({
+      version: 2,
+      variables: { inset: { type: 'number', value: 10 } },
+      children: [
+        {
+          id: 'board',
+          type: 'frame',
+          layout: 'none',
+          width: 200,
+          height: 120,
+          padding: '$inset',
+          children: [
+            {
+              id: 'child',
+              type: 'rectangle',
+              width: 50,
+              height: 20,
+            },
+          ],
+        },
+      ],
+    });
+
+    const updated = alignElement(document, 'child', 'right');
+    expect(elementOf(updated, 'child')).toMatchObject({ x: 130 });
+    expect(elementOf(updated, 'board')).toMatchObject({ padding: '$inset' });
+  });
+
   it('uses the measured size of auto-sized children', () => {
     const document = documentOf({
-      version: 1,
+      version: 2,
       children: [
         {
           id: 'board',
@@ -177,8 +206,7 @@ describe('alignElement', () => {
             {
               id: 'label',
               type: 'text',
-              text: '标题',
-              fontSize: 20,
+              textStyle: { content: '标题', fontSize: 20 },
             },
           ],
         },
@@ -191,7 +219,7 @@ describe('alignElement', () => {
 
   it('leaves auto-layout children, roots and unknown ids unchanged', () => {
     const autoLayout = documentOf({
-      version: 1,
+      version: 2,
       children: [
         {
           id: 'column',
@@ -209,7 +237,7 @@ describe('alignElement', () => {
     expect(alignElement(autoLayout, 'missing', 'right')).toBe(autoLayout);
   });
 
-  it('produces a document that still passes the version 1 contract', () => {
+  it('produces a document that still passes the version 2 contract', () => {
     const updated = alignElement(board(), 'child', 'bottom');
     expect(validateDesignDocument(updated).ok).toBe(true);
   });

@@ -3,7 +3,7 @@
 import {
   validateDesignDocument,
   type DesignDocument,
-} from '@design-ai/design-schema/legacy';
+} from '@design-ai/design-schema';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import {
@@ -73,12 +73,13 @@ async function render(document: DesignDocument | null): Promise<void> {
 async function rerender(
   document: DesignDocument | null,
   viewport?: CanvasViewport,
+  selectionId: string | null = null,
 ): Promise<void> {
   await act(async () => {
     root.render(
       <Canvas
         document={document}
-        selectionId={null}
+        selectionId={selectionId}
         viewport={viewport}
         createEngine={canvas.factory}
       />,
@@ -87,7 +88,7 @@ async function rerender(
 }
 
 const documentWithFrame = documentFrom({
-  version: 1,
+  version: 2,
   children: [
     {
       id: 'frame',
@@ -95,7 +96,16 @@ const documentWithFrame = documentFrom({
       width: 400,
       height: 300,
       children: [
-        { id: 'title', type: 'text', text: '标题', width: 100, height: 24 },
+        {
+          id: 'title',
+          type: 'text',
+          textStyle: {
+            content: '标题',
+            textGrowth: 'fixed-width-height',
+            width: 100,
+            height: 24,
+          },
+        },
         { id: 'rectangle', type: 'rectangle', width: 40, height: 20, y: 30 },
       ],
     },
@@ -107,14 +117,14 @@ describe('Canvas', () => {
     await render(null);
     expect(canvas.engine).toBeNull();
 
-    await rerender(documentFrom({ version: 1, children: [] }));
+    await rerender(documentFrom({ version: 2, children: [] }));
     expect(canvas.engine).toBeNull();
   });
 
   it('hands the variable-resolved scene to the engine', async () => {
     await render(
       documentFrom({
-        version: 1,
+        version: 2,
         variables: { label: { type: 'string', value: '变量标题' } },
         children: [
           {
@@ -126,9 +136,12 @@ describe('Canvas', () => {
               {
                 id: 'title',
                 type: 'text',
-                text: '$label',
-                width: 80,
-                height: 20,
+                textStyle: {
+                  content: '$label',
+                  textGrowth: 'fixed-width-height',
+                  width: 80,
+                  height: 20,
+                },
               },
             ],
           },
@@ -140,8 +153,9 @@ describe('Canvas', () => {
     expect(canvas.engine?.scene?.roots[0]?.id).toBe('frame');
     expect(canvas.engine?.scene?.roots[0]?.children[0]).toMatchObject({
       id: 'title',
-      text: { content: '变量标题' },
+      element: { textStyle: { content: '$label' } },
     });
+    expect(canvas.engine?.scene?.roots[0]?.children[0]?.text).toBe('变量标题');
   });
 
   it('forwards viewport changes to the engine without recreating it', async () => {
@@ -153,6 +167,42 @@ describe('Canvas', () => {
 
     expect(canvas.engine).toBe(created);
     expect(canvas.engine?.viewport).toEqual({ scale: 1.5, x: 12, y: -8 });
+  });
+
+  it('forwards selection changes to the engine without rebuilding', async () => {
+    await render(documentWithFrame);
+    const created = canvas.engine;
+
+    await rerender(documentWithFrame, undefined, 'rectangle');
+
+    expect(canvas.engine).toBe(created);
+    expect(canvas.engine?.selection?.id).toBe('rectangle');
+    expect(canvas.engine?.selection?.box).toMatchObject({
+      width: 40,
+      height: 20,
+    });
+  });
+
+  it('reports canvas taps through onSelect', async () => {
+    const selected: Array<string | null> = [];
+    root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <Canvas
+          document={documentWithFrame}
+          selectionId={null}
+          onSelect={(id) => selected.push(id)}
+          createEngine={canvas.factory}
+        />,
+      );
+    });
+
+    act(() => {
+      canvas.engine?.tap('title');
+      canvas.engine?.tap(null);
+    });
+
+    expect(selected).toEqual(['title', null]);
   });
 
   it('destroys the engine when unmounted', async () => {

@@ -1,64 +1,17 @@
 import {
-  layoutDesignDocument,
   measureText,
   type DesignDocument,
-  type ElementType,
-  type FrameLayout,
   type LayoutBox,
-  type LayoutNode,
-  type TextAlign,
-  type TextWrap,
-} from '@design-ai/design-schema/legacy';
+} from '@design-ai/design-schema';
+import {
+  createLeaferScene,
+  type LeaferScene,
+  type LeaferSceneNode,
+} from '@design-ai/editor-core/leafer';
 
-/** Values shared by every element drawn on the LeaferJS canvas. */
-export interface CanvasSceneNode {
-  id: string;
-  type: ElementType;
-  /** Position and size relative to the parent's border box. */
-  box: LayoutBox;
-  fill?: string;
-  fillOpacity?: number;
-  stroke?: string;
-  strokeWidth?: number;
-  cornerRadius?: number;
-  opacity: number;
-  /** Degrees clockwise, matching the design document. */
-  rotation: number;
-  visible: boolean;
-  /** Free-positioned or auto-layout direction of a frame. */
-  layout?: FrameLayout;
-  /** A frame hides child content that extends beyond its box. */
-  clipContent?: boolean;
-  children: CanvasSceneNode[];
-  text?: CanvasText;
-  icon?: CanvasIcon;
-}
-
-export interface CanvasText {
-  content: string;
-  fontFamily: string;
-  fontSize: number;
-  fontWeight?: number;
-  /** Multiplier of the font size. */
-  lineHeight: number;
-  textAlign?: TextAlign;
-  textWrap?: TextWrap;
-}
-
-export interface CanvasIcon {
-  library: string;
-  icon: string;
-  /** Stroke and fill color of the icon, following the element's paint. */
-  color: string;
-  strokeWidth: number;
-}
-
-export interface CanvasScene {
-  /** Bounding size of all root elements, used by the canvas stage. */
-  width: number;
-  height: number;
-  roots: CanvasSceneNode[];
-}
+/** Mountable LeaferJS node tree shared by the canvas engine and its tests. */
+export type CanvasSceneNode = LeaferSceneNode;
+export type CanvasScene = LeaferScene;
 
 /** Smallest scene dimension, so an empty view still has a valid canvas. */
 export const MIN_CANVAS_SIZE = 1;
@@ -88,12 +41,6 @@ const SELECTION_SIZE_TAG_GAP = 7;
 const SELECTION_SIZE_TAG_PADDING_X = 11;
 const SELECTION_SIZE_TAG_FONT_SIZE = 13;
 const SELECTION_SIZE_TAG_FONT_WEIGHT = 600;
-const DEFAULT_ICON_STROKE_WIDTH = 2;
-const DEFAULT_TEXT_COLOR = '#1f2328';
-const DEFAULT_FONT_FAMILY = 'sans-serif';
-/** Defaults shared with the design-schema text layout. */
-const DEFAULT_FONT_SIZE = 16;
-const DEFAULT_LINE_HEIGHT = 1.2;
 
 export interface CanvasSizeTag {
   box: LayoutBox;
@@ -115,72 +62,9 @@ export interface CanvasSelection {
   sizeTag: CanvasSizeTag;
 }
 
-function sceneNode(node: LayoutNode): CanvasSceneNode {
-  const element = node.element;
-  const common = {
-    id: element.id,
-    type: element.type,
-    box: { ...node.box },
-    fill: element.fill,
-    fillOpacity: element.fillOpacity,
-    stroke: element.stroke,
-    strokeWidth: element.strokeWidth,
-    cornerRadius: element.cornerRadius,
-    opacity: element.opacity ?? 1,
-    rotation: element.rotation ?? 0,
-    visible: element.visible !== false,
-    children: [] as CanvasSceneNode[],
-  };
-
-  switch (element.type) {
-    case 'frame':
-      return {
-        ...common,
-        layout: element.layout ?? 'horizontal',
-        clipContent: element.clipContent === true,
-        children: node.children.map(sceneNode),
-      };
-    case 'rectangle':
-    case 'ellipse':
-      return common;
-    case 'text':
-      return {
-        ...common,
-        fill: element.fill ?? DEFAULT_TEXT_COLOR,
-        text: {
-          content: element.text,
-          fontFamily: element.fontFamily ?? DEFAULT_FONT_FAMILY,
-          fontSize: element.fontSize ?? DEFAULT_FONT_SIZE,
-          fontWeight: element.fontWeight,
-          lineHeight: element.lineHeight ?? DEFAULT_LINE_HEIGHT,
-          textAlign: element.textAlign,
-          textWrap: element.textWrap,
-        },
-      };
-    case 'icon':
-      return {
-        ...common,
-        // Icons paint their paths with `icon.color` instead of a surface fill.
-        fill: undefined,
-        stroke: undefined,
-        icon: {
-          library: element.library,
-          icon: element.icon,
-          color: element.fill ?? element.stroke ?? DEFAULT_TEXT_COLOR,
-          strokeWidth: element.strokeWidth ?? DEFAULT_ICON_STROKE_WIDTH,
-        },
-      };
-  }
-}
-
-/** Builds the shared, variable-resolved scene consumed by the canvas engine. */
+/** Builds the mountable node tree consumed by the canvas engine. */
 export function buildCanvasScene(document: DesignDocument): CanvasScene {
-  const layout = layoutDesignDocument(document);
-  return {
-    width: layout.width,
-    height: layout.height,
-    roots: layout.roots.map(sceneNode),
-  };
+  return createLeaferScene(document);
 }
 
 interface LocatedNode {
@@ -195,9 +79,6 @@ function locateNode(
   offsetY: number,
 ): LocatedNode | null {
   for (const node of nodes) {
-    if (!node.visible) {
-      continue;
-    }
     const x = offsetX + node.box.x;
     const y = offsetY + node.box.y;
     if (node.id === id) {
@@ -250,7 +131,7 @@ export function findCanvasSelection(
   return {
     id: selectionId,
     box: located.box,
-    rotation: located.node.rotation,
+    rotation: located.node.node.rotation ?? 0,
     outline: { ...SELECTION_OUTLINE },
     sizeTag: {
       box: {

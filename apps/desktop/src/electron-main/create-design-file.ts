@@ -57,8 +57,8 @@ function isFileExists(error: unknown): boolean {
 }
 
 /**
- * Writes a fresh blank version 1 document to the project directory. The first
- * free default name is used and an existing file is never overwritten.
+ * Writes a fresh blank current-version document to the project directory. The
+ * first free default name is used and an existing file is never overwritten.
  */
 export async function createDesignFile(
   projectDirectory: string,

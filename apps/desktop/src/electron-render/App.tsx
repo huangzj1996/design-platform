@@ -2,15 +2,13 @@ import type {
   DesignDocument,
   Diagnostic,
   ElementType,
-} from '@design-ai/design-schema/legacy';
-import { validateDesignDocument } from '@design-ai/design-schema/legacy';
+} from '@design-ai/design-schema';
 import {
   addElement,
   alignElement,
   createDefaultElement,
   createElementId,
   deleteElement,
-  findElement,
   updateElement,
   type ElementAlignment,
   type ElementPatch,
@@ -30,10 +28,12 @@ import { Editor } from './Editor';
 import {
   applySaveFailure,
   documentName,
+  documentOf,
   editDocument,
   initialEditorState,
   markSaving,
   selectElement,
+  selectionIdOf,
   type EditorState,
   type PendingAction,
 } from './editor-state';
@@ -156,22 +156,18 @@ function saveStatusText(state: EditorState): string {
 }
 
 /**
- * Validates an edit before showing it, so property inputs can never persist a
- * document that no longer satisfies the version 1 contract.
+ * Commits an edit through the tab's session, so property inputs can never
+ * persist a document that no longer satisfies the current contract.
  */
 function commitEdit(
   state: EditorState,
   document: DesignDocument | null,
-  selectionId: string | null = state.selectionId,
+  selectionId: string | null = selectionIdOf(state),
 ): EditorState {
   if (document === null) {
     return state;
   }
-  const result = validateDesignDocument(document);
-  if (!result.ok) {
-    return state;
-  }
-  return editDocument(state, result.document, selectionId);
+  return editDocument(state, document, selectionId);
 }
 
 export function App({
@@ -283,7 +279,7 @@ export function App({
   };
 
   const { flush } = useAutosave({
-    document: editorState.document,
+    document: documentOf(editorState),
     filePath: editorState.filePath,
     dirty: editorState.dirty,
     editVersion: editorState.editVersion,
@@ -338,7 +334,7 @@ export function App({
    * for the retry entry.
    */
   const saveBeforeAction = async (action: PendingAction): Promise<boolean> => {
-    if (editorStateRef.current.document === null) {
+    if (documentOf(editorStateRef.current) === null) {
       return true;
     }
     const saved = await flush();
@@ -377,7 +373,11 @@ export function App({
       return;
     }
     // A restored tab stays unloaded until the user selects it.
-    if (target?.state.document === null && filePath !== null) {
+    if (
+      target !== undefined &&
+      documentOf(target.state) === null &&
+      filePath !== null
+    ) {
       await openDesignAt(filePath, (latest, result) =>
         applyOpenToProject(latest, target.id, result),
       );
@@ -490,57 +490,39 @@ export function App({
 
   const handleUpdate = (patch: ElementPatch) => {
     updateActiveEditor((current) => {
-      if (current.document === null || current.selectionId === null) {
+      const document = documentOf(current);
+      const selectionId = selectionIdOf(current);
+      if (document === null || selectionId === null) {
         return current;
       }
-      const document = updateElement(
-        current.document,
-        current.selectionId,
-        patch,
-      );
-      return commitEdit(current, document);
-    });
-  };
-
-  const handleToggleVisibility = (id: string) => {
-    updateActiveEditor((current) => {
-      if (current.document === null) {
-        return current;
-      }
-      const element = findElement(current.document, id);
-      if (element === undefined) {
-        return current;
-      }
-      return commitEdit(
-        current,
-        updateElement(current.document, id, {
-          visible: element.visible === false ? undefined : false,
-        }),
-      );
+      return commitEdit(current, updateElement(document, selectionId, patch));
     });
   };
 
   const handleAlign = (alignment: ElementAlignment) => {
     updateActiveEditor((current) => {
-      if (current.document === null || current.selectionId === null) {
+      const document = documentOf(current);
+      const selectionId = selectionIdOf(current);
+      if (document === null || selectionId === null) {
         return current;
       }
       return commitEdit(
         current,
-        alignElement(current.document, current.selectionId, alignment),
+        alignElement(document, selectionId, alignment),
       );
     });
   };
 
   const handleAddRoot = (type: ElementType) => {
     updateActiveEditor((current) => {
-      if (current.document === null) {
+      const document = documentOf(current);
+      if (document === null) {
         return current;
       }
-      const id = createElementId(current.document, type);
+      const id = createElementId(document, type);
       return commitEdit(
         current,
-        addElement(current.document, null, createDefaultElement(type, id)),
+        addElement(document, null, createDefaultElement(type, id)),
         id,
       );
     });
@@ -548,17 +530,15 @@ export function App({
 
   const handleAddChild = (type: ElementType) => {
     updateActiveEditor((current) => {
-      if (current.document === null || current.selectionId === null) {
+      const document = documentOf(current);
+      const selectionId = selectionIdOf(current);
+      if (document === null || selectionId === null) {
         return current;
       }
-      const id = createElementId(current.document, type);
+      const id = createElementId(document, type);
       return commitEdit(
         current,
-        addElement(
-          current.document,
-          current.selectionId,
-          createDefaultElement(type, id),
-        ),
+        addElement(document, selectionId, createDefaultElement(type, id)),
         id,
       );
     });
@@ -566,18 +546,16 @@ export function App({
 
   const handleDelete = () => {
     updateActiveEditor((current) => {
-      if (current.document === null || current.selectionId === null) {
+      const document = documentOf(current);
+      const selectionId = selectionIdOf(current);
+      if (document === null || selectionId === null) {
         return current;
       }
-      return editDocument(
-        current,
-        deleteElement(current.document, current.selectionId),
-        null,
-      );
+      return editDocument(current, deleteElement(document, selectionId), null);
     });
   };
 
-  const document = editorState.document;
+  const document = documentOf(editorState);
   const showingHome = workspace.activeTabId === HOME_TAB_ID;
   const diagnostics = showingHome
     ? workspace.homeDiagnostics
@@ -664,7 +642,7 @@ export function App({
 
           <Editor
             document={document}
-            selectionId={editorState.selectionId}
+            selectionId={selectionIdOf(editorState)}
             tabBar={tabBar}
             documentName={documentName(
               editorState.filePath ?? editorState.sourcePath,
@@ -674,7 +652,6 @@ export function App({
             onOpen={handleOpen}
             onCreate={handleCreate}
             onSelect={handleSelect}
-            onToggleVisibility={handleToggleVisibility}
             onAddRoot={handleAddRoot}
             onUpdate={handleUpdate}
             onAlign={handleAlign}

@@ -2,7 +2,12 @@ import {
   createDiagnostic,
   type DesignDocument,
   type Diagnostic,
-} from '@design-ai/design-schema/legacy';
+} from '@design-ai/design-schema';
+import {
+  createEditorSession,
+  type EditorSession,
+  type EditorSnapshot,
+} from '@design-ai/editor-core';
 import { errorMessage } from './error-message';
 import type {
   CreateDesignFileResult,
@@ -28,7 +33,10 @@ export const OPEN_FAILURE_TITLE = '无法打开设计稿';
 export const CREATE_FAILURE_TITLE = '无法新建设计稿';
 
 export interface EditorState {
-  document: DesignDocument | null;
+  /** Session owning this tab's document, selection and inspector state. */
+  session: EditorSession | null;
+  /** Latest published session snapshot, mirrored into React state. */
+  snapshot: EditorSnapshot | null;
   /** Save target of a native document; `null` for an unsaved import. */
   filePath: string | null;
   /** Pencil source of an imported draft, shown until the draft is saved. */
@@ -36,8 +44,6 @@ export interface EditorState {
   diagnostics: Diagnostic[];
   diagnosticsTitle: string;
   warnings: Diagnostic[];
-  /** Element selected in the layer tree, properties panel and canvas. */
-  selectionId: string | null;
   /** Persistent edits since the last successful save; selections do not count. */
   dirty: boolean;
   /** Monotonic counter for persistent edits, used to debounce saves. */
@@ -49,19 +55,29 @@ export interface EditorState {
 }
 
 export const initialEditorState: EditorState = {
-  document: null,
+  session: null,
+  snapshot: null,
   filePath: null,
   sourcePath: null,
   diagnostics: [],
   diagnosticsTitle: OPEN_FAILURE_TITLE,
   warnings: [],
-  selectionId: null,
   dirty: false,
   editVersion: 0,
   saveStatus: 'idle',
   saveErrors: [],
   pendingAction: null,
 };
+
+/** The document currently shown by a tab, sourced from its session. */
+export function documentOf(state: EditorState): DesignDocument | null {
+  return state.snapshot?.document ?? null;
+}
+
+/** The first selected element id, used by the single-selection editor UI. */
+export function selectionIdOf(state: EditorState): string | null {
+  return state.snapshot?.selectedElementIds[0] ?? null;
+}
 
 /** Keeps the document snapshot's path in sync with its actual save target. */
 function withDocumentPath(
@@ -75,21 +91,22 @@ function withDocumentPath(
 }
 
 /**
- * Applies a fresh document to the editor. Opening always starts from an empty
- * selection and a clean save baseline.
+ * Applies a fresh document to the editor and creates its session. Opening
+ * always starts from an empty selection and a clean save baseline.
  */
 function withDocument(
   state: EditorState,
   document: DesignDocument,
   overrides: Partial<EditorState>,
 ): EditorState {
+  const session = createEditorSession(document);
   return {
     ...state,
-    document,
+    session,
+    snapshot: session.getSnapshot(),
     sourcePath: null,
     diagnostics: [],
     warnings: [],
-    selectionId: null,
     dirty: false,
     editVersion: 0,
     saveStatus: 'idle',
@@ -175,16 +192,32 @@ export function applyCreateError(
   };
 }
 
-/** Records one persistent document edit; the selection may change separately. */
+/**
+ * Records one persistent document edit through the session. An invalid
+ * document keeps the previous snapshot and the save baseline unchanged.
+ */
 export function editDocument(
   state: EditorState,
   document: DesignDocument,
-  selectionId: string | null = state.selectionId,
+  selectionId: string | null = selectionIdOf(state),
 ): EditorState {
+  if (state.session === null) {
+    return state;
+  }
+  const replaced = state.session.dispatch({
+    type: 'replace-document',
+    document,
+  });
+  if (!replaced.ok) {
+    return state;
+  }
+  const selected = state.session.dispatch({
+    type: 'select',
+    elementIds: selectionId === null ? [] : [selectionId],
+  });
   return {
     ...state,
-    document,
-    selectionId,
+    snapshot: selected.snapshot,
     dirty: true,
     editVersion: state.editVersion + 1,
   };
@@ -194,7 +227,14 @@ export function selectElement(
   state: EditorState,
   selectionId: string | null,
 ): EditorState {
-  return { ...state, selectionId };
+  if (state.session === null) {
+    return state;
+  }
+  const result = state.session.dispatch({
+    type: 'select',
+    elementIds: selectionId === null ? [] : [selectionId],
+  });
+  return result.changed ? { ...state, snapshot: result.snapshot } : state;
 }
 
 export function markSaving(state: EditorState): EditorState {
@@ -210,13 +250,23 @@ export function applySaveResult(
   result: Extract<SaveDesignFileResult, { status: 'saved' | 'skipped' }>,
   savedVersion: number,
 ): EditorState {
-  if (state.document === null) {
+  if (state.session === null || state.snapshot === null) {
+    return state;
+  }
+
+  // The saved snapshot records its own path so reopening keeps the target.
+  const document = withDocumentPath(state.snapshot.document, result.filePath);
+  const replaced = state.session.dispatch({
+    type: 'replace-document',
+    document,
+  });
+  if (!replaced.ok) {
     return state;
   }
 
   return {
     ...state,
-    document: withDocumentPath(state.document, result.filePath),
+    snapshot: replaced.snapshot,
     filePath: result.filePath,
     dirty: state.dirty && state.editVersion !== savedVersion,
     saveStatus: 'idle',

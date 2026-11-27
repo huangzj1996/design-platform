@@ -2,7 +2,7 @@ import {
   createDiagnostic,
   type DesignDocument,
   type Diagnostic,
-} from '@design-ai/design-schema/legacy';
+} from '@design-ai/design-schema';
 import { useCallback, useEffect, useRef } from 'react';
 import { errorMessage } from './error-message';
 import type {

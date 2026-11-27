@@ -27,3 +27,11 @@ export {
   type PencilImportSuccess,
 } from './pencil/import-document';
 export { stripJsonComments } from './pencil/json-comments';
+export {
+  createEditorSession,
+  type EditorCommand,
+  type EditorCommandResult,
+  type EditorSelectors,
+  type EditorSession,
+  type EditorSnapshot,
+} from './session/editor-session';
