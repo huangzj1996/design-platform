@@ -31,6 +31,11 @@ export interface LeaferSceneNode {
   element: DesignElement;
   /** Resolved layout box relative to the parent's border box. */
   box: LayoutBox;
+  /**
+   * Whether the canvas may drag the element: top-level elements and children
+   * of free-layout frames move by declaration coordinates.
+   */
+  movable: boolean;
   /** Mountable LeaferJS node, including its child nodes. */
   node: UI;
   /** Resolved text content for text elements. */
@@ -343,19 +348,30 @@ function createElementNode(
   }
 }
 
+/** Free positioning applies at the document root and inside `none` frames. */
+function isMovable(parent: DesignElement | undefined): boolean {
+  return (
+    parent === undefined ||
+    (parent.type === 'frame' && (parent.layout ?? 'horizontal') === 'none')
+  );
+}
+
 function sceneNode(
   node: LayoutNode<DesignElement>,
   variables: Readonly<DesignVariables>,
   options: LeaferSceneOptions,
+  parent?: DesignElement,
 ): LeaferSceneNode {
   const element = node.element;
+  const movable = isMovable(parent);
   const {
     node: leaferNode,
     text,
     icon,
   } = createElementNode(element, node.box, variables, options);
+  leaferNode.draggable = movable;
   const children = node.children.map((child) =>
-    sceneNode(child, variables, options),
+    sceneNode(child, variables, options, element),
   );
   if (element.type === 'frame') {
     for (const child of children) {
@@ -367,6 +383,7 @@ function sceneNode(
     type: element.type,
     element,
     box: { ...node.box },
+    movable,
     node: leaferNode,
     ...(text === undefined ? {} : { text }),
     ...(icon === undefined ? {} : { icon }),

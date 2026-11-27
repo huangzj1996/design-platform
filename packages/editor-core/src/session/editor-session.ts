@@ -1,4 +1,6 @@
 import {
+  createDiagnostic,
+  DiagnosticCodes,
   validateDesignDocument,
   type DesignDocument,
   type DesignElement,
@@ -6,6 +8,7 @@ import {
 } from '@design-ai/design-schema';
 import { findElementParent } from '../document/alignment';
 import { findElement } from '../document/edit';
+import { moveElement, type ElementPosition } from '../document/move';
 
 type FrameElement = Extract<DesignElement, { type: 'frame' }>;
 
@@ -21,7 +24,13 @@ export interface EditorSnapshot {
 export type EditorCommand =
   | { type: 'select'; elementIds: readonly string[] }
   | { type: 'set-inspector-expanded'; expanded: boolean }
-  | { type: 'replace-document'; document: DesignDocument };
+  | { type: 'replace-document'; document: DesignDocument }
+  | {
+      type: 'move-element';
+      elementId: string;
+      /** Design declaration coordinates, relative to the parent content box. */
+      position: Partial<ElementPosition>;
+    };
 
 export interface EditorCommandResult {
   /** False when the command was invalid; the snapshot is then unchanged. */
@@ -162,6 +171,11 @@ export function createEditorSession(document: DesignDocument): EditorSession {
     return { ok: true, snapshot, diagnostics: [], changed: false };
   }
 
+  /** An invalid command that leaves the current snapshot in place. */
+  function invalid(diagnostics: Diagnostic[]): EditorCommandResult {
+    return { ok: false, snapshot, diagnostics, changed: false };
+  }
+
   function select(elementIds: readonly string[]): EditorCommandResult {
     const selected = normalizeSelection(elementIds, snapshot.document);
     if (sameIds(selected, snapshot.selectedElementIds)) {
@@ -183,12 +197,7 @@ export function createEditorSession(document: DesignDocument): EditorSession {
     }
     const validation = validateDesignDocument(document);
     if (!validation.ok) {
-      return {
-        ok: false,
-        snapshot,
-        diagnostics: validation.errors,
-        changed: false,
-      };
+      return invalid(validation.errors);
     }
     const selectedElementIds = normalizeSelection(
       snapshot.selectedElementIds,
@@ -201,6 +210,34 @@ export function createEditorSession(document: DesignDocument): EditorSession {
     });
   }
 
+  function moveElementCommand(command: {
+    elementId: string;
+    position: Partial<ElementPosition>;
+  }): EditorCommandResult {
+    if (findElement(snapshot.document, command.elementId) === undefined) {
+      return invalid([
+        createDiagnostic(
+          DiagnosticCodes.elementNotFound,
+          '$',
+          `找不到要移动的元素 "${command.elementId}"`,
+        ),
+      ]);
+    }
+    const document = moveElement(
+      snapshot.document,
+      command.elementId,
+      command.position,
+    );
+    if (document === snapshot.document) {
+      return noChange();
+    }
+    const validation = validateDesignDocument(document);
+    if (!validation.ok) {
+      return invalid(validation.errors);
+    }
+    return publish({ ...snapshot, document: validation.document });
+  }
+
   return {
     dispatch(command) {
       switch (command.type) {
@@ -210,6 +247,8 @@ export function createEditorSession(document: DesignDocument): EditorSession {
           return setInspectorExpanded(command.expanded);
         case 'replace-document':
           return replaceDocument(command.document);
+        case 'move-element':
+          return moveElementCommand(command);
       }
     },
 

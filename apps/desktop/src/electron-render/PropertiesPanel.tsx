@@ -1,8 +1,10 @@
 import {
   findLayoutNode,
   layoutDesignDocument,
+  resolveVariableValue,
   type DesignDocument,
   type DesignElement,
+  type DesignVariables,
   type ElementType,
 } from '@design-ai/design-schema';
 import {
@@ -188,6 +190,14 @@ function numeric(value: unknown, fallback = 0): number {
 
 function numericOrUndefined(value: unknown): number | undefined {
   return typeof value === 'number' ? value : undefined;
+}
+
+/** Resolves a coordinate declaration so bound positions show their value. */
+function resolvedCoordinate(
+  value: unknown,
+  variables: Readonly<DesignVariables>,
+): number {
+  return numeric(resolveVariableValue(value, variables));
 }
 
 function dimensionMode(value: unknown): DimensionMode {
@@ -518,11 +528,13 @@ function AlignmentSection({
 
 function PositionSection({
   element,
+  variables,
   layoutX,
   layoutY,
   computed,
   onUpdate,
 }: ElementFieldsProps<DesignElement> & {
+  variables: Readonly<DesignVariables>;
   layoutX: number;
   layoutY: number;
   computed: boolean;
@@ -532,13 +544,13 @@ function PositionSection({
       <div className="flex gap-2">
         <NumberField
           label="X"
-          value={computed ? layoutX : numeric(element.x)}
+          value={computed ? layoutX : resolvedCoordinate(element.x, variables)}
           disabled={computed}
           onChange={(value) => onUpdate({ x: value })}
         />
         <NumberField
           label="Y"
-          value={computed ? layoutY : numeric(element.y)}
+          value={computed ? layoutY : resolvedCoordinate(element.y, variables)}
           disabled={computed}
           onChange={(value) => onUpdate({ y: value })}
         />
@@ -1172,6 +1184,7 @@ function InspectorFields({
 
       <PositionSection
         element={element}
+        variables={document.variables}
         layoutX={layoutNode?.box.x ?? 0}
         layoutY={layoutNode?.box.y ?? 0}
         computed={parentUsesAutoLayout}

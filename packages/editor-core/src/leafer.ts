@@ -6,6 +6,11 @@ export {
   type IconPaintMap,
 } from './leafer/icons';
 export {
+  declarationPosition,
+  dragMoveTarget,
+  type ElementPosition,
+} from './document/move';
+export {
   createLeaferScene,
   selectedElementId,
   type LeaferScene,

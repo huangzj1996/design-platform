@@ -1,4 +1,5 @@
 import type { UI as LeaferElement } from 'leafer-ui';
+import type { ElementPosition } from '@design-ai/editor-core';
 import { selectedElementId } from '@design-ai/editor-core/leafer';
 import {
   DEFAULT_CANVAS_VIEWPORT,
@@ -16,6 +17,27 @@ import {
 
 export { selectedElementId };
 
+/** The subset of a mounted leaf the drag handling reads and writes. */
+interface DraggedLeaf {
+  data?: { elementId?: unknown };
+  draggable?: unknown;
+  x: number;
+  y: number;
+}
+
+/** A dragged leaf that belongs to a movable design element. */
+type DraggableLeaf = DraggedLeaf & { data: { elementId: string } };
+
+interface ActiveDrag {
+  id: string;
+  leaf: DraggableLeaf;
+  start: ElementPosition;
+}
+
+function isDraggableLeaf(leaf: DraggedLeaf): leaf is DraggableLeaf {
+  return leaf.draggable === true && typeof leaf.data?.elementId === 'string';
+}
+
 /**
  * Creates the LeaferJS rendering of one design scene. The scene already holds
  * mountable nodes adapted from the design document, so the engine only mounts
@@ -26,7 +48,7 @@ export async function createLeaferEngine(
   options: CanvasEngineOptions,
 ): Promise<CanvasEngine> {
   const leaferModule = await import('leafer-ui');
-  const { Leafer, Box, Text, Group, Rect } = leaferModule;
+  const { Leafer, Box, Text, Group, Rect, DragEvent } = leaferModule;
 
   // Without an explicit size the canvas follows the host element, so the
   // viewport can pan and zoom the scene inside the editor area.
@@ -41,7 +63,48 @@ export async function createLeaferEngine(
   let content: LeaferElement | null = null;
   let overlay: LeaferElement | null = null;
   let lastScene: CanvasScene | null = null;
+  let lastSelection: CanvasSelection | null = null;
+  let activeDrag: ActiveDrag | null = null;
   let viewport: CanvasViewport = DEFAULT_CANVAS_VIEWPORT;
+
+  /**
+   * Leafer moves draggable nodes during a pointer drag, which is the canvas
+   * preview. On release the landing position is committed through the editor;
+   * an uncommitted landing restores the pre-drag position.
+   */
+  leafer.on(DragEvent.START, (event) => {
+    if (options.onMoveElement === undefined) {
+      return;
+    }
+    const leaves = (event.path?.list ?? []) as DraggedLeaf[];
+    const leaf = leaves.find(isDraggableLeaf);
+    if (leaf === undefined) {
+      return;
+    }
+    const id = leaf.data.elementId;
+    activeDrag = { id, leaf, start: { x: leaf.x, y: leaf.y } };
+    options.onSelect(id);
+    // The element itself previews the move; the static outline would lag.
+    showSelection(null);
+  });
+
+  leafer.on(DragEvent.END, () => {
+    const drag = activeDrag;
+    if (drag === null) {
+      return;
+    }
+    activeDrag = null;
+    const accepted =
+      options.onMoveElement?.(drag.id, drag.start, {
+        x: drag.leaf.x,
+        y: drag.leaf.y,
+      }) ?? false;
+    if (!accepted) {
+      drag.leaf.x = drag.start.x;
+      drag.leaf.y = drag.start.y;
+    }
+    showSelection(lastSelection);
+  });
 
   /**
    * Centers the scene in the host and applies the UI viewport on top. The
@@ -144,6 +207,7 @@ export async function createLeaferEngine(
 
   return {
     setScene(scene: CanvasScene, selection: CanvasSelection | null): void {
+      lastSelection = selection;
       if (scene !== lastScene) {
         lastScene = scene;
         if (content !== null) {
@@ -153,7 +217,7 @@ export async function createLeaferEngine(
         leafer.add(content);
         applyViewport();
       }
-      showSelection(selection);
+      showSelection(activeDrag === null ? selection : null);
     },
 
     setViewport(next: CanvasViewport): void {

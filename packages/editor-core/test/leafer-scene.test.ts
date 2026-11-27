@@ -139,6 +139,56 @@ describe('createLeaferScene', () => {
     });
   });
 
+  it('marks only free-positioned elements as movable and draggable', () => {
+    const freeDocument = documentFrom({
+      version: 2,
+      children: [
+        {
+          id: 'board',
+          type: 'frame',
+          layout: 'none',
+          width: 400,
+          height: 300,
+          children: [
+            {
+              id: 'free',
+              type: 'rectangle',
+              x: 10,
+              y: 10,
+              width: 20,
+              height: 20,
+            },
+            {
+              id: 'stack',
+              type: 'frame',
+              layout: 'vertical',
+              width: 100,
+              height: 100,
+              children: [
+                {
+                  id: 'stacked',
+                  type: 'rectangle',
+                  width: 20,
+                  height: 20,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    const scene = createLeaferScene(freeDocument);
+
+    expect(findNode(scene.roots, 'board').movable).toBe(true);
+    expect(findNode(scene.roots, 'free').movable).toBe(true);
+    expect(findNode(scene.roots, 'stack').movable).toBe(true);
+    expect(findNode(scene.roots, 'stacked').movable).toBe(false);
+    expect(findNode(scene.roots, 'board').node.draggable).toBe(true);
+    expect(findNode(scene.roots, 'free').node.draggable).toBe(true);
+    expect(findNode(scene.roots, 'stacked').node.draggable).toBe(false);
+  });
+
   it('resolves the element id from a nested hit target', () => {
     const frame = { data: { elementId: 'frame' }, parent: null };
     const path = { data: {}, parent: frame };

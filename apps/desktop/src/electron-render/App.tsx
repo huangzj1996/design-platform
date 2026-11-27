@@ -9,9 +9,11 @@ import {
   createDefaultElement,
   createElementId,
   deleteElement,
+  dragMoveTarget,
   updateElement,
   type ElementAlignment,
   type ElementPatch,
+  type ElementPosition,
 } from '@design-ai/editor-core';
 import { CircleUser, Play } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -32,6 +34,7 @@ import {
   editDocument,
   initialEditorState,
   markSaving,
+  moveElementInState,
   selectElement,
   selectionIdOf,
   type EditorState,
@@ -168,6 +171,11 @@ function commitEdit(
     return state;
   }
   return editDocument(state, document, selectionId);
+}
+
+/** Whether a drag patch writes at least one declaration axis. */
+function hasAxisChange(position: Partial<ElementPosition>): boolean {
+  return position.x !== undefined || position.y !== undefined;
 }
 
 export function App({
@@ -488,6 +496,40 @@ export function App({
     updateActiveEditor((current) => selectElement(current, id));
   };
 
+  /**
+   * Converts one drag into a declaration patch and commits it as a single
+   * move command. Returns false when the drag cannot be applied, so the
+   * canvas restores its pre-drag preview.
+   */
+  const handleMoveElement = (
+    id: string,
+    from: ElementPosition,
+    to: ElementPosition,
+  ): boolean => {
+    const document = documentOf(editorStateRef.current);
+    if (document === null) {
+      return false;
+    }
+    const target = dragMoveTarget(document, id, from, to);
+    if (target === null || !hasAxisChange(target)) {
+      return false;
+    }
+    // The canvas needs the answer synchronously, but the commit must resolve
+    // against the latest tab state in case the document changed mid-drag.
+    updateActiveEditor((latest) => {
+      const latestDocument = documentOf(latest);
+      if (latestDocument === null) {
+        return latest;
+      }
+      const latestTarget = dragMoveTarget(latestDocument, id, from, to);
+      if (latestTarget === null || !hasAxisChange(latestTarget)) {
+        return latest;
+      }
+      return moveElementInState(latest, id, latestTarget);
+    });
+    return true;
+  };
+
   const handleUpdate = (patch: ElementPatch) => {
     updateActiveEditor((current) => {
       const document = documentOf(current);
@@ -652,6 +694,7 @@ export function App({
             onOpen={handleOpen}
             onCreate={handleCreate}
             onSelect={handleSelect}
+            onMoveElement={handleMoveElement}
             onAddRoot={handleAddRoot}
             onUpdate={handleUpdate}
             onAlign={handleAlign}

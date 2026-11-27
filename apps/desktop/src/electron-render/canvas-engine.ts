@@ -1,8 +1,19 @@
+import type { ElementPosition } from '@design-ai/editor-core';
 import type { CanvasScene, CanvasSelection } from './canvas-scene';
 
 export interface CanvasEngineOptions {
   /** Called when the pointer selects an element, or null for empty space. */
   onSelect: (id: string | null) => void;
+  /**
+   * Called when a drag ends with its start and landing positions, both
+   * relative to the element's parent border box. The editor converts them to
+   * declaration coordinates. Returning false restores the pre-drag position.
+   */
+  onMoveElement?: (
+    id: string,
+    from: ElementPosition,
+    to: ElementPosition,
+  ) => boolean;
 }
 
 /**
