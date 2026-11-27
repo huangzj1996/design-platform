@@ -3,6 +3,7 @@ import {
   createDiagnostic,
   DiagnosticCodes,
   type Diagnostic,
+  type DiagnosticCode,
 } from './diagnostics';
 import { isHexColor, isOneOf, isPlainObject } from './fields';
 import {
@@ -55,6 +56,8 @@ const textGrowthSchemaV2 = z.enum([
 ]);
 const textAlignSchemaV2 = z.enum(['left', 'center', 'right', 'justify']);
 const positiveNumberSchema = z.number().positive();
+const unitIntervalSchema = z.number().min(0).max(1);
+const fillColorSchema = z.string().regex(/^#[\da-f]{6}(?:[\da-f]{2})?$/i);
 const paddingSidesSchemaV2 = z
   .array(z.unknown())
   .refine(
@@ -64,6 +67,10 @@ const paddingSidesSchemaV2 = z
 
 type VariableReference = `$${string}`;
 export type NumericValueV2 = number | VariableReference;
+
+type FillStrokeSchemasV2 = ReturnType<typeof createFillStrokeSchemasV2>;
+export type FillLayerV2 = z.input<FillStrokeSchemasV2['fill']>[number];
+export type StrokeV2 = z.input<FillStrokeSchemasV2['stroke']>;
 
 export type DimensionV2 = z.infer<typeof dimensionSchemaV2> | VariableReference;
 
@@ -129,6 +136,178 @@ export const frameLayoutFieldsV2 = {
   justifyContent: zodField(justifyContentSchemaV2, '无效的主轴分布'),
   alignItems: zodField(alignItemsSchemaV2, '无效的交叉轴对齐'),
 };
+
+function createFillStrokeSchemasV2(variables: Readonly<DesignVariables>) {
+  function bound<Schema extends z.ZodType>(
+    schema: Schema,
+    ...variableTypes: VariableType[]
+  ) {
+    return z.preprocess(
+      (value: z.input<Schema> | VariableReference, context) => {
+        const resolved = resolveBoundField(value, variableTypes, variables);
+        if ('code' in resolved) {
+          context.addIssue({
+            code: 'custom',
+            message: resolved.message,
+            params: { diagnosticCode: resolved.code },
+          });
+          return z.NEVER;
+        }
+        return resolved.value;
+      },
+      schema,
+    );
+  }
+
+  const unitInterval = bound(unitIntervalSchema, 'number');
+  const color = bound(fillColorSchema, 'color');
+  const nonNegativeNumber = bound(nonNegativeNumberSchema, 'number');
+  const number = bound(z.number(), 'number');
+  const url = bound(z.string(), 'string');
+  const fillOpacity = unitInterval.default(1);
+  const gradientPointSchema = z.strictObject({ x: number, y: number });
+  const gradientStopsSchema = z
+    .array(z.strictObject({ offset: unitInterval, color }))
+    .min(2)
+    .superRefine((stops, context) => {
+      for (let index = 1; index < stops.length; index += 1) {
+        if (stops[index].offset < stops[index - 1].offset) {
+          context.addIssue({
+            code: 'custom',
+            path: [index, 'offset'],
+            message: '色标偏移必须按非递减顺序声明',
+          });
+        }
+      }
+    });
+  const meshPointsSchema = z
+    .array(
+      z
+        .array(
+          z.strictObject({
+            x: unitInterval,
+            y: unitInterval,
+            color,
+          }),
+        )
+        .min(2),
+    )
+    .min(2)
+    .superRefine((rows, context) => {
+      for (let index = 1; index < rows.length; index += 1) {
+        if (rows[index].length !== rows[0].length) {
+          context.addIssue({
+            code: 'custom',
+            path: [index],
+            message: '网格渐变的每一行必须有相同数量的顶点',
+          });
+        }
+      }
+    });
+  const uniform = bound(
+    z.union([
+      z.number(),
+      z.boolean(),
+      z.tuple([number, number]),
+      z.tuple([number, number, number]),
+      z.tuple([number, number, number, number]),
+    ]),
+    'number',
+    'boolean',
+  );
+  // A Map lets Zod validate every JSON key, including "__proto__".
+  const uniforms = z.preprocess(
+    (value: Record<string, z.input<typeof uniform>>) =>
+      isPlainObject(value) &&
+      Object.prototype.toString.call(value) === '[object Object]'
+        ? new Map(Object.entries(value))
+        : undefined,
+    z.map(z.string(), uniform),
+  );
+  const gradientLayer = { type: z.literal('gradient'), opacity: fillOpacity };
+  const fillLayer = z.discriminatedUnion('type', [
+    z.strictObject({
+      type: z.literal('color'),
+      opacity: fillOpacity,
+      color,
+    }),
+    z.discriminatedUnion('gradientType', [
+      z.strictObject({
+        ...gradientLayer,
+        gradientType: z.literal('linear'),
+        start: gradientPointSchema,
+        end: gradientPointSchema,
+        stops: gradientStopsSchema,
+      }),
+      z.strictObject({
+        ...gradientLayer,
+        gradientType: z.literal('radial'),
+        center: gradientPointSchema,
+        radius: nonNegativeNumber,
+        stops: gradientStopsSchema,
+      }),
+      z.strictObject({
+        ...gradientLayer,
+        gradientType: z.literal('angular'),
+        center: gradientPointSchema,
+        rotation: number,
+        stops: gradientStopsSchema,
+      }),
+      z.strictObject({
+        ...gradientLayer,
+        gradientType: z.literal('mesh'),
+        points: meshPointsSchema,
+      }),
+    ]),
+    z.strictObject({
+      type: z.literal('image'),
+      opacity: fillOpacity,
+      url,
+      mode: z.enum(['cover', 'contain', 'stretch']).default('cover'),
+    }),
+    z.strictObject({
+      type: z.literal('shader'),
+      opacity: fillOpacity,
+      url,
+      uniforms: uniforms.optional(),
+    }),
+  ]);
+  const fill = z.array(fillLayer);
+  const stroke = z.strictObject({
+    fill,
+    alignment: z.enum(['inner', 'center', 'outer']).default('center'),
+    width: nonNegativeNumber.default(1),
+    style: z.enum(['solid', 'dashed', 'dotted']).default('solid'),
+  });
+  return { fill, stroke };
+}
+
+// Both fields use the same layer schema and variable table for a document.
+const fillStrokeSchemas = new WeakMap<
+  Readonly<DesignVariables>,
+  FillStrokeSchemasV2
+>();
+const noVariables: Readonly<DesignVariables> = {};
+
+export const fillStrokeFieldsV2 = {
+  fill: fillStrokeField('fill'),
+  stroke: fillStrokeField('stroke'),
+};
+
+function fillStrokeField(field: keyof FillStrokeSchemasV2): FieldValidator {
+  return (value, path, variables = noVariables) => {
+    let schemas = fillStrokeSchemas.get(variables);
+    if (schemas === undefined) {
+      schemas = createFillStrokeSchemasV2(variables);
+      fillStrokeSchemas.set(variables, schemas);
+    }
+    const parsed = schemas[field].safeParse(value);
+    // Use the parsed values for validation while retaining authored fields.
+    return parsed.success
+      ? []
+      : fillStrokeDiagnostics(parsed.error.issues, value, path);
+  };
+}
 
 const textStyleFieldsV2 = {
   content: zodField(z.string(), '必须是字符串', 'string'),
@@ -199,6 +378,76 @@ function zodField(
     validate.variableTypes = [variableType];
   }
   return validate;
+}
+
+function fillStrokeDiagnostics(
+  issues: readonly z.core.$ZodIssue[],
+  value: unknown,
+  path: string,
+): Diagnostic[] {
+  return issues.flatMap((issue) => {
+    let issuePath = path;
+    let input = value;
+    for (const key of issue.path) {
+      issuePath = fillStrokePath(issuePath, key);
+      input =
+        typeof input === 'object' && input !== null && Object.hasOwn(input, key)
+          ? (input as Record<PropertyKey, unknown>)[key]
+          : undefined;
+    }
+
+    if (issue.code === 'unrecognized_keys') {
+      return issue.keys.map((key) =>
+        createDiagnostic(
+          DiagnosticCodes.unknownField,
+          fillStrokePath(issuePath, key),
+          `节点不支持的字段 "${key}"`,
+        ),
+      );
+    }
+    if (input === undefined) {
+      return [
+        createDiagnostic(
+          DiagnosticCodes.missingField,
+          issuePath,
+          '缺少必填字段',
+        ),
+      ];
+    }
+    if (issue.code === 'invalid_union' && Array.isArray(input)) {
+      // A shader vector can carry diagnostics on individual components.
+      const vectorIssues = issue.errors.find(
+        (branch) =>
+          branch.length > 0 &&
+          branch.every(
+            ({ path: [index] }) =>
+              typeof index === 'number' && index < input.length,
+          ),
+      );
+      if (vectorIssues !== undefined) {
+        return fillStrokeDiagnostics(vectorIssues, input, issuePath);
+      }
+    }
+    const code =
+      issue.code === 'custom' ? issue.params?.diagnosticCode : undefined;
+    return [
+      createDiagnostic(
+        typeof code === 'string' ? code : DiagnosticCodes.invalidValue,
+        issuePath,
+        issue.message,
+      ),
+    ];
+  });
+}
+
+function fillStrokePath(path: string, key: PropertyKey): string {
+  if (typeof key === 'number') {
+    return `${path}[${key}]`;
+  }
+  const name = String(key);
+  return /^[a-z_$][\w$-]*$/i.test(name)
+    ? fieldPath(path, name)
+    : `${path}[${JSON.stringify(name)}]`;
 }
 
 interface ValidationState {
@@ -648,41 +897,43 @@ function validateBoundField(
   path: string,
   variables: Readonly<DesignVariables>,
 ): Diagnostic[] {
+  const resolved = resolveBoundField(value, validator.variableTypes, variables);
+  return 'code' in resolved
+    ? [createDiagnostic(resolved.code, path, resolved.message)]
+    : validator(resolved.value, path, variables);
+}
+
+function resolveBoundField(
+  value: unknown,
+  variableTypes: readonly VariableType[] | undefined,
+  variables: Readonly<DesignVariables>,
+): { value: unknown } | { code: DiagnosticCode; message: string } {
   const literal = unescapeVariableReference(value);
   if (literal !== undefined) {
-    return validator(literal, path, variables);
+    return { value: literal };
   }
 
   const name = variableReferenceName(value);
   if (name === undefined) {
-    return validator(value, path, variables);
+    return { value };
   }
 
   const variable = Object.hasOwn(variables, name) ? variables[name] : undefined;
   if (variable === undefined) {
-    return [
-      createDiagnostic(
-        DiagnosticCodes.missingVariable,
-        path,
-        `引用的变量 "${name}" 不存在`,
-      ),
-    ];
+    return {
+      code: DiagnosticCodes.missingVariable,
+      message: `引用的变量 "${name}" 不存在`,
+    };
   }
 
-  if (
-    validator.variableTypes === undefined ||
-    !validator.variableTypes.includes(variable.type)
-  ) {
-    return [
-      createDiagnostic(
-        DiagnosticCodes.variableTypeMismatch,
-        path,
-        `变量 "${name}" 的类型 ${variable.type} 不能绑定到此属性`,
-      ),
-    ];
+  if (!variableTypes?.includes(variable.type)) {
+    return {
+      code: DiagnosticCodes.variableTypeMismatch,
+      message: `变量 "${name}" 的类型 ${variable.type} 不能绑定到此属性`,
+    };
   }
 
-  return validator(variable.value, path, variables);
+  return { value: variable.value };
 }
 
 function validateId(
