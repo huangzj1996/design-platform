@@ -203,7 +203,7 @@ describe('v2 opened design selection', () => {
     ).toBeNull();
   });
 
-  it('selects an icon from its canvas paint area into the layer tree and inspector', async () => {
+  it('selects an icon from the canvas into the layer tree and inspector', async () => {
     await renderApp();
     await openDesign('icon.json', {
       version: 2,

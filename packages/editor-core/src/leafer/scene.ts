@@ -53,8 +53,10 @@ export interface LeaferSceneOptions {
   icons?: IconPaintMap;
 }
 
-const DEFAULT_TEXT_COLOR = '#1f2328';
+const DEFAULT_FOREGROUND_COLOR = '#1f2328';
 const DEFAULT_FONT_FAMILY = 'sans-serif';
+// Kept in sync with design-schema's text measurement defaults so the painted
+// text matches its laid-out box.
 const DEFAULT_FONT_SIZE = 16;
 const DEFAULT_LINE_HEIGHT = 1.2;
 const DEFAULT_ICON_STROKE_WIDTH = 2;
@@ -213,8 +215,6 @@ function textInput(
     textAlign: style.textAlign,
     textWrap: growth === 'auto' ? ('none' as const) : ('break' as const),
     verticalAlign: 'top' as const,
-    width: box.width,
-    height: box.height,
   };
 }
 
@@ -228,24 +228,30 @@ function resolveIcon(
     color:
       firstColor(element.fill, variables) ??
       firstColor(element.stroke?.fill, variables) ??
-      DEFAULT_TEXT_COLOR,
+      DEFAULT_FOREGROUND_COLOR,
     strokeWidth:
       resolvedNumber(element.stroke?.width, variables) ??
       DEFAULT_ICON_STROKE_WIDTH,
   };
 }
 
+/** Scale that maps the icon library's view box onto the element box. */
+function iconScale(box: LayoutBox): { scaleX: number; scaleY: number } {
+  return {
+    scaleX: box.width / ICON_VIEWBOX_SIZE,
+    scaleY: box.height / ICON_VIEWBOX_SIZE,
+  };
+}
+
 function iconPlaceholderNodes(box: LayoutBox): UI[] {
-  const scaleX = box.width / ICON_VIEWBOX_SIZE;
-  const scaleY = box.height / ICON_VIEWBOX_SIZE;
+  const scale = iconScale(box);
   return [
     new Path({
       path: ICON_PLACEHOLDER_FRAME,
       stroke: ICON_PLACEHOLDER_COLOR,
       strokeWidth: 1,
       dashPattern: [4, 4],
-      scaleX,
-      scaleY,
+      ...scale,
       hittable: false,
     }),
     new Path({
@@ -254,8 +260,7 @@ function iconPlaceholderNodes(box: LayoutBox): UI[] {
       strokeWidth: 2,
       strokeCap: 'round',
       strokeJoin: 'round',
-      scaleX,
-      scaleY,
+      ...scale,
       hittable: false,
     }),
   ];
@@ -267,8 +272,7 @@ function iconPaintNodes(
   paints: NonNullable<IconPaintMap[string]>,
   icon: LeaferSceneIcon,
 ): UI[] {
-  const scaleX = box.width / ICON_VIEWBOX_SIZE;
-  const scaleY = box.height / ICON_VIEWBOX_SIZE;
+  const scale = iconScale(box);
   return paints.map(
     (paint) =>
       new Path({
@@ -278,8 +282,7 @@ function iconPaintNodes(
         strokeWidth: icon.strokeWidth,
         strokeCap: 'round',
         strokeJoin: 'round',
-        scaleX,
-        scaleY,
+        ...scale,
       }),
   );
 }
@@ -308,7 +311,7 @@ function createElementNode(
   box: LayoutBox,
   variables: Readonly<DesignVariables>,
   options: LeaferSceneOptions,
-): { node: UI; icon?: LeaferSceneIcon } {
+): { node: UI; text?: string; icon?: LeaferSceneIcon } {
   switch (element.type) {
     case 'frame':
       return {
@@ -325,12 +328,14 @@ function createElementNode(
       return { node: new Ellipse(nodeInput(element, box, variables)) };
     case 'text': {
       const input = nodeInput(element, box, variables);
+      const textFields = textInput(element, box, variables);
       return {
         node: new Text({
           ...input,
-          ...textInput(element, box, variables),
-          fill: input.fill ?? DEFAULT_TEXT_COLOR,
+          ...textFields,
+          fill: input.fill ?? DEFAULT_FOREGROUND_COLOR,
         }),
+        text: textFields.text,
       };
     }
     case 'icon':
@@ -344,12 +349,11 @@ function sceneNode(
   options: LeaferSceneOptions,
 ): LeaferSceneNode {
   const element = node.element;
-  const { node: leaferNode, icon } = createElementNode(
-    element,
-    node.box,
-    variables,
-    options,
-  );
+  const {
+    node: leaferNode,
+    text,
+    icon,
+  } = createElementNode(element, node.box, variables, options);
   const children = node.children.map((child) =>
     sceneNode(child, variables, options),
   );
@@ -364,9 +368,7 @@ function sceneNode(
     element,
     box: { ...node.box },
     node: leaferNode,
-    ...(element.type === 'text'
-      ? { text: resolvedString(element.textStyle.content, variables) ?? '' }
-      : {}),
+    ...(text === undefined ? {} : { text }),
     ...(icon === undefined ? {} : { icon }),
     children,
   };

@@ -1,10 +1,5 @@
-import {
-  ICON_VIEWBOX_SIZE,
-  toIconKey,
-  type IconPaint,
-} from '@design-ai/editor-core/leafer';
+import { toIconKey, type IconPaint } from '@design-ai/editor-core/leafer';
 
-export { ICON_VIEWBOX_SIZE, toIconKey };
 export type IconPath = IconPaint;
 
 type IconAttributes = Record<string, string | number>;

@@ -1,8 +1,6 @@
+import { toIconKey } from '@design-ai/editor-core/leafer';
 import { describe, expect, it } from 'vitest';
-import {
-  loadLucideIconPaths,
-  toIconKey,
-} from '../src/electron-render/lucide-icon';
+import { loadLucideIconPaths } from '../src/electron-render/lucide-icon';
 
 describe('Lucide icon paths', () => {
   it('normalizes icon names to the kebab-case library keys', () => {

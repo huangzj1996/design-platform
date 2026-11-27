@@ -2,6 +2,8 @@ import {
   measureText,
   resolveVariableValue,
   type DesignDocument,
+  type DesignElement,
+  type DesignVariables,
   type LayoutBox,
 } from '@design-ai/design-schema';
 import {
@@ -74,6 +76,14 @@ export function buildCanvasScene(
   return createLeaferScene(document, { icons });
 }
 
+function resolvedString(
+  value: unknown,
+  variables: Readonly<DesignVariables>,
+): string | undefined {
+  const resolved = resolveVariableValue(value, variables);
+  return typeof resolved === 'string' ? resolved : undefined;
+}
+
 /**
  * Keys of every icon the document references. Library and icon names are
  * resolved through the document variables so the paint loader sees the
@@ -81,21 +91,22 @@ export function buildCanvasScene(
  */
 export function collectCanvasIconKeys(document: DesignDocument): string[] {
   const keys = new Set<string>();
-  const pending = [...document.children];
-  let element = pending.pop();
-  while (element !== undefined) {
-    if (element.type === 'icon') {
-      const library = resolveVariableValue(element.library, document.variables);
-      const icon = resolveVariableValue(element.icon, document.variables);
-      if (typeof library === 'string' && typeof icon === 'string') {
-        keys.add(iconPaintKey(library, icon));
+
+  const visit = (elements: readonly DesignElement[]): void => {
+    for (const element of elements) {
+      if (element.type === 'icon') {
+        const library = resolvedString(element.library, document.variables);
+        const icon = resolvedString(element.icon, document.variables);
+        if (library !== undefined && icon !== undefined) {
+          keys.add(iconPaintKey(library, icon));
+        }
+      } else if (element.type === 'frame') {
+        visit(element.children ?? []);
       }
     }
-    if (element.type === 'frame' && element.children !== undefined) {
-      pending.push(...element.children);
-    }
-    element = pending.pop();
-  }
+  };
+
+  visit(document.children);
   return [...keys].sort();
 }
 
@@ -105,7 +116,8 @@ export async function loadCanvasIconPaints(
 ): Promise<IconPaintMap> {
   const entries = await Promise.all(
     keys.map(async (key) => {
-      const separator = key.indexOf('/');
+      // Icon names contain no slashes, so the last one ends the library name.
+      const separator = key.lastIndexOf('/');
       const library = key.slice(0, separator);
       const icon = key.slice(separator + 1);
       return [key, await loadLucideIconPaths(library, icon)] as const;

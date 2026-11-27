@@ -33,13 +33,15 @@ function useCanvasIconPaints(
     () => (document === null ? [] : collectCanvasIconKeys(document)),
     [document],
   );
+  // Keying the effect on the joined keys rather than the array identity keeps
+  // edits that do not change the icon set from reloading its paints.
   const iconKeySignature = iconKeys.join('\n');
   const [iconPaints, setIconPaints] = useState<IconPaintMap | undefined>(
     undefined,
   );
 
   useEffect(() => {
-    if (iconKeySignature.length === 0) {
+    if (iconKeys.length === 0) {
       setIconPaints(undefined);
       return;
     }
@@ -54,7 +56,7 @@ function useCanvasIconPaints(
     };
   }, [iconKeySignature]);
 
-  return iconKeySignature.length === 0 ? undefined : iconPaints;
+  return iconKeys.length === 0 ? undefined : iconPaints;
 }
 
 export interface CanvasProps {
