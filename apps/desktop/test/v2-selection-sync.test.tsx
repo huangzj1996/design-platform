@@ -19,7 +19,6 @@ import { readDesignFile } from '../src/electron-main/read-design-file';
 import type {
   OpenDesignFileResult,
   SaveDesignFileInput,
-  SaveDesignFileResult,
 } from '../src/electron-preload/contract';
 import { hasSceneNode, TestCanvasRegistry } from './test-canvas-engine';
 
@@ -93,15 +92,28 @@ const nestedDocument = {
   ],
 };
 
+const secondDocument = {
+  version: 2,
+  children: [
+    {
+      id: 'second-board',
+      type: 'frame',
+      width: 200,
+      height: 100,
+      children: [
+        { id: 'second-block', type: 'rectangle', width: 40, height: 20 },
+      ],
+    },
+  ],
+};
+
 async function renderApp(): Promise<void> {
   root = createRoot(container);
   await act(async () => {
     root.render(
       <App
         openDesignFile={() => openDesignFile()}
-        saveDesignFile={async (
-          input: SaveDesignFileInput,
-        ): Promise<SaveDesignFileResult> => {
+        saveDesignFile={async (input) => {
           saveCalls.push(input);
           return {
             status: 'skipped',
@@ -158,6 +170,17 @@ function layerRow(id: string): HTMLElement {
   return row;
 }
 
+async function selectLayer(id: string): Promise<void> {
+  const row = layerRow(id).querySelector<HTMLElement>('.layer-row');
+  if (row === null) {
+    throw new Error(`Layer row ${id} is not clickable`);
+  }
+  await act(async () => {
+    row.click();
+  });
+  await settle();
+}
+
 function inspectorLabel(): string | null {
   const panel = container.querySelector('[data-testid="property-panel"]');
   return panel?.querySelector('[title]')?.getAttribute('title') ?? null;
@@ -165,7 +188,7 @@ function inspectorLabel(): string | null {
 
 function inspectorToggle(): HTMLButtonElement {
   const button = container.querySelector<HTMLButtonElement>(
-    '[data-testid="property-panel"] [data-testid="inspector-toggle"]',
+    '[data-testid="inspector-toggle"]',
   );
   if (button === null) {
     throw new Error('Inspector toggle not found');
@@ -173,11 +196,7 @@ function inspectorToggle(): HTMLButtonElement {
   return button;
 }
 
-/** Reads the expanded state of the visible inspector, or null without one. */
-function inspectorExpanded(): boolean | null {
-  if (container.querySelector('[data-testid="property-panel"]') === null) {
-    return null;
-  }
+function inspectorExpanded(): boolean {
   return inspectorToggle().getAttribute('aria-expanded') === 'true';
 }
 
@@ -202,10 +221,7 @@ describe('v2 opened design selection', () => {
       canvas.engine?.scene?.roots[0]?.children.map((node) => node.id),
     ).toEqual(['card', 'label']);
 
-    await act(async () => {
-      layerRow('chip').querySelector<HTMLElement>('.layer-row')?.click();
-    });
-    await settle();
+    await selectLayer('chip');
 
     expect(canvas.engine?.selection?.id).toBe('chip');
     expect(layerRow('chip').getAttribute('data-selected')).toBe('true');
@@ -279,31 +295,10 @@ describe('v2 opened design selection', () => {
   it('keeps each tab selection in its own session', async () => {
     await renderApp();
     await openDesign('first.json', nestedDocument);
-    await act(async () => {
-      layerRow('chip').querySelector<HTMLElement>('.layer-row')?.click();
-    });
-    await settle();
+    await selectLayer('chip');
 
-    await openDesign('second.json', {
-      version: 2,
-      children: [
-        {
-          id: 'second-board',
-          type: 'frame',
-          width: 200,
-          height: 100,
-          children: [
-            { id: 'second-block', type: 'rectangle', width: 40, height: 20 },
-          ],
-        },
-      ],
-    });
-    await act(async () => {
-      layerRow('second-block')
-        .querySelector<HTMLElement>('.layer-row')
-        ?.click();
-    });
-    await settle();
+    await openDesign('second.json', secondDocument);
+    await selectLayer('second-block');
     expect(canvas.engine?.selection?.id).toBe('second-block');
 
     await clickTab('first.json');
@@ -318,10 +313,7 @@ describe('v2 opened design selection', () => {
   it('keeps each tab inspector state and selection without saving', async () => {
     await renderApp();
     await openDesign('first-state.json', nestedDocument);
-    await act(async () => {
-      layerRow('chip').querySelector<HTMLElement>('.layer-row')?.click();
-    });
-    await settle();
+    await selectLayer('chip');
     expect(inspectorExpanded()).toBe(true);
 
     await act(async () => {
@@ -331,26 +323,8 @@ describe('v2 opened design selection', () => {
     expect(inspectorExpanded()).toBe(false);
     expect(inspectorLabel()).toBe('chip');
 
-    await openDesign('second-state.json', {
-      version: 2,
-      children: [
-        {
-          id: 'second-board',
-          type: 'frame',
-          width: 200,
-          height: 100,
-          children: [
-            { id: 'second-block', type: 'rectangle', width: 40, height: 20 },
-          ],
-        },
-      ],
-    });
-    await act(async () => {
-      layerRow('second-block')
-        .querySelector<HTMLElement>('.layer-row')
-        ?.click();
-    });
-    await settle();
+    await openDesign('second-state.json', secondDocument);
+    await selectLayer('second-block');
     // A fresh tab starts with an expanded inspector of its own.
     expect(inspectorExpanded()).toBe(true);
 

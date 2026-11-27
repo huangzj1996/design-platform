@@ -5,6 +5,7 @@ import {
 } from '@design-ai/design-schema';
 import {
   createEditorSession,
+  type EditorCommand,
   type EditorSession,
   type EditorSnapshot,
   type ElementPosition,
@@ -266,33 +267,43 @@ export function moveElementInState(
   };
 }
 
-export function selectElement(
+/** Commands that only change view state, never the design document. */
+type ViewCommand = Extract<
+  EditorCommand,
+  { type: 'select' | 'set-inspector-expanded' }
+>;
+
+/**
+ * Applies a view-only command through the session. The design document and
+ * the save baseline stay exactly as they were.
+ */
+function applyViewCommand(
   state: EditorState,
-  selectionId: string | null,
+  command: ViewCommand,
 ): EditorState {
   if (state.session === null) {
     return state;
   }
-  const result = state.session.dispatch({
-    type: 'select',
-    elementIds: selectionId === null ? [] : [selectionId],
-  });
+  const result = state.session.dispatch(command);
   return result.changed ? { ...state, snapshot: result.snapshot } : state;
 }
 
-/**
- * Stores the inspector expansion in the tab's session snapshot. Like a
- * selection change, it leaves the design document and save baseline alone.
- */
+export function selectElement(
+  state: EditorState,
+  selectionId: string | null,
+): EditorState {
+  return applyViewCommand(state, {
+    type: 'select',
+    elementIds: selectionId === null ? [] : [selectionId],
+  });
+}
+
+/** Toggles the inspector expansion stored by the tab's session snapshot. */
 export function toggleInspectorExpanded(state: EditorState): EditorState {
-  if (state.session === null) {
-    return state;
-  }
-  const result = state.session.dispatch({
+  return applyViewCommand(state, {
     type: 'set-inspector-expanded',
     expanded: !inspectorExpandedOf(state),
   });
-  return result.changed ? { ...state, snapshot: result.snapshot } : state;
 }
 
 export function markSaving(state: EditorState): EditorState {
