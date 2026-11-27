@@ -5,148 +5,53 @@ import {
   type Diagnostic,
   type DiagnosticCode,
 } from './diagnostics';
-import { isHexColor, isOneOf, isPlainObject } from './fields';
+import { isHexColor, isPlainObject } from './fields';
 import {
   dimensionModes,
   frameAlignItems,
   frameJustifyContent,
   frameLayouts,
 } from './layout-values';
-import { layoutDesignDocument, layoutIssueToDiagnostic } from './layout';
-import { getNodeInspector } from './node-inspectors';
+import { layoutDesignDocumentV2 } from './layout-v2';
+import { layoutIssueToDiagnostic } from './layout';
+import { parseDocumentJson } from './parse-json';
 import { isSystemAbsolutePath } from './path';
-import {
-  DESIGN_DOCUMENT_VERSION,
-  type DesignDocument,
-  type DesignVariables,
-  type FieldValidator,
-  type NodeInspector,
-  type ValidationResult,
-  type VariableType,
-  type VariableValue,
-} from './types';
+import type { DesignVariables, VariableType } from './types';
 import {
   isVariableName,
-  unescapeVariableReference,
+  resolveBoundField,
+  resolveVariableValue,
   variableReferenceName,
 } from './variables';
 
-const ROOT_PATH = '$';
-const ROOT_FIELDS = new Set(['version', 'children', 'filePath', 'variables']);
-const VARIABLE_FIELDS = new Set(['type', 'value']);
-const VARIABLE_TYPES: readonly VariableType[] = [
-  'color',
-  'string',
-  'number',
-  'boolean',
-];
+export const DESIGN_DOCUMENT_VERSION = 2 as const;
 
 const nonNegativeNumberSchema = z.number().nonnegative();
-const dimensionSchemaV2 = z.union([
-  nonNegativeNumberSchema,
-  z.enum(dimensionModes),
-]);
-const layoutSchemaV2 = z.enum(frameLayouts);
-const justifyContentSchemaV2 = z.enum(frameJustifyContent);
-const alignItemsSchemaV2 = z.enum([...frameAlignItems, 'stretch']);
-const textGrowthSchemaV2 = z.enum([
-  'auto',
-  'fixed-width',
-  'fixed-width-height',
-]);
-const textAlignSchemaV2 = z.enum(['left', 'center', 'right', 'justify']);
 const positiveNumberSchema = z.number().positive();
 const unitIntervalSchema = z.number().min(0).max(1);
-const hexColorSchemaV2 = z.string().regex(/^#[\da-f]{6}(?:[\da-f]{2})?$/i);
-const paddingSidesSchemaV2 = z
-  .array(z.unknown())
-  .refine(
-    (sides) => sides.length === 2 || sides.length === 4,
-    '内边距数组必须包含两个或四个数值',
-  );
+const hexColorSchema = z.string().regex(/^#[\da-f]{6}(?:[\da-f]{2})?$/i);
+const rawChildrenSchema = z.custom<unknown[]>(Array.isArray);
 
 type VariableReference = `$${string}`;
-export type NumericValueV2 = number | VariableReference;
-
-type AppearanceSchemasV2 = ReturnType<typeof createAppearanceSchemasV2>;
-export type FillLayerV2 = z.input<AppearanceSchemasV2['fill']>[number];
-export type StrokeV2 = z.input<AppearanceSchemasV2['stroke']>;
-export type CornerRadiusV2 =
-  z.input<AppearanceSchemasV2['cornerRadius']> | VariableReference;
-export type EffectV2 = z.input<AppearanceSchemasV2['effect']>[number];
-
-export type DimensionV2 = z.infer<typeof dimensionSchemaV2> | VariableReference;
-
-export interface FrameLayoutFieldsV2 {
-  clip?: boolean | VariableReference;
-  layout?: z.infer<typeof layoutSchemaV2>;
-  gap?: NumericValueV2;
-  padding?:
-    | NumericValueV2
-    | [NumericValueV2, NumericValueV2]
-    | [NumericValueV2, NumericValueV2, NumericValueV2, NumericValueV2];
-  justifyContent?: z.infer<typeof justifyContentSchemaV2>;
-  alignItems?: z.infer<typeof alignItemsSchemaV2>;
-}
-
-export interface TextStyleV2 {
-  content: string;
-  textGrowth?: z.infer<typeof textGrowthSchemaV2>;
-  width?: DimensionV2;
-  height?: DimensionV2;
-  fontFamily?: string;
-  fontSize?: NumericValueV2;
-  fontWeight?: NumericValueV2;
-  lineHeight?: NumericValueV2;
-  textAlign?: z.infer<typeof textAlignSchemaV2>;
-}
-
-export const dimensionFieldV2 = zodField(
-  dimensionSchemaV2,
-  '尺寸必须是非负有限数值、fit_content 或 fill_container',
-  'number',
-);
-const spacingField = zodField(
-  nonNegativeNumberSchema,
-  '间距必须是非负有限数值',
-  'number',
-);
-const paddingFieldV2: FieldValidator = Object.assign(
-  (value: unknown, path: string, variables: Readonly<DesignVariables> = {}) => {
-    if (!Array.isArray(value)) {
-      return spacingField(value, path, variables);
-    }
-
-    const sides = paddingSidesSchemaV2.safeParse(value);
-    if (!sides.success) {
-      return sides.error.issues.map((issue) =>
-        createDiagnostic(DiagnosticCodes.invalidValue, path, issue.message),
-      );
-    }
-
-    return sides.data.flatMap((side, index) =>
-      validateBoundField(side, spacingField, `${path}[${index}]`, variables),
-    );
-  },
-  { variableTypes: spacingField.variableTypes },
+const variableReferenceSchema = z.custom<VariableReference>(
+  (value) => variableReferenceName(value) !== undefined,
 );
 
-export const frameLayoutFieldsV2 = {
-  clip: zodField(z.boolean(), 'clip 必须是布尔值', 'boolean'),
-  layout: zodField(layoutSchemaV2, '无效的 Frame 布局'),
-  gap: spacingField,
-  padding: paddingFieldV2,
-  justifyContent: zodField(justifyContentSchemaV2, '无效的主轴分布'),
-  alignItems: zodField(alignItemsSchemaV2, '无效的交叉轴对齐'),
-};
-
-function createAppearanceSchemasV2(variables: Readonly<DesignVariables>) {
+function createElementSchema(variables?: Readonly<DesignVariables>) {
   function bound<Schema extends z.ZodType>(
     schema: Schema,
-    ...variableTypes: VariableType[]
+    variableTypes: readonly VariableType[],
   ) {
-    return z.preprocess(
-      (value: z.input<Schema> | VariableReference, context) => {
+    // Keep references in the output. The second pass checks their literal values.
+    return z
+      .union([variableReferenceSchema, schema])
+      .superRefine((value, context) => {
+        if (
+          variables === undefined ||
+          !variableReferenceSchema.safeParse(value).success
+        ) {
+          return;
+        }
         const resolved = resolveBoundField(value, variableTypes, variables);
         if ('code' in resolved) {
           context.addIssue({
@@ -154,27 +59,42 @@ function createAppearanceSchemasV2(variables: Readonly<DesignVariables>) {
             message: resolved.message,
             params: { diagnosticCode: resolved.code },
           });
-          return z.NEVER;
+          return;
         }
-        return resolved.value;
-      },
-      schema,
-    );
+        const literal = schema.safeParse(resolved.value);
+        if (!literal.success) {
+          for (const issue of literal.error.issues) {
+            context.addIssue({ ...issue });
+          }
+        }
+      });
   }
 
-  const unitInterval = bound(unitIntervalSchema, 'number');
-  const color = bound(hexColorSchemaV2, 'color');
-  const nonNegativeNumber = bound(nonNegativeNumberSchema, 'number');
-  const number = bound(z.number(), 'number');
-  const url = bound(z.string(), 'string');
-  const fillOpacity = unitInterval.default(1);
+  function resolveOffset(offset: number | VariableReference): unknown {
+    return variables === undefined
+      ? offset
+      : resolveVariableValue(offset, variables);
+  }
+
+  const unitInterval = bound(unitIntervalSchema, ['number']);
+  const color = bound(hexColorSchema, ['color']);
+  const nonNegativeNumber = bound(nonNegativeNumberSchema, ['number']);
+  const number = bound(z.number(), ['number']);
+  const url = bound(z.string(), ['string']);
+  const fillOpacity = unitInterval.optional();
   const gradientPointSchema = z.strictObject({ x: number, y: number });
   const gradientStopsSchema = z
     .array(z.strictObject({ offset: unitInterval, color }))
     .min(2)
     .superRefine((stops, context) => {
       for (let index = 1; index < stops.length; index += 1) {
-        if (stops[index].offset < stops[index - 1].offset) {
+        const previous = resolveOffset(stops[index - 1].offset);
+        const current = resolveOffset(stops[index].offset);
+        if (
+          typeof previous === 'number' &&
+          typeof current === 'number' &&
+          current < previous
+        ) {
           context.addIssue({
             code: 'custom',
             path: [index, 'offset'],
@@ -207,26 +127,13 @@ function createAppearanceSchemasV2(variables: Readonly<DesignVariables>) {
         }
       }
     });
-  const uniform = bound(
-    z.union([
-      z.number(),
-      z.boolean(),
-      z.tuple([number, number]),
-      z.tuple([number, number, number]),
-      z.tuple([number, number, number, number]),
-    ]),
-    'number',
-    'boolean',
-  );
-  // A Map lets Zod validate every JSON key, including "__proto__".
-  const uniforms = z.preprocess(
-    (value: Record<string, z.input<typeof uniform>>) =>
-      isPlainObject(value) &&
-      Object.prototype.toString.call(value) === '[object Object]'
-        ? new Map(Object.entries(value))
-        : undefined,
-    z.map(z.string(), uniform),
-  );
+  const uniform = z.union([
+    bound(z.union([z.number(), z.boolean()]), ['number', 'boolean']),
+    z.tuple([number, number]),
+    z.tuple([number, number, number]),
+    z.tuple([number, number, number, number]),
+  ]);
+  const uniforms = jsonRecord(z.string(), uniform);
   const gradientLayer = { type: z.literal('gradient'), opacity: fillOpacity };
   const fillLayer = z.discriminatedUnion('type', [
     z.strictObject({
@@ -266,7 +173,7 @@ function createAppearanceSchemasV2(variables: Readonly<DesignVariables>) {
       type: z.literal('image'),
       opacity: fillOpacity,
       url,
-      mode: z.enum(['cover', 'contain', 'stretch']).default('cover'),
+      mode: z.enum(['cover', 'contain', 'stretch']).optional(),
     }),
     z.strictObject({
       type: z.literal('shader'),
@@ -278,12 +185,12 @@ function createAppearanceSchemasV2(variables: Readonly<DesignVariables>) {
   const fill = z.array(fillLayer);
   const stroke = z.strictObject({
     fill,
-    alignment: z.enum(['inner', 'center', 'outer']).default('center'),
-    width: nonNegativeNumber.default(1),
-    style: z.enum(['solid', 'dashed', 'dotted']).default('solid'),
+    alignment: z.enum(['inner', 'center', 'outer']).optional(),
+    width: nonNegativeNumber.optional(),
+    style: z.enum(['solid', 'dashed', 'dotted']).optional(),
   });
   const cornerRadius = z.union([
-    nonNegativeNumberSchema,
+    nonNegativeNumber,
     z.tuple([
       nonNegativeNumber,
       nonNegativeNumber,
@@ -306,741 +213,443 @@ function createAppearanceSchemasV2(variables: Readonly<DesignVariables>) {
       }),
     ]),
   );
-  return { fill, stroke, cornerRadius, effect };
-}
 
-// Appearance fields share schemas bound to the document's variable table.
-const appearanceSchemas = new WeakMap<
-  Readonly<DesignVariables>,
-  AppearanceSchemasV2
->();
-const noVariables: Readonly<DesignVariables> = {};
+  const dimension = z.union([z.enum(dimensionModes), nonNegativeNumber]);
+  const textStyle = z
+    .strictObject({
+      content: bound(z.string(), ['string']),
+      textGrowth: z
+        .enum(['auto', 'fixed-width', 'fixed-width-height'])
+        .optional(),
+      width: dimension.optional(),
+      height: dimension.optional(),
+      fontFamily: bound(z.string().min(1), ['string']).optional(),
+      fontSize: bound(positiveNumberSchema, ['number']).optional(),
+      fontWeight: bound(z.number().int().min(1).max(1000), [
+        'number',
+      ]).optional(),
+      lineHeight: bound(positiveNumberSchema, ['number']).optional(),
+      textAlign: z.enum(['left', 'center', 'right', 'justify']).optional(),
+    })
+    .superRefine((style, context) => {
+      const growth = style.textGrowth ?? 'auto';
+      if (growth !== 'auto' && style.width === undefined) {
+        context.addIssue({
+          code: 'custom',
+          path: ['width'],
+          message: '当前文字增长模式要求提供 width',
+        });
+      }
+      if (growth === 'fixed-width-height' && style.height === undefined) {
+        context.addIssue({
+          code: 'custom',
+          path: ['height'],
+          message: '当前文字增长模式要求提供 height',
+        });
+      }
+    });
 
-export const appearanceFieldsV2 = {
-  fill: appearanceField('fill'),
-  stroke: appearanceField('stroke'),
-  cornerRadius: appearanceField('cornerRadius', 'number'),
-  effect: appearanceField('effect'),
-};
-
-function appearanceField(
-  field: keyof AppearanceSchemasV2,
-  variableType?: VariableType,
-): FieldValidator {
-  const validate: FieldValidator = (value, path, variables = noVariables) => {
-    let schemas = appearanceSchemas.get(variables);
-    if (schemas === undefined) {
-      schemas = createAppearanceSchemasV2(variables);
-      appearanceSchemas.set(variables, schemas);
-    }
-    const parsed = schemas[field].safeParse(value);
-    // Use the parsed values for validation while retaining authored fields.
-    return parsed.success
-      ? []
-      : appearanceDiagnostics(parsed.error.issues, value, path);
+  const commonFields = {
+    id: z
+      .string()
+      .refine((id) => id.trim().length > 0, '元素 ID 必须是非空字符串'),
+    name: bound(z.string(), ['string']).optional(),
+    opacity: unitInterval.optional(),
+    x: number.optional(),
+    y: number.optional(),
+    rotation: number.optional(),
+    fill: fill.optional(),
+    stroke: stroke.optional(),
+    cornerRadius: cornerRadius.optional(),
+    effect: effect.optional(),
   };
-  if (variableType !== undefined) {
-    validate.variableTypes = [variableType];
-  }
-  return validate;
+  const sizedFields = {
+    ...commonFields,
+    width: dimension.optional(),
+    height: dimension.optional(),
+  };
+
+  return z.discriminatedUnion('type', [
+    z.strictObject({
+      ...sizedFields,
+      type: z.literal('frame'),
+      children: rawChildrenSchema.optional(),
+      clip: bound(z.boolean(), ['boolean']).optional(),
+      layout: z.enum(frameLayouts).optional(),
+      gap: nonNegativeNumber.optional(),
+      padding: z
+        .union([
+          nonNegativeNumber,
+          z.tuple([nonNegativeNumber, nonNegativeNumber]),
+          z.tuple([
+            nonNegativeNumber,
+            nonNegativeNumber,
+            nonNegativeNumber,
+            nonNegativeNumber,
+          ]),
+        ])
+        .optional(),
+      justifyContent: z.enum(frameJustifyContent).optional(),
+      alignItems: z.enum([...frameAlignItems, 'stretch']).optional(),
+    }),
+    z.strictObject({ ...sizedFields, type: z.literal('rectangle') }),
+    z.strictObject({ ...sizedFields, type: z.literal('ellipse') }),
+    z.strictObject({
+      ...sizedFields,
+      type: z.literal('icon'),
+      library: bound(z.string().min(1), ['string']),
+      icon: bound(z.string().min(1), ['string']),
+    }),
+    z.strictObject({ ...commonFields, type: z.literal('text'), textStyle }),
+  ]);
 }
 
-const textStyleFieldsV2 = {
-  content: zodField(z.string(), '必须是字符串', 'string'),
-  textGrowth: zodField(textGrowthSchemaV2, '无效的文字增长模式'),
-  width: dimensionFieldV2,
-  height: dimensionFieldV2,
-  fontFamily: zodField(
-    z.string().min(1),
-    'fontFamily 必须是非空字符串',
-    'string',
-  ),
-  fontSize: zodField(
-    positiveNumberSchema,
-    'fontSize 必须是正有限数值',
-    'number',
-  ),
-  fontWeight: zodField(
-    z.number().int().min(1).max(1000),
-    'fontWeight 必须是 1 到 1000 之间的整数',
-    'number',
-  ),
-  lineHeight: zodField(
-    positiveNumberSchema,
-    'lineHeight 必须是正有限的字号倍数',
-    'number',
-  ),
-  textAlign: zodField(textAlignSchemaV2, '无效的文字对齐'),
+const elementSchema = createElementSchema();
+type ElementFields = z.infer<typeof elementSchema>;
+type FrameFields = Extract<ElementFields, { type: 'frame' }>;
+type LeafElement = Exclude<ElementFields, FrameFields>;
+type FrameElement = Omit<FrameFields, 'children'> & {
+  children?: DesignElement[];
 };
+export type DesignElement = FrameElement | LeafElement;
 
-export const textStyleFieldV2: FieldValidator = (
-  value,
-  path,
-  variables = {},
-) => {
-  if (!isPlainObject(value)) {
-    return [fail(path, 'textStyle 必须是对象')];
-  }
+export type FillLayerV2 = NonNullable<DesignElement['fill']>[number];
+export type StrokeV2 = NonNullable<DesignElement['stroke']>;
+export type CornerRadiusV2 = NonNullable<DesignElement['cornerRadius']>;
+export type EffectV2 = NonNullable<DesignElement['effect']>[number];
+export type TextStyleV2 = Extract<DesignElement, { type: 'text' }>['textStyle'];
 
-  const requiredFields = ['content'];
-  if (
-    value.textGrowth === 'fixed-width' ||
-    value.textGrowth === 'fixed-width-height'
-  ) {
-    requiredFields.push('width');
-  }
-  if (value.textGrowth === 'fixed-width-height') {
-    requiredFields.push('height');
-  }
+function jsonRecord<Value extends z.ZodType>(
+  key: z.ZodType<string>,
+  value: Value,
+) {
+  // A Map lets Zod validate every own JSON key, including "__proto__".
+  return z
+    .preprocess(
+      (input) =>
+        isPlainObject(input) &&
+        Object.prototype.toString.call(input) === '[object Object]'
+          ? new Map(Object.entries(input))
+          : undefined,
+      z.map(key, value),
+    )
+    .transform((entries) => Object.fromEntries(entries));
+}
 
-  return validateObjectFields(
-    value,
-    path,
-    { fields: textStyleFieldsV2, requiredFields },
-    variables,
+const variablesSchema = jsonRecord(
+  z.string().superRefine((name, context) => {
+    if (!isVariableName(name)) {
+      context.addIssue({
+        code: 'custom',
+        params: { diagnosticCode: DiagnosticCodes.invalidVariableName },
+        message: '变量名必须由小写字母或数字分段组成，分段之间用单连字符连接',
+      });
+    }
+  }),
+  z.discriminatedUnion('type', [
+    z.strictObject({
+      type: z.literal('color'),
+      value: z.custom<string>(isHexColor),
+    }),
+    z.strictObject({ type: z.literal('number'), value: z.number() }),
+    z.strictObject({ type: z.literal('string'), value: z.string() }),
+    z.strictObject({ type: z.literal('boolean'), value: z.boolean() }),
+  ]),
+);
+
+const documentSchema = z.strictObject({
+  version: z.literal(DESIGN_DOCUMENT_VERSION),
+  children: rawChildrenSchema.transform(parseElementTree),
+  filePath: z.string().refine(isSystemAbsolutePath).optional(),
+  variables: variablesSchema.default(() => ({})),
+});
+export type DesignDocument = z.infer<typeof documentSchema>;
+export type ValidationResult =
+  { ok: true; document: DesignDocument } | { ok: false; errors: Diagnostic[] };
+
+type Path = PropertyKey[];
+
+function parseElementTree(
+  input: unknown[],
+  context: z.RefinementCtx,
+): DesignElement[] {
+  const children: DesignElement[] = [];
+  const stack = [{ input, children, path: [] as Path, index: 0 }];
+  const ancestors = new Set([input]);
+  // Validate one element at a time so the schema does not recurse with tree depth.
+  while (stack.length > 0) {
+    const parent = stack[stack.length - 1];
+    if (parent.index === parent.input.length) {
+      ancestors.delete(parent.input);
+      stack.pop();
+      continue;
+    }
+
+    const index = parent.index++;
+    const child = parent.input[index];
+    const path = [...parent.path, index];
+    const parsed = elementSchema.safeParse(child);
+    if (!parsed.success) {
+      for (const issue of parsed.error.issues) {
+        context.addIssue({ ...issue, path: [...path, ...issue.path] });
+      }
+      continue;
+    }
+    if (parsed.data.type !== 'frame') {
+      parent.children.push(parsed.data);
+      continue;
+    }
+
+    const { children: source, ...frame } = parsed.data;
+    if (source === undefined) {
+      if (Object.hasOwn(parsed.data, 'children')) {
+        context.addIssue({
+          code: 'custom',
+          path: [...path, 'children'],
+          message: 'children 必须是有序数组',
+        });
+      }
+      parent.children.push(frame);
+      continue;
+    }
+
+    const childPath = [...path, 'children'];
+    if (ancestors.has(source)) {
+      context.addIssue({
+        code: 'custom',
+        path: childPath,
+        message: '元素树不能包含循环引用',
+      });
+      continue;
+    }
+    const nested: DesignElement[] = [];
+    parent.children.push({ ...frame, children: nested });
+    ancestors.add(source);
+    stack.push({ input: source, children: nested, path: childPath, index: 0 });
+  }
+  return children;
+}
+
+function checkVersion(input: Record<string, unknown>): Diagnostic | undefined {
+  const version = input.version;
+  if (version === undefined) {
+    return createDiagnostic(
+      DiagnosticCodes.missingVersion,
+      '$.version',
+      '设计稿缺少版本号',
+    );
+  }
+  if (typeof version !== 'number' || !Number.isFinite(version)) {
+    return createDiagnostic(
+      DiagnosticCodes.invalidVersion,
+      '$.version',
+      '设计稿版本号必须是有限数值',
+    );
+  }
+  if (version !== DESIGN_DOCUMENT_VERSION) {
+    return createDiagnostic(
+      DiagnosticCodes.unsupportedVersion,
+      '$.version',
+      `不支持的设计稿版本 ${version}，当前只支持版本 ${DESIGN_DOCUMENT_VERSION}`,
+    );
+  }
+}
+
+function formatPath(path: Path): string {
+  return path.reduce<string>((parent, key) => {
+    if (typeof key === 'number') {
+      return `${parent}[${key}]`;
+    }
+    const name = String(key);
+    return /^[a-z_$][\w$-]*$/i.test(name)
+      ? `${parent}.${name}`
+      : `${parent}[${JSON.stringify(name)}]`;
+  }, '$');
+}
+
+function isElementPath(path: Path): boolean {
+  return (
+    path.length > 0 &&
+    path.every((key, index) =>
+      index % 2 === 0 ? key === 'children' : typeof key === 'number',
+    ) &&
+    path.length % 2 === 0
   );
-};
-
-function zodField(
-  schema: z.ZodType,
-  message: string,
-  variableType?: VariableType,
-): FieldValidator {
-  const validate: FieldValidator = (value, path) =>
-    schema.safeParse(value).success
-      ? []
-      : [createDiagnostic(DiagnosticCodes.invalidValue, path, message)];
-  if (variableType !== undefined) {
-    validate.variableTypes = [variableType];
-  }
-  return validate;
 }
 
-function appearanceDiagnostics(
+function diagnosticsFromIssues(
   issues: readonly z.core.$ZodIssue[],
-  value: unknown,
-  path: string,
+  source: unknown,
+  prefix: Path = [],
 ): Diagnostic[] {
   return issues.flatMap((issue) => {
-    let issuePath = path;
-    let input = value;
-    for (const key of issue.path) {
-      issuePath = appearancePath(issuePath, key);
-      input =
+    const path = [...prefix, ...issue.path];
+    const last = path.at(-1);
+    const parent = path.slice(0, -1);
+    const onElement = isElementPath(parent);
+    const value = issue.path.reduce<unknown>(
+      (input, key) =>
         typeof input === 'object' && input !== null && Object.hasOwn(input, key)
           ? (input as Record<PropertyKey, unknown>)[key]
-          : undefined;
-    }
+          : undefined,
+      source,
+    );
 
     if (issue.code === 'unrecognized_keys') {
       return issue.keys.map((key) =>
         createDiagnostic(
-          DiagnosticCodes.unknownField,
-          appearancePath(issuePath, key),
-          `节点不支持的字段 "${key}"`,
+          key === 'children' && isElementPath(path)
+            ? DiagnosticCodes.invalidChildren
+            : DiagnosticCodes.unknownField,
+          formatPath([...path, key]),
+          `不支持的字段 "${key}"`,
         ),
       );
     }
-    if (input === undefined) {
-      return [
-        createDiagnostic(
-          DiagnosticCodes.missingField,
-          issuePath,
-          '缺少必填字段',
-        ),
-      ];
-    }
-    if (issue.code === 'invalid_union' && Array.isArray(input)) {
-      // A tuple can carry diagnostics on individual components.
-      const tupleIssues = issue.errors.find(
-        (branch) =>
-          branch.length > 0 &&
-          branch.every(
-            ({ path: [index] }) =>
-              typeof index === 'number' && index < input.length,
-          ),
+    if (issue.code === 'invalid_union') {
+      // Unwrap a tuple's component failures or a scalar's failed binding check.
+      const branch = issue.errors.find((branch) =>
+        Array.isArray(value)
+          ? branch.length > 0 &&
+            branch.every(
+              ({ path: [key] }) =>
+                typeof key === 'number' && key < value.length,
+            )
+          : branch.some(
+              (issue) =>
+                issue.code === 'custom' &&
+                issue.params?.diagnosticCode !== undefined,
+            ),
       );
-      if (tupleIssues !== undefined) {
-        return appearanceDiagnostics(tupleIssues, input, issuePath);
+      if (branch !== undefined) {
+        return diagnosticsFromIssues(branch, value, path);
       }
     }
-    const code =
-      issue.code === 'custom' ? issue.params?.diagnosticCode : undefined;
-    return [
-      createDiagnostic(
-        typeof code === 'string' ? code : DiagnosticCodes.invalidValue,
-        issuePath,
-        issue.message,
-      ),
-    ];
+
+    let code: DiagnosticCode = DiagnosticCodes.invalidValue;
+    if (issue.code === 'custom' && issue.params?.diagnosticCode !== undefined) {
+      code = issue.params.diagnosticCode as DiagnosticCode;
+    } else if (onElement && last === 'id') {
+      code = DiagnosticCodes.invalidId;
+    } else if (onElement && last === 'children') {
+      code = DiagnosticCodes.invalidChildren;
+    } else if (path.length === 1 && last === 'filePath') {
+      code = DiagnosticCodes.invalidFilePath;
+    } else if (
+      isElementPath(path) ||
+      (onElement &&
+        last === 'type' &&
+        value !== undefined &&
+        typeof value !== 'string') ||
+      (onElement && last === 'textStyle' && value !== undefined) ||
+      (path.length === 1 && (last === 'children' || last === 'variables')) ||
+      (path.length === 2 && path[0] === 'variables')
+    ) {
+      code = DiagnosticCodes.invalidStructure;
+    } else if (value === undefined) {
+      code = DiagnosticCodes.missingField;
+    } else if (onElement && last === 'type') {
+      code = DiagnosticCodes.unknownNodeType;
+    } else if (
+      variableReferenceName(value) !== undefined &&
+      ((parent.at(-1) === 'textStyle' &&
+        isElementPath(parent.slice(0, -1)) &&
+        (last === 'textGrowth' || last === 'textAlign')) ||
+        (onElement &&
+          (last === 'layout' ||
+            last === 'justifyContent' ||
+            last === 'alignItems')))
+    ) {
+      code = DiagnosticCodes.variableTypeMismatch;
+    }
+    return [createDiagnostic(code, formatPath(path), issue.message)];
   });
 }
 
-function appearancePath(path: string, key: PropertyKey): string {
-  if (typeof key === 'number') {
-    return `${path}[${key}]`;
+function validateDocumentRules(document: DesignDocument): Diagnostic[] {
+  const errors: Diagnostic[] = [];
+  const bindingSchema = createElementSchema(document.variables);
+  const ids = new Map<string, Path>();
+  const stack = [
+    { children: document.children, path: ['children'] as Path, index: 0 },
+  ];
+  while (stack.length > 0) {
+    const parent = stack[stack.length - 1];
+    if (parent.index === parent.children.length) {
+      stack.pop();
+      continue;
+    }
+    const index = parent.index++;
+    const element = parent.children[index];
+    const path = [...parent.path, index];
+    const idPath = [...path, 'id'];
+    const firstPath = ids.get(element.id);
+    if (firstPath === undefined) {
+      ids.set(element.id, idPath);
+    } else {
+      errors.push(
+        createDiagnostic(
+          DiagnosticCodes.duplicateId,
+          formatPath(idPath),
+          `重复的元素 ID "${element.id}"，首次出现在 ${formatPath(firstPath)}`,
+        ),
+      );
+    }
+
+    const bindings = bindingSchema.safeParse(element);
+    if (!bindings.success) {
+      errors.push(
+        ...diagnosticsFromIssues(bindings.error.issues, element, path),
+      );
+    }
+    if (element.type === 'frame' && element.children !== undefined) {
+      stack.push({
+        children: element.children,
+        path: [...path, 'children'],
+        index: 0,
+      });
+    }
   }
-  const name = String(key);
-  return /^[a-z_$][\w$-]*$/i.test(name)
-    ? fieldPath(path, name)
-    : `${path}[${JSON.stringify(name)}]`;
+
+  return errors.length > 0
+    ? errors
+    : layoutDesignDocumentV2(document).issues.map(layoutIssueToDiagnostic);
 }
 
-interface ValidationState {
-  version: number;
-  errors: Diagnostic[];
-  ids: Map<string, string>;
-  variables: DesignVariables;
-  inspectNode: (type: string) => NodeInspector | undefined;
-}
-
-interface DocumentStructure<Version extends number> {
-  version: Version;
-  children: unknown[];
-  filePath?: string;
-  variables: DesignVariables;
-}
-
-function fail(path: string, message: string): Diagnostic {
-  return createDiagnostic(DiagnosticCodes.invalidStructure, path, message);
-}
-
-function childPath(parentPath: string, index: number): string {
-  return `${parentPath}.children[${index}]`;
-}
-
-function fieldPath(parentPath: string, field: string): string {
-  return `${parentPath}.${field}`;
-}
-
-/**
- * Parses JSON text and validates the resulting native design document.
- */
+/** Parses JSON and validates it against the native v2 contract. */
 export function parseDesignDocument(text: string): ValidationResult {
   return parseDocumentJson(text, validateDesignDocument);
 }
 
-export function parseDocumentJson<Document>(
-  text: string,
-  validate: (input: unknown) => ValidationResult<Document>,
-): ValidationResult<Document> {
-  let input: unknown;
-  try {
-    input = JSON.parse(text);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+/** Validates v2 fields, then checks IDs, bindings and dimension dependencies. */
+export function validateDesignDocument(input: unknown): ValidationResult {
+  if (!isPlainObject(input)) {
     return {
       ok: false,
       errors: [
         createDiagnostic(
-          DiagnosticCodes.invalidJson,
-          ROOT_PATH,
-          `JSON 解析失败：${message}`,
+          DiagnosticCodes.invalidStructure,
+          '$',
+          '设计稿根节点必须是对象',
         ),
       ],
     };
   }
-
-  return validate(input);
-}
-
-/**
- * Validates an already parsed value against the native version 1 document
- * contract. Validation dispatches every element to the inspector registered
- * for its `type`.
- */
-export function validateDesignDocument(input: unknown): ValidationResult {
-  const result = validateDocumentStructure(
-    input,
-    DESIGN_DOCUMENT_VERSION,
-    getNodeInspector,
-  );
-  if (!result.ok) {
-    return result;
+  const versionError = checkVersion(input);
+  if (versionError !== undefined) {
+    return { ok: false, errors: [versionError] };
   }
 
-  const document = result.document as DesignDocument;
-  const layout = layoutDesignDocument(document);
-  if (layout.issues.length > 0) {
+  const fields = documentSchema.safeParse(input);
+  if (!fields.success) {
     return {
       ok: false,
-      errors: layout.issues.map(layoutIssueToDiagnostic),
+      errors: diagnosticsFromIssues(fields.error.issues, input),
     };
   }
 
-  return { ok: true, document };
-}
-
-export function validateDocumentStructure<Version extends number>(
-  input: unknown,
-  version: Version,
-  inspectNode: ValidationState['inspectNode'],
-): ValidationResult<DocumentStructure<Version>> {
-  if (!isPlainObject(input)) {
-    return {
-      ok: false,
-      errors: [fail(ROOT_PATH, '设计稿根节点必须是对象')],
-    };
-  }
-
-  const state: ValidationState = {
-    version,
-    errors: [],
-    ids: new Map(),
-    variables: {},
-    inspectNode,
-  };
-  validateVersion(input, version, state);
-  validateRootFields(input, state);
-  const filePath = validateFilePath(input, state);
-  state.variables = validateVariables(input, state);
-  const children = validateChildren(input, state);
-
-  if (state.errors.length > 0) {
-    return { ok: false, errors: state.errors };
-  }
-
-  return {
-    ok: true,
-    document: {
-      version,
-      children,
-      variables: state.variables,
-      ...(filePath === undefined ? {} : { filePath }),
-    },
-  };
-}
-
-function validateVersion(
-  input: Record<string, unknown>,
-  expectedVersion: number,
-  state: ValidationState,
-): void {
-  const version = input.version;
-  if (version === undefined) {
-    state.errors.push(
-      createDiagnostic(
-        DiagnosticCodes.missingVersion,
-        fieldPath(ROOT_PATH, 'version'),
-        '设计稿缺少版本号',
-      ),
-    );
-    return;
-  }
-
-  if (typeof version !== 'number' || !Number.isFinite(version)) {
-    state.errors.push(
-      createDiagnostic(
-        DiagnosticCodes.invalidVersion,
-        fieldPath(ROOT_PATH, 'version'),
-        '设计稿版本号必须是数值',
-      ),
-    );
-    return;
-  }
-
-  if (version !== expectedVersion) {
-    state.errors.push(
-      createDiagnostic(
-        DiagnosticCodes.unsupportedVersion,
-        fieldPath(ROOT_PATH, 'version'),
-        `不支持的设计稿版本 ${version}，当前只支持版本 ${expectedVersion}`,
-      ),
-    );
-  }
-}
-
-function validateRootFields(
-  input: Record<string, unknown>,
-  state: ValidationState,
-): void {
-  for (const key of Object.keys(input)) {
-    if (!ROOT_FIELDS.has(key)) {
-      state.errors.push(
-        createDiagnostic(
-          DiagnosticCodes.unknownField,
-          fieldPath(ROOT_PATH, key),
-          `设计稿不支持的字段 "${key}"`,
-        ),
-      );
-    }
-  }
-}
-
-function validateFilePath(
-  input: Record<string, unknown>,
-  state: ValidationState,
-): string | undefined {
-  if (input.filePath === undefined) {
-    return undefined;
-  }
-
-  if (
-    typeof input.filePath !== 'string' ||
-    !isSystemAbsolutePath(input.filePath)
-  ) {
-    state.errors.push(
-      createDiagnostic(
-        DiagnosticCodes.invalidFilePath,
-        fieldPath(ROOT_PATH, 'filePath'),
-        'filePath 必须是操作系统绝对路径',
-      ),
-    );
-    return undefined;
-  }
-
-  return input.filePath;
-}
-
-function validateVariables(
-  input: Record<string, unknown>,
-  state: ValidationState,
-): DesignVariables {
-  if (input.variables === undefined) {
-    return {};
-  }
-
-  const path = fieldPath(ROOT_PATH, 'variables');
-  if (!isPlainObject(input.variables)) {
-    state.errors.push(fail(path, 'variables 必须是对象'));
-    return {};
-  }
-
-  const variables: DesignVariables = {};
-  for (const [name, entry] of Object.entries(input.variables)) {
-    const entryPath = fieldPath(path, name);
-    if (!isPlainObject(entry)) {
-      state.errors.push(fail(entryPath, '变量必须是对象'));
-      continue;
-    }
-
-    for (const key of Object.keys(entry)) {
-      if (!VARIABLE_FIELDS.has(key)) {
-        state.errors.push(
-          createDiagnostic(
-            DiagnosticCodes.unknownField,
-            fieldPath(entryPath, key),
-            `变量不支持的字段 "${key}"`,
-          ),
-        );
-      }
-    }
-
-    const { type, value } = entry;
-    const nameIsValid = isVariableName(name);
-    const typeIsValid = isVariableType(type);
-    const valueIsValid = typeIsValid && isValidVariableValue(type, value);
-
-    if (!nameIsValid) {
-      state.errors.push(
-        createDiagnostic(
-          DiagnosticCodes.invalidVariableName,
-          entryPath,
-          '变量名必须由小写字母或数字分段组成，分段之间用单连字符连接',
-        ),
-      );
-    }
-
-    if (!typeIsValid) {
-      state.errors.push(
-        createDiagnostic(
-          DiagnosticCodes.invalidValue,
-          fieldPath(entryPath, 'type'),
-          `变量类型必须是 ${VARIABLE_TYPES.join('、')} 之一`,
-        ),
-      );
-    } else if (!valueIsValid) {
-      state.errors.push(
-        createDiagnostic(
-          DiagnosticCodes.invalidValue,
-          fieldPath(entryPath, 'value'),
-          `变量值必须匹配 ${type} 类型`,
-        ),
-      );
-    }
-
-    if (nameIsValid && typeIsValid && valueIsValid) {
-      variables[name] = { type, value };
-    }
-  }
-
-  return variables;
-}
-
-function isVariableType(value: unknown): value is VariableType {
-  return isOneOf(value, VARIABLE_TYPES);
-}
-
-function isValidVariableValue(
-  type: VariableType,
-  value: unknown,
-): value is VariableValue {
-  switch (type) {
-    case 'color':
-      return isHexColor(value);
-    case 'string':
-      return typeof value === 'string';
-    case 'number':
-      return typeof value === 'number' && Number.isFinite(value);
-    case 'boolean':
-      return typeof value === 'boolean';
-  }
-}
-
-function validateChildren(
-  input: Record<string, unknown>,
-  state: ValidationState,
-): unknown[] {
-  const path = fieldPath(ROOT_PATH, 'children');
-  if (!Array.isArray(input.children)) {
-    state.errors.push(fail(path, '设计稿 children 必须是有序数组'));
-    return [];
-  }
-
-  validateElementArray(input.children, ROOT_PATH, state);
-  return input.children;
-}
-
-function validateElementArray(
-  children: unknown[],
-  path: string,
-  state: ValidationState,
-): void {
-  if (state.version === DESIGN_DOCUMENT_VERSION) {
-    children.forEach((child, index) => {
-      validateElement(child, childPath(path, index), state);
-    });
-    return;
-  }
-  for (let index = 0; index < children.length; index += 1) {
-    validateElement(children[index], childPath(path, index), state);
-  }
-}
-
-function validateElement(
-  element: unknown,
-  path: string,
-  state: ValidationState,
-): void {
-  if (!isPlainObject(element)) {
-    state.errors.push(fail(path, '元素必须是对象'));
-    return;
-  }
-
-  validateId(element, path, state);
-
-  const type = element.type;
-  if (type === undefined) {
-    state.errors.push(
-      createDiagnostic(
-        DiagnosticCodes.missingField,
-        fieldPath(path, 'type'),
-        '元素缺少 type',
-      ),
-    );
-    return;
-  }
-
-  if (typeof type !== 'string') {
-    state.errors.push(fail(fieldPath(path, 'type'), '元素 type 必须是字符串'));
-    return;
-  }
-
-  const inspector = state.inspectNode(type);
-  if (!inspector) {
-    state.errors.push(
-      createDiagnostic(
-        DiagnosticCodes.unknownNodeType,
-        fieldPath(path, 'type'),
-        `未知的节点类型 "${type}"`,
-      ),
-    );
-    return;
-  }
-
-  const errors = validateObjectFields(
-    element,
-    path,
-    inspector,
-    state.variables,
-    ['id', 'type', 'children'],
-  );
-  for (const error of errors) {
-    state.errors.push(error);
-  }
-  validateElementChildren(element, path, inspector.allowsChildren, state);
-}
-
-export function validateObjectFields(
-  object: Record<string, unknown>,
-  path: string,
-  { fields, requiredFields }: Pick<NodeInspector, 'fields' | 'requiredFields'>,
-  variables: Readonly<DesignVariables>,
-  structuralFields: readonly string[] = [],
-): Diagnostic[] {
-  const errors: Diagnostic[] = [];
-  const allowedFields = new Set([...structuralFields, ...Object.keys(fields)]);
-  for (const key of Object.keys(object)) {
-    if (!allowedFields.has(key)) {
-      errors.push(
-        createDiagnostic(
-          DiagnosticCodes.unknownField,
-          fieldPath(path, key),
-          `节点不支持的字段 "${key}"`,
-        ),
-      );
-    }
-  }
-
-  for (const field of requiredFields ?? []) {
-    if (object[field] === undefined) {
-      errors.push(
-        createDiagnostic(
-          DiagnosticCodes.missingField,
-          fieldPath(path, field),
-          `节点缺少必填字段 "${field}"`,
-        ),
-      );
-    }
-  }
-
-  for (const [field, validateField] of Object.entries(fields)) {
-    if (object[field] !== undefined) {
-      const fieldErrors = validateBoundField(
-        object[field],
-        validateField,
-        fieldPath(path, field),
-        variables,
-      );
-      for (const error of fieldErrors) {
-        errors.push(error);
-      }
-    }
-  }
-
-  return errors;
-}
-
-/**
- * Validates a property value that may be a whole-value variable reference.
- * Missing names and type mismatches point at the property using the variable;
- * the resolved literal is then checked against the normal field rules so the
- * same number can be valid for one property and out of range for another.
- */
-function validateBoundField(
-  value: unknown,
-  validator: FieldValidator,
-  path: string,
-  variables: Readonly<DesignVariables>,
-): Diagnostic[] {
-  const resolved = resolveBoundField(value, validator.variableTypes, variables);
-  return 'code' in resolved
-    ? [createDiagnostic(resolved.code, path, resolved.message)]
-    : validator(resolved.value, path, variables);
-}
-
-function resolveBoundField(
-  value: unknown,
-  variableTypes: readonly VariableType[] | undefined,
-  variables: Readonly<DesignVariables>,
-): { value: unknown } | { code: DiagnosticCode; message: string } {
-  const literal = unescapeVariableReference(value);
-  if (literal !== undefined) {
-    return { value: literal };
-  }
-
-  const name = variableReferenceName(value);
-  if (name === undefined) {
-    return { value };
-  }
-
-  const variable = Object.hasOwn(variables, name) ? variables[name] : undefined;
-  if (variable === undefined) {
-    return {
-      code: DiagnosticCodes.missingVariable,
-      message: `引用的变量 "${name}" 不存在`,
-    };
-  }
-
-  if (!variableTypes?.includes(variable.type)) {
-    return {
-      code: DiagnosticCodes.variableTypeMismatch,
-      message: `变量 "${name}" 的类型 ${variable.type} 不能绑定到此属性`,
-    };
-  }
-
-  return { value: variable.value };
-}
-
-function validateId(
-  element: Record<string, unknown>,
-  path: string,
-  state: ValidationState,
-): void {
-  const id = element.id;
-  const idPath = fieldPath(path, 'id');
-  if (typeof id !== 'string' || id.trim().length === 0) {
-    state.errors.push(
-      createDiagnostic(
-        DiagnosticCodes.invalidId,
-        idPath,
-        '元素 ID 必须是非空字符串',
-      ),
-    );
-    return;
-  }
-
-  const firstPath = state.ids.get(id);
-  if (firstPath !== undefined) {
-    state.errors.push(
-      createDiagnostic(
-        DiagnosticCodes.duplicateId,
-        idPath,
-        `重复的元素 ID "${id}"，首次出现在 ${firstPath}`,
-      ),
-    );
-    return;
-  }
-
-  state.ids.set(id, idPath);
-}
-
-function validateElementChildren(
-  element: Record<string, unknown>,
-  path: string,
-  allowsChildren: boolean,
-  state: ValidationState,
-): void {
-  const hasChildren =
-    element.children !== undefined ||
-    (state.version !== DESIGN_DOCUMENT_VERSION &&
-      Object.hasOwn(element, 'children'));
-  if (!hasChildren) {
-    return;
-  }
-
-  const childrenPath = fieldPath(path, 'children');
-  if (!allowsChildren) {
-    state.errors.push(
-      createDiagnostic(
-        DiagnosticCodes.invalidChildren,
-        childrenPath,
-        '叶节点不能包含 children',
-      ),
-    );
-    return;
-  }
-
-  if (!Array.isArray(element.children)) {
-    state.errors.push(
-      createDiagnostic(
-        DiagnosticCodes.invalidChildren,
-        childrenPath,
-        'children 必须是有序数组',
-      ),
-    );
-    return;
-  }
-
-  validateElementArray(element.children, path, state);
+  const errors = validateDocumentRules(fields.data);
+  return errors.length > 0
+    ? { ok: false, errors }
+    : { ok: true, document: fields.data };
 }

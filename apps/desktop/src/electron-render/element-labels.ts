@@ -1,4 +1,7 @@
-import type { DesignElement, ElementType } from '@design-ai/design-schema';
+import type {
+  DesignElement,
+  ElementType,
+} from '@design-ai/design-schema/legacy';
 
 /** Display names shared by the layer tree and the properties panel. */
 export const ELEMENT_TYPE_LABELS: Record<ElementType, string> = {

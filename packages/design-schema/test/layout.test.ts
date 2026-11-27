@@ -9,7 +9,7 @@ import {
   type Diagnostic,
   type LayoutBox,
   type LayoutNode,
-} from '../src/index';
+} from '../src/legacy';
 
 function validate(input: unknown): DesignDocument {
   const result = validateDesignDocument(input);

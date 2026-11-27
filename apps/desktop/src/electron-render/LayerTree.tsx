@@ -1,4 +1,7 @@
-import type { DesignDocument, DesignElement } from '@design-ai/design-schema';
+import type {
+  DesignDocument,
+  DesignElement,
+} from '@design-ai/design-schema/legacy';
 import {
   ChevronDown,
   Circle,

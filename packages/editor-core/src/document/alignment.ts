@@ -6,7 +6,7 @@ import {
   type FrameAlignItems,
   type FrameElement,
   type FrameJustifyContent,
-} from '@design-ai/design-schema';
+} from '@design-ai/design-schema/legacy';
 import { updateElement, type ElementPatch } from './edit';
 
 /** Alignment of a free-positioned child against its parent container. */

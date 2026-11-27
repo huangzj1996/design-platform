@@ -3,7 +3,7 @@
 import {
   validateDesignDocument,
   type DesignDocument,
-} from '@design-ai/design-schema';
+} from '@design-ai/design-schema/legacy';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import {

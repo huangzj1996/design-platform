@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { validateDesignDocument } from '@design-ai/design-schema';
+import { validateDesignDocument } from '@design-ai/design-schema/legacy';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createDesignFile } from '../src/electron-main/create-design-file';
 

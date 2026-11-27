@@ -24,7 +24,7 @@ import {
   type SizedElement,
   type TextAlign,
   type TextElement,
-} from '@design-ai/design-schema';
+} from '@design-ai/design-schema/legacy';
 import { PencilDiagnosticCodes } from './diagnostics';
 import type { ConvertedVariables } from './variables';
 

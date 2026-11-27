@@ -6,7 +6,7 @@ import {
   parseDesignDocument,
   validateDesignDocument,
   type Diagnostic,
-} from '../src/index';
+} from '../src/legacy';
 
 const nestedDocument = () => ({
   version: 1,

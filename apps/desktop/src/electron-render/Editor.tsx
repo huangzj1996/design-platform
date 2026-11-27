@@ -1,4 +1,7 @@
-import type { DesignDocument, ElementType } from '@design-ai/design-schema';
+import type {
+  DesignDocument,
+  ElementType,
+} from '@design-ai/design-schema/legacy';
 import {
   findElement,
   type ElementAlignment,

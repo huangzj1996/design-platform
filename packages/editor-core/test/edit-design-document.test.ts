@@ -2,7 +2,7 @@ import {
   validateDesignDocument,
   type DesignDocument,
   type FrameElement,
-} from '@design-ai/design-schema';
+} from '@design-ai/design-schema/legacy';
 import { describe, expect, it } from 'vitest';
 import {
   addElement,

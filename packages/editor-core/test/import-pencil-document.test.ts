@@ -9,7 +9,7 @@ import {
   type DesignElement,
   type Diagnostic,
   type FrameElement,
-} from '@design-ai/design-schema';
+} from '@design-ai/design-schema/legacy';
 import {
   importPencilDocument,
   type PencilImportFailure,

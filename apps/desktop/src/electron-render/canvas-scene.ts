@@ -8,7 +8,7 @@ import {
   type LayoutNode,
   type TextAlign,
   type TextWrap,
-} from '@design-ai/design-schema';
+} from '@design-ai/design-schema/legacy';
 
 /** Values shared by every element drawn on the LeaferJS canvas. */
 export interface CanvasSceneNode {

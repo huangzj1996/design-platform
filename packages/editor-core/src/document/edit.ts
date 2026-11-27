@@ -3,7 +3,7 @@ import {
   type DesignDocument,
   type DesignElement,
   type ElementType,
-} from '@design-ai/design-schema';
+} from '@design-ai/design-schema/legacy';
 
 export type ElementPatch = Record<string, unknown>;
 

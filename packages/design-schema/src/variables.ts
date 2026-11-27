@@ -1,4 +1,10 @@
-import type { DesignDocument, DesignElement, DesignVariables } from './types';
+import { DiagnosticCodes, type DiagnosticCode } from './diagnostics';
+import type {
+  DesignDocument,
+  DesignElement,
+  DesignVariables,
+  VariableType,
+} from './types';
 
 /**
  * Document variable names contain lowercase letters or digits in segments
@@ -99,4 +105,37 @@ function resolveElement(
   }
 
   return resolved as unknown as DesignElement;
+}
+
+export function resolveBoundField(
+  value: unknown,
+  variableTypes: readonly VariableType[] | undefined,
+  variables: Readonly<DesignVariables>,
+): { value: unknown } | { code: DiagnosticCode; message: string } {
+  const literal = unescapeVariableReference(value);
+  if (literal !== undefined) {
+    return { value: literal };
+  }
+
+  const name = variableReferenceName(value);
+  if (name === undefined) {
+    return { value };
+  }
+
+  const variable = Object.hasOwn(variables, name) ? variables[name] : undefined;
+  if (variable === undefined) {
+    return {
+      code: DiagnosticCodes.missingVariable,
+      message: `引用的变量 "${name}" 不存在`,
+    };
+  }
+
+  if (!variableTypes?.includes(variable.type)) {
+    return {
+      code: DiagnosticCodes.variableTypeMismatch,
+      message: `变量 "${name}" 的类型 ${variable.type} 不能绑定到此属性`,
+    };
+  }
+
+  return { value: variable.value };
 }

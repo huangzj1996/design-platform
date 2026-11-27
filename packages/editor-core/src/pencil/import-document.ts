@@ -7,7 +7,7 @@ import {
   type DesignDocument,
   type DesignElement,
   type Diagnostic,
-} from '@design-ai/design-schema';
+} from '@design-ai/design-schema/legacy';
 import {
   collectIdUsage,
   convertNode,

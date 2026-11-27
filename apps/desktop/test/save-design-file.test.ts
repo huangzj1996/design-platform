@@ -4,7 +4,7 @@ import path from 'node:path';
 import {
   validateDesignDocument,
   type DesignDocument,
-} from '@design-ai/design-schema';
+} from '@design-ai/design-schema/legacy';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   DesignFileSaver,

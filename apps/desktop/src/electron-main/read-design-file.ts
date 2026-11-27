@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import {
   createDiagnostic,
   parseDesignDocument,
-} from '@design-ai/design-schema';
+} from '@design-ai/design-schema/legacy';
 import { importPencilDocument } from '@design-ai/editor-core';
 import { errorMessage } from './error-message';
 import {

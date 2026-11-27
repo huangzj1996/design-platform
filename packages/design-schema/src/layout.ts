@@ -453,7 +453,7 @@ function measureSizes(roots: DesignElement[]): SizeMeasurements {
     }
   }
 
-  measureTextFillWidths(roots, undefined, measurements);
+  measureTextFillWidths(roots, measurements);
 
   for (const [frame, size] of measurements.frames) {
     size.height = measureAutoFrameAxis(frame, 'height', measurements);
@@ -462,47 +462,56 @@ function measureSizes(roots: DesignElement[]): SizeMeasurements {
 }
 
 function measureTextFillWidths(
-  elements: DesignElement[],
-  fillWidth: number | undefined,
+  roots: DesignElement[],
   measurements: SizeMeasurements,
 ): void {
-  for (const element of elements) {
-    if (
-      element.type === 'text' &&
-      isFillContainer(element.width) &&
-      fillWidth !== undefined
-    ) {
-      measurements.textFillWidths.set(element, fillWidth);
-    }
-    if (element.type !== 'frame') {
-      continue;
-    }
+  const pending: { elements: DesignElement[]; fillWidth?: number }[] = [
+    { elements: roots },
+  ];
+  for (let group = pending.pop(); group !== undefined; group = pending.pop()) {
+    const { elements, fillWidth } = group;
+    for (const element of elements) {
+      if (
+        element.type === 'text' &&
+        isFillContainer(element.width) &&
+        fillWidth !== undefined
+      ) {
+        measurements.textFillWidths.set(element, fillWidth);
+      }
+      if (element.type !== 'frame') {
+        continue;
+      }
 
-    const width = isFillContainer(element.width)
-      ? fillWidth
-      : intrinsicDimension(element, 'width', measurements);
-    const children = element.children ?? [];
-    const [, right, , left] = element.padding ?? DEFAULT_PADDING;
-    let childFillWidth: number | undefined;
-    if (width !== undefined && Number.isFinite(width)) {
-      childFillWidth = Math.max(0, width - left - right);
-      if ((element.layout ?? 'horizontal') === 'horizontal') {
-        const fills = children.filter((child) => isFillContainer(child.width));
-        if (fills.length > 0) {
-          const sizes = children.map((child) => {
-            const size = intrinsicDimension(child, 'width', measurements);
-            return size !== undefined && Number.isFinite(size) ? size : 0;
-          });
-          childFillWidth = fillShare(
-            childFillWidth,
-            totalGap(element.gap ?? 0, children.length),
-            sizes,
-            fills.length,
+      const width = isFillContainer(element.width)
+        ? fillWidth
+        : intrinsicDimension(element, 'width', measurements);
+      const children = element.children ?? [];
+      const [, right, , left] = element.padding ?? DEFAULT_PADDING;
+      let childFillWidth: number | undefined;
+      if (width !== undefined && Number.isFinite(width)) {
+        childFillWidth = Math.max(0, width - left - right);
+        if ((element.layout ?? 'horizontal') === 'horizontal') {
+          const fills = children.filter((child) =>
+            isFillContainer(child.width),
           );
+          if (fills.length > 0) {
+            const sizes = children.map((child) => {
+              const size = intrinsicDimension(child, 'width', measurements);
+              return size !== undefined && Number.isFinite(size) ? size : 0;
+            });
+            childFillWidth = fillShare(
+              childFillWidth,
+              totalGap(element.gap ?? 0, children.length),
+              sizes,
+              fills.length,
+            );
+          }
         }
       }
+      if (children.length > 0) {
+        pending.push({ elements: children, fillWidth: childFillWidth });
+      }
     }
-    measureTextFillWidths(children, childFillWidth, measurements);
   }
 }
 

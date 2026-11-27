@@ -11,7 +11,7 @@ import {
   type FrameLayout,
   type IconElement,
   type TextElement,
-} from '@design-ai/design-schema';
+} from '@design-ai/design-schema/legacy';
 import {
   findElementParent,
   frameAlignmentCell,

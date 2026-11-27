@@ -1,4 +1,7 @@
-import type { DesignDocument, Diagnostic } from '@design-ai/design-schema';
+import type {
+  DesignDocument,
+  Diagnostic,
+} from '@design-ai/design-schema/legacy';
 
 export const OPEN_DESIGN_FILE_CHANNEL = 'design-ai:open-design-file';
 export const OPEN_DESIGN_FILE_PATH_CHANNEL = 'design-ai:open-design-file-path';

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validateDesignDocument, type Diagnostic } from '../src/index';
+import { validateDesignDocument, type Diagnostic } from '../src/legacy';
 
 function errorsOf(input: unknown): Diagnostic[] {
   const result = validateDesignDocument(input);

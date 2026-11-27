@@ -2,8 +2,8 @@ import type {
   DesignDocument,
   Diagnostic,
   ElementType,
-} from '@design-ai/design-schema';
-import { validateDesignDocument } from '@design-ai/design-schema';
+} from '@design-ai/design-schema/legacy';
+import { validateDesignDocument } from '@design-ai/design-schema/legacy';
 import {
   addElement,
   alignElement,
