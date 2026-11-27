@@ -1,5 +1,6 @@
 import { validateDesignDocument } from '@design-ai/design-schema';
 import { describe, expect, it, vi } from 'vitest';
+import type { ElementPosition } from '../src/document/move';
 import {
   createEditorSession,
   EDIT_HISTORY_LIMIT,
@@ -370,15 +371,19 @@ describe('session history', () => {
     return element?.type === 'frame' ? (element.children ?? []) : [];
   }
 
+  function move(
+    session: EditorSession,
+    elementId: string,
+    position: Partial<ElementPosition>,
+  ) {
+    return session.dispatch({ type: 'move-element', elementId, position });
+  }
+
   it('undoes and redoes one move with its declaration and variable binding', () => {
     const session = createEditorSession(boundDocument);
     session.dispatch({ type: 'select', elementIds: ['chip'] });
 
-    const moved = session.dispatch({
-      type: 'move-element',
-      elementId: 'chip',
-      position: { x: 40 },
-    });
+    const moved = move(session, 'chip', { x: 40 });
     expect(session.selectors.elementById(moved.snapshot, 'chip')).toMatchObject(
       { x: 40, y: '$chip-y' },
     );
@@ -506,19 +511,11 @@ describe('session history', () => {
 
   it('drops the redo stack after a new document edit', () => {
     const session = createEditorSession(boundDocument);
-    session.dispatch({
-      type: 'move-element',
-      elementId: 'chip',
-      position: { x: 40 },
-    });
+    move(session, 'chip', { x: 40 });
     session.dispatch({ type: 'undo' });
     expect(session.canRedo()).toBe(true);
 
-    session.dispatch({
-      type: 'move-element',
-      elementId: 'chip',
-      position: { y: 30 },
-    });
+    move(session, 'chip', { y: 30 });
 
     expect(session.canRedo()).toBe(false);
     const redo = session.dispatch({ type: 'redo' });
@@ -530,11 +527,7 @@ describe('session history', () => {
 
   it('records a save target without adding a history step or clearing redo', () => {
     const session = createEditorSession(boundDocument);
-    session.dispatch({
-      type: 'move-element',
-      elementId: 'chip',
-      position: { x: 40 },
-    });
+    move(session, 'chip', { x: 40 });
     session.dispatch({ type: 'undo' });
     expect(session.canRedo()).toBe(true);
 
@@ -565,11 +558,7 @@ describe('session history', () => {
       }),
     );
     for (let x = 1; x <= EDIT_HISTORY_LIMIT + 5; x += 1) {
-      session.dispatch({
-        type: 'move-element',
-        elementId: 'item',
-        position: { x },
-      });
+      move(session, 'item', { x });
     }
 
     let undone = 0;
@@ -592,16 +581,8 @@ describe('session history', () => {
     const first = createEditorSession(firstDocument);
     const second = createEditorSession(secondDocument);
 
-    first.dispatch({
-      type: 'move-element',
-      elementId: 'first',
-      position: { x: 10 },
-    });
-    second.dispatch({
-      type: 'move-element',
-      elementId: 'second',
-      position: { x: 20 },
-    });
+    move(first, 'first', { x: 10 });
+    move(second, 'second', { x: 20 });
 
     const undoneFirst = first.dispatch({ type: 'undo' });
     expect(undoneFirst.snapshot.document).toBe(firstDocument);
@@ -614,8 +595,6 @@ describe('session history', () => {
 
     const undoneSecond = second.dispatch({ type: 'undo' });
     expect(undoneSecond.snapshot.document).toBe(secondDocument);
-    expect(
-      first.selectors.elementById(first.getSnapshot(), 'first')?.x,
-    ).toBeUndefined();
+    expect(first.getSnapshot().document).toBe(firstDocument);
   });
 });

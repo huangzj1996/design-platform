@@ -210,12 +210,17 @@ export function createEditorSession(document: DesignDocument): EditorSession {
     return publish({ ...snapshot, inspectorExpanded: expanded });
   }
 
-  /** Records the document before a committed edit and invalidates redo. */
-  function recordEdit(): void {
-    undoStack.push(snapshot.document);
+  /** Adds one snapshot to the bounded undo stack. */
+  function pushUndo(document: DesignDocument): void {
+    undoStack.push(document);
     if (undoStack.length > EDIT_HISTORY_LIMIT) {
       undoStack.shift();
     }
+  }
+
+  /** Records the document before a committed edit and invalidates redo. */
+  function recordEdit(): void {
+    pushUndo(snapshot.document);
     redoStack.length = 0;
   }
 
@@ -228,10 +233,11 @@ export function createEditorSession(document: DesignDocument): EditorSession {
     return publish({ ...snapshot, document, selectedElementIds });
   }
 
-  function replaceDocument(document: DesignDocument): EditorCommandResult {
-    if (document === snapshot.document) {
-      return noChange();
-    }
+  /**
+   * Validates one edited document, then records and publishes it as a single
+   * history step. Invalid documents leave the snapshot and history unchanged.
+   */
+  function commitDocument(document: DesignDocument): EditorCommandResult {
     const validation = validateDesignDocument(document);
     if (!validation.ok) {
       return invalid(validation.errors);
@@ -240,18 +246,33 @@ export function createEditorSession(document: DesignDocument): EditorSession {
     return publishDocument(validation.document);
   }
 
+  /** An invalid result for a command whose target element is missing. */
+  function elementNotFound(
+    elementId: string,
+    action: string,
+  ): EditorCommandResult {
+    return invalid([
+      createDiagnostic(
+        DiagnosticCodes.elementNotFound,
+        '$',
+        `找不到要${action}的元素 "${elementId}"`,
+      ),
+    ]);
+  }
+
+  function replaceDocument(document: DesignDocument): EditorCommandResult {
+    if (document === snapshot.document) {
+      return noChange();
+    }
+    return commitDocument(document);
+  }
+
   function moveElementCommand(command: {
     elementId: string;
     position: Partial<ElementPosition>;
   }): EditorCommandResult {
     if (findElement(snapshot.document, command.elementId) === undefined) {
-      return invalid([
-        createDiagnostic(
-          DiagnosticCodes.elementNotFound,
-          '$',
-          `找不到要移动的元素 "${command.elementId}"`,
-        ),
-      ]);
+      return elementNotFound(command.elementId, '移动');
     }
     const document = moveElement(
       snapshot.document,
@@ -261,32 +282,14 @@ export function createEditorSession(document: DesignDocument): EditorSession {
     if (document === snapshot.document) {
       return noChange();
     }
-    const validation = validateDesignDocument(document);
-    if (!validation.ok) {
-      return invalid(validation.errors);
-    }
-    recordEdit();
-    return publishDocument(validation.document);
+    return commitDocument(document);
   }
 
   function deleteElementCommand(elementId: string): EditorCommandResult {
     if (findElement(snapshot.document, elementId) === undefined) {
-      return invalid([
-        createDiagnostic(
-          DiagnosticCodes.elementNotFound,
-          '$',
-          `找不到要删除的元素 "${elementId}"`,
-        ),
-      ]);
+      return elementNotFound(elementId, '删除');
     }
-    const validation = validateDesignDocument(
-      deleteElement(snapshot.document, elementId),
-    );
-    if (!validation.ok) {
-      return invalid(validation.errors);
-    }
-    recordEdit();
-    return publishDocument(validation.document);
+    return commitDocument(deleteElement(snapshot.document, elementId));
   }
 
   function setDocumentPath(filePath: string): EditorCommandResult {
@@ -316,10 +319,7 @@ export function createEditorSession(document: DesignDocument): EditorSession {
     if (document === undefined) {
       return noChange();
     }
-    undoStack.push(snapshot.document);
-    if (undoStack.length > EDIT_HISTORY_LIMIT) {
-      undoStack.shift();
-    }
+    pushUndo(snapshot.document);
     return publishDocument(document);
   }
 

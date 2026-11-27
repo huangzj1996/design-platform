@@ -28,6 +28,8 @@ import type { CanvasEngineFactory } from './canvas-engine';
 import { Editor } from './Editor';
 import {
   applySaveFailure,
+  canRedoOf,
+  canUndoOf,
   deleteElementInState,
   documentName,
   documentOf,
@@ -717,8 +719,8 @@ export function App({
             onAlign={handleAlign}
             onAddChild={handleAddChild}
             onDelete={handleDelete}
-            canUndo={editorState.session?.canUndo() ?? false}
-            canRedo={editorState.session?.canRedo() ?? false}
+            canUndo={canUndoOf(editorState)}
+            canRedo={canRedoOf(editorState)}
             onUndo={handleUndo}
             onRedo={handleRedo}
             createCanvasEngine={createCanvasEngine}

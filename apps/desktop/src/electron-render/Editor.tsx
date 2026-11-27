@@ -8,6 +8,7 @@ import {
 import { CircleUser, Menu, PanelLeft, Play } from 'lucide-react';
 import {
   useEffect,
+  useEffectEvent,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -40,6 +41,8 @@ export function nextZoom(scale: number, direction: -1 | 1): number {
 
 const SIDEBAR_TOGGLE_CLASS =
   'flex size-7 cursor-pointer items-center justify-center rounded-lg text-[#6B7280] transition-colors hover:bg-[#ECEDEF]';
+const FILE_MENU_ITEM_CLASS =
+  'cursor-pointer rounded-md px-2 py-1 text-left text-xs hover:bg-[#F6F6F6]';
 const MIN_SIDEBAR_CARD_WIDTH = 250;
 const DEFAULT_SIDEBAR_CARD_WIDTH = 280;
 const MIN_SPACE_OUTSIDE_SIDEBAR_CARDS = 380;
@@ -155,6 +158,17 @@ export function Editor({
 
   // Undo and redo follow the active tab's session history. Text inputs keep
   // their native editing shortcuts instead.
+  const emitUndo = useEffectEvent(() => {
+    if (canUndo) {
+      onUndo();
+    }
+  });
+  const emitRedo = useEffectEvent(() => {
+    if (canRedo) {
+      onRedo();
+    }
+  });
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!(event.ctrlKey || event.metaKey) || event.altKey) {
@@ -176,14 +190,14 @@ export function Editor({
       }
       event.preventDefault();
       if (undo) {
-        onUndo();
+        emitUndo();
       } else {
-        onRedo();
+        emitRedo();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onUndo, onRedo]);
+  }, []);
 
   const selected =
     document !== null && selectionId !== null
@@ -351,7 +365,7 @@ export function Editor({
                     type="button"
                     onClick={() => runFileAction(onOpen)}
                     disabled={busy}
-                    className="cursor-pointer rounded-md px-2 py-1 text-left text-xs hover:bg-[#F6F6F6] disabled:cursor-progress disabled:opacity-60"
+                    className={`${FILE_MENU_ITEM_CLASS} disabled:cursor-progress disabled:opacity-60`}
                   >
                     打开设计稿
                   </button>
@@ -359,7 +373,7 @@ export function Editor({
                     type="button"
                     onClick={() => runFileAction(onCreate)}
                     disabled={busy}
-                    className="cursor-pointer rounded-md px-2 py-1 text-left text-xs hover:bg-[#F6F6F6] disabled:cursor-progress disabled:opacity-60"
+                    className={`${FILE_MENU_ITEM_CLASS} disabled:cursor-progress disabled:opacity-60`}
                   >
                     新建设计稿
                   </button>
@@ -367,7 +381,7 @@ export function Editor({
                     type="button"
                     onClick={() => runFileAction(onUndo)}
                     disabled={busy || !canUndo}
-                    className="cursor-pointer rounded-md px-2 py-1 text-left text-xs hover:bg-[#F6F6F6] disabled:cursor-not-allowed disabled:opacity-40"
+                    className={`${FILE_MENU_ITEM_CLASS} disabled:cursor-not-allowed disabled:opacity-40`}
                   >
                     撤销
                   </button>
@@ -375,7 +389,7 @@ export function Editor({
                     type="button"
                     onClick={() => runFileAction(onRedo)}
                     disabled={busy || !canRedo}
-                    className="cursor-pointer rounded-md px-2 py-1 text-left text-xs hover:bg-[#F6F6F6] disabled:cursor-not-allowed disabled:opacity-40"
+                    className={`${FILE_MENU_ITEM_CLASS} disabled:cursor-not-allowed disabled:opacity-40`}
                   >
                     重做
                   </button>

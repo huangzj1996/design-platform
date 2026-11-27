@@ -89,6 +89,16 @@ export function inspectorExpandedOf(state: EditorState): boolean {
   return state.snapshot?.inspectorExpanded ?? true;
 }
 
+/** Whether the tab's session can restore an earlier design document. */
+export function canUndoOf(state: EditorState): boolean {
+  return state.session?.canUndo() ?? false;
+}
+
+/** Whether the tab's session can reapply the last undone document. */
+export function canRedoOf(state: EditorState): boolean {
+  return state.session?.canRedo() ?? false;
+}
+
 /** Keeps the document snapshot's path in sync with its actual save target. */
 function withDocumentPath(
   document: DesignDocument,
@@ -202,6 +212,16 @@ export function applyCreateError(
   };
 }
 
+/** Marks a published session snapshot as a persistent edit. */
+function markEdited(state: EditorState, snapshot: EditorSnapshot): EditorState {
+  return {
+    ...state,
+    snapshot,
+    dirty: true,
+    editVersion: state.editVersion + 1,
+  };
+}
+
 /**
  * Records one persistent document edit through the session. An invalid
  * document keeps the previous snapshot and the save baseline unchanged.
@@ -225,22 +245,23 @@ export function editDocument(
     type: 'select',
     elementIds: selectionId === null ? [] : [selectionId],
   });
-  return {
-    ...state,
-    snapshot: selected.snapshot,
-    dirty: true,
-    editVersion: state.editVersion + 1,
-  };
+  return markEdited(state, selected.snapshot);
 }
 
+/** Commands committed by `applyDocumentCommand` as persistent edits. */
+type EditCommand = Extract<
+  EditorCommand,
+  { type: 'move-element' | 'delete-element' | 'undo' | 'redo' }
+>;
+
 /**
- * Applies one document-changing command through the session. Invalid commands
- * keep the last valid snapshot and its history; unchanged commands do not
- * touch the save baseline.
+ * Applies one edit command through the session. Invalid commands keep the last
+ * valid snapshot and its history; unchanged commands do not touch the save
+ * baseline.
  */
 function applyDocumentCommand(
   state: EditorState,
-  command: EditorCommand,
+  command: EditCommand,
   failureTitle: string,
 ): EditorState {
   if (state.session === null) {
@@ -257,19 +278,10 @@ function applyDocumentCommand(
   if (!result.changed) {
     return state;
   }
-  return {
-    ...state,
-    snapshot: result.snapshot,
-    diagnostics: [],
-    dirty: true,
-    editVersion: state.editVersion + 1,
-  };
+  return { ...markEdited(state, result.snapshot), diagnostics: [] };
 }
 
-/**
- * Commits one drag landing through the session. Invalid coordinates keep the
- * last valid snapshot and surface the command diagnostics.
- */
+/** Commits one drag landing as a single history step. */
 export function moveElementInState(
   state: EditorState,
   elementId: string,

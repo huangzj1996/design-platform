@@ -15,6 +15,7 @@ import {
   it,
 } from 'vitest';
 import { App } from '../src/electron-render/App';
+import type { CanvasSceneNode } from '../src/electron-render/canvas-scene';
 import { readDesignFile } from '../src/electron-main/read-design-file';
 import { DesignFileSaver } from '../src/electron-main/save-design-file';
 import type {
@@ -167,6 +168,17 @@ async function renderApp(): Promise<void> {
   });
 }
 
+async function startWithDocument(
+  name: string,
+  document: unknown,
+): Promise<string> {
+  const filePath = await writeJson(name, document);
+  await openJson(filePath);
+  await renderApp();
+  await clickButton('打开设计稿');
+  return filePath;
+}
+
 async function settle(rounds = 25): Promise<void> {
   for (let round = 0; round < rounds; round += 1) {
     await act(async () => {
@@ -221,6 +233,14 @@ function propertyInput(label: string): HTMLInputElement {
   return input;
 }
 
+function sceneNode(id: string): CanvasSceneNode {
+  return findSceneNode(canvas.engine?.scene ?? null, id);
+}
+
+function hasNode(id: string): boolean {
+  return hasSceneNode(canvas.engine?.scene ?? null, id);
+}
+
 async function drag(
   id: string,
   from: { x: number; y: number },
@@ -245,6 +265,15 @@ async function clickTab(label: string): Promise<void> {
   await settle();
 }
 
+async function pressShortcut(key: string, shiftKey = false): Promise<void> {
+  await act(async () => {
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', { key, ctrlKey: true, shiftKey }),
+    );
+  });
+  await settle();
+}
+
 async function requestClose(): Promise<void> {
   await act(async () => {
     for (const listener of closeListeners) {
@@ -254,9 +283,17 @@ async function requestClose(): Promise<void> {
   await settle();
 }
 
+interface SavedNode {
+  id: string;
+  type: string;
+  children?: SavedNode[];
+  x?: number | string;
+  y?: number | string;
+}
+
 interface SavedDocument {
   version: number;
-  children: Array<Record<string, unknown>>;
+  children: SavedNode[];
 }
 
 async function readSaved(filePath: string): Promise<SavedDocument> {
@@ -265,19 +302,14 @@ async function readSaved(filePath: string): Promise<SavedDocument> {
 
 describe('undo and redo', () => {
   it('undoes and redoes each drag once and saves the restored landing', async () => {
-    const filePath = await writeJson('history.json', historyDocument);
-    await openJson(filePath);
-    await renderApp();
-    await clickButton('打开设计稿');
+    const filePath = await startWithDocument('history.json', historyDocument);
 
     expect(buttonByText('撤销').disabled).toBe(true);
     expect(buttonByText('重做').disabled).toBe(true);
 
     await drag('top', { x: 10, y: 20 }, { x: 33.333, y: 20 });
     expect(propertyInput('X').value).toBe('33.33');
-    expect(
-      findSceneNode(canvas.engine?.scene ?? null, 'top').box,
-    ).toMatchObject({ x: 33.33, y: 20 });
+    expect(sceneNode('top').box).toMatchObject({ x: 33.33, y: 20 });
     expect(buttonByText('撤销').disabled).toBe(false);
 
     await drag('top', { x: 33.33, y: 20 }, { x: 60, y: 20 });
@@ -285,16 +317,12 @@ describe('undo and redo', () => {
 
     await clickButton('撤销');
     expect(propertyInput('X').value).toBe('33.33');
-    expect(
-      findSceneNode(canvas.engine?.scene ?? null, 'top').box,
-    ).toMatchObject({ x: 33.33, y: 20 });
+    expect(sceneNode('top').box).toMatchObject({ x: 33.33, y: 20 });
     expect(buttonByText('重做').disabled).toBe(false);
 
     await clickButton('重做');
     expect(propertyInput('X').value).toBe('60');
-    expect(
-      findSceneNode(canvas.engine?.scene ?? null, 'top').box,
-    ).toMatchObject({ x: 60, y: 20 });
+    expect(sceneNode('top').box).toMatchObject({ x: 60, y: 20 });
 
     // The restored landing is what autosave persists.
     await clickButton('撤销');
@@ -312,39 +340,19 @@ describe('undo and redo', () => {
   });
 
   it('undoes and redoes with the standard keyboard shortcuts', async () => {
-    const filePath = await writeJson('keyboard.json', historyDocument);
-    await openJson(filePath);
-    await renderApp();
-    await clickButton('打开设计稿');
+    await startWithDocument('keyboard.json', historyDocument);
     await drag('top', { x: 10, y: 20 }, { x: 33.333, y: 20 });
     expect(propertyInput('X').value).toBe('33.33');
 
-    await act(async () => {
-      window.dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'z', ctrlKey: true }),
-      );
-    });
-    await settle();
+    await pressShortcut('z');
     expect(propertyInput('X').value).toBe('10');
 
-    await act(async () => {
-      window.dispatchEvent(
-        new KeyboardEvent('keydown', {
-          key: 'z',
-          ctrlKey: true,
-          shiftKey: true,
-        }),
-      );
-    });
-    await settle();
+    await pressShortcut('z', true);
     expect(propertyInput('X').value).toBe('33.33');
   });
 
   it('restores a deleted nested element in place without selecting it', async () => {
-    const filePath = await writeJson('delete.json', historyDocument);
-    await openJson(filePath);
-    await renderApp();
-    await clickButton('打开设计稿');
+    const filePath = await startWithDocument('delete.json', historyDocument);
     await selectLayer('chip');
     await act(async () => {
       container
@@ -354,21 +362,19 @@ describe('undo and redo', () => {
     await settle();
 
     await clickButton('删除元素');
-    expect(hasSceneNode(canvas.engine?.scene ?? null, 'chip')).toBe(false);
+    expect(hasNode('chip')).toBe(false);
     expect(
       container.querySelector('[data-testid="property-panel"]'),
     ).toBeNull();
     expect(buttonByText('撤销').disabled).toBe(false);
 
     await clickButton('撤销');
-    const scene = canvas.engine?.scene ?? null;
-    expect(hasSceneNode(scene, 'chip')).toBe(true);
-    expect(
-      findSceneNode(scene, 'card').children.map((node) => node.id),
-    ).toEqual(['chip']);
-    expect(
-      findSceneNode(scene, 'board').children.map((node) => node.id),
-    ).toEqual(['card', 'label']);
+    expect(hasNode('chip')).toBe(true);
+    expect(sceneNode('card').children.map((node) => node.id)).toEqual(['chip']);
+    expect(sceneNode('board').children.map((node) => node.id)).toEqual([
+      'card',
+      'label',
+    ]);
     expect(
       layerRow('chip')
         .closest('[data-layer-id]')
@@ -382,17 +388,10 @@ describe('undo and redo', () => {
     await requestClose();
     const saved = await readSaved(filePath);
     const board = saved.children[1];
-    const card =
-      board?.type === 'frame'
-        ? (board.children as Array<Record<string, unknown>>)[0]
-        : undefined;
+    const card = board?.children?.[0];
     expect(card).toMatchObject({ id: 'card' });
     expect(card?.children).toHaveLength(1);
-    const cardChildren =
-      card === undefined
-        ? []
-        : (card.children as Array<Record<string, unknown>>);
-    expect(cardChildren[0]).toMatchObject({
+    expect(card?.children?.[0]).toMatchObject({
       id: 'chip',
       x: '$chip-x',
       y: '$chip-y',
@@ -400,13 +399,11 @@ describe('undo and redo', () => {
 
     await openJson(filePath);
     await clickButton('打开设计稿');
-    expect(
-      findSceneNode(canvas.engine?.scene ?? null, 'chip').box,
-    ).toMatchObject({ x: 22, y: 28 });
+    expect(sceneNode('chip').box).toMatchObject({ x: 22, y: 28 });
   });
 
   it('keeps undo history isolated between tabs', async () => {
-    const firstPath = await writeJson('history-first.json', {
+    await startWithDocument('history-first.json', {
       version: 2,
       children: [
         { id: 'alpha', type: 'rectangle', x: 5, y: 5, width: 20, height: 20 },
@@ -418,9 +415,6 @@ describe('undo and redo', () => {
         { id: 'beta', type: 'rectangle', x: 7, y: 7, width: 20, height: 20 },
       ],
     });
-    await openJson(firstPath);
-    await renderApp();
-    await clickButton('打开设计稿');
     await drag('alpha', { x: 5, y: 5 }, { x: 15, y: 5 });
     expect(propertyInput('X').value).toBe('15');
 
@@ -444,10 +438,7 @@ describe('undo and redo', () => {
   });
 
   it('does not add history or save for selection and inspector changes', async () => {
-    const filePath = await writeJson('view-only.json', historyDocument);
-    await openJson(filePath);
-    await renderApp();
-    await clickButton('打开设计稿');
+    await startWithDocument('view-only.json', historyDocument);
     await selectLayer('chip');
 
     await act(async () => {
