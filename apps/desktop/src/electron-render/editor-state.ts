@@ -5,6 +5,7 @@ import {
 } from '@design-ai/design-schema';
 import {
   createEditorSession,
+  type EditorCommand,
   type EditorSession,
   type EditorSnapshot,
   type ElementPosition,
@@ -79,6 +80,11 @@ export function documentOf(state: EditorState): DesignDocument | null {
 /** The first selected element id, used by the single-selection editor UI. */
 export function selectionIdOf(state: EditorState): string | null {
   return state.snapshot?.selectedElementIds[0] ?? null;
+}
+
+/** The inspector expansion stored by the tab's session snapshot. */
+export function inspectorExpandedOf(state: EditorState): boolean {
+  return state.snapshot?.inspectorExpanded ?? true;
 }
 
 /** Keeps the document snapshot's path in sync with its actual save target. */
@@ -261,18 +267,43 @@ export function moveElementInState(
   };
 }
 
-export function selectElement(
+/** Commands that only change view state, never the design document. */
+type ViewCommand = Extract<
+  EditorCommand,
+  { type: 'select' | 'set-inspector-expanded' }
+>;
+
+/**
+ * Applies a view-only command through the session. The design document and
+ * the save baseline stay exactly as they were.
+ */
+function applyViewCommand(
   state: EditorState,
-  selectionId: string | null,
+  command: ViewCommand,
 ): EditorState {
   if (state.session === null) {
     return state;
   }
-  const result = state.session.dispatch({
+  const result = state.session.dispatch(command);
+  return result.changed ? { ...state, snapshot: result.snapshot } : state;
+}
+
+export function selectElement(
+  state: EditorState,
+  selectionId: string | null,
+): EditorState {
+  return applyViewCommand(state, {
     type: 'select',
     elementIds: selectionId === null ? [] : [selectionId],
   });
-  return result.changed ? { ...state, snapshot: result.snapshot } : state;
+}
+
+/** Toggles the inspector expansion stored by the tab's session snapshot. */
+export function toggleInspectorExpanded(state: EditorState): EditorState {
+  return applyViewCommand(state, {
+    type: 'set-inspector-expanded',
+    expanded: !inspectorExpandedOf(state),
+  });
 }
 
 export function markSaving(state: EditorState): EditorState {

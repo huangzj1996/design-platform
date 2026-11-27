@@ -1336,6 +1336,7 @@ export function PropertiesPanel({
         </div>
         <button
           type="button"
+          data-testid="inspector-toggle"
           aria-label={toggleLabel}
           aria-expanded={expanded}
           aria-controls={expanded ? contentId : undefined}

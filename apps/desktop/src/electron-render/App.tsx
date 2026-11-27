@@ -33,10 +33,12 @@ import {
   documentOf,
   editDocument,
   initialEditorState,
+  inspectorExpandedOf,
   markSaving,
   moveElementInState,
   selectElement,
   selectionIdOf,
+  toggleInspectorExpanded,
   type EditorState,
   type PendingAction,
 } from './editor-state';
@@ -496,6 +498,10 @@ export function App({
     updateActiveEditor((current) => selectElement(current, id));
   };
 
+  const handleToggleInspector = () => {
+    updateActiveEditor(toggleInspectorExpanded);
+  };
+
   /**
    * Converts one drag into a declaration patch and commits it as a single
    * move command. Returns false when the drag cannot be applied, so the
@@ -685,6 +691,7 @@ export function App({
           <Editor
             document={document}
             selectionId={selectionIdOf(editorState)}
+            inspectorExpanded={inspectorExpandedOf(editorState)}
             tabBar={tabBar}
             documentName={documentName(
               editorState.filePath ?? editorState.sourcePath,
@@ -694,6 +701,7 @@ export function App({
             onOpen={handleOpen}
             onCreate={handleCreate}
             onSelect={handleSelect}
+            onToggleInspector={handleToggleInspector}
             onMoveElement={handleMoveElement}
             onAddRoot={handleAddRoot}
             onUpdate={handleUpdate}
