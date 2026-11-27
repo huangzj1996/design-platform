@@ -4,10 +4,8 @@ import {
   type DesignElement,
   type DesignVariables,
 } from '@design-ai/design-schema';
-import { findElementParent } from './alignment';
+import { findElementParent, resolvedPadding } from './alignment';
 import { findElement, updateElement } from './edit';
-
-type FrameElement = Extract<DesignElement, { type: 'frame' }>;
 
 /** Horizontal and vertical declaration coordinates of one element. */
 export interface ElementPosition {
@@ -17,40 +15,6 @@ export interface ElementPosition {
 
 const round = (value: number): number =>
   Math.round((value + Number.EPSILON) * 100) / 100;
-
-function resolvedInset(
-  value: unknown,
-  variables: Readonly<DesignVariables>,
-): number {
-  const resolved = resolveVariableValue(value, variables);
-  return typeof resolved === 'number' ? resolved : 0;
-}
-
-/** Top and left insets of a frame's padded content box. */
-function contentInset(
-  frame: FrameElement,
-  variables: Readonly<DesignVariables>,
-): { top: number; left: number } {
-  const padding = frame.padding;
-  if (padding === undefined) {
-    return { top: 0, left: 0 };
-  }
-  if (!Array.isArray(padding)) {
-    const inset = resolvedInset(padding, variables);
-    return { top: inset, left: inset };
-  }
-  const [top, right] = padding;
-  if (padding.length === 2) {
-    return {
-      top: resolvedInset(top, variables),
-      left: resolvedInset(right, variables),
-    };
-  }
-  return {
-    top: resolvedInset(top, variables),
-    left: resolvedInset(padding[3], variables),
-  };
-}
 
 /**
  * Converts a canvas position, relative to the parent's border box, into the
@@ -74,10 +38,10 @@ export function declarationPosition(
   if ((parent.layout ?? 'horizontal') !== 'none') {
     return null;
   }
-  const inset = contentInset(parent, document.variables);
+  const [top, , , left] = resolvedPadding(parent.padding, document.variables);
   return {
-    x: round(canvasPosition.x - inset.left),
-    y: round(canvasPosition.y - inset.top),
+    x: round(canvasPosition.x - left),
+    y: round(canvasPosition.y - top),
   };
 }
 
@@ -95,7 +59,8 @@ function currentCoordinate(
  * Unmoved axes stay out of the patch, so their declarations and variable
  * references survive. Moved axes become the resolved declaration plus the
  * drag distance, which avoids rewriting an axis because layout rounding made
- * its canvas position differ from the declared value.
+ * its canvas position differ from the declared value. The patch is empty when
+ * no axis moved; null means the element has no draggable declaration.
  */
 export function dragMoveTarget(
   document: DesignDocument,

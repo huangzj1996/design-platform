@@ -217,18 +217,15 @@ type SavedRectangle = Record<string, unknown> & {
   y?: number | string;
 };
 
-async function readSaved(filePath: string): Promise<{
+interface SavedDocument {
   version: number;
   filePath: string;
   variables: unknown;
   children: Array<Record<string, unknown>>;
-}> {
-  return JSON.parse(await readFile(filePath, 'utf8')) as {
-    version: number;
-    filePath: string;
-    variables: unknown;
-    children: Array<Record<string, unknown>>;
-  };
+}
+
+async function readSaved(filePath: string): Promise<SavedDocument> {
+  return JSON.parse(await readFile(filePath, 'utf8')) as SavedDocument;
 }
 
 describe('dragging free-positioned elements', () => {

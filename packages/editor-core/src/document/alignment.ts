@@ -30,7 +30,8 @@ const AXIS_VALUES: readonly AlignmentAxis[] = ['start', 'center', 'end'];
 const round = (value: number): number =>
   Math.round((value + Number.EPSILON) * 100) / 100;
 
-function resolvedPadding(
+/** Resolves the v2 padding forms to top, right, bottom and left values. */
+export function resolvedPadding(
   padding: FrameElement['padding'],
   variables: DesignDocument['variables'],
 ): [number, number, number, number] {

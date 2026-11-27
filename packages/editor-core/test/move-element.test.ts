@@ -101,6 +101,12 @@ describe('dragMoveTarget', () => {
     ).toEqual({ x: 20 });
   });
 
+  it('returns an empty patch when the drag does not move any axis', () => {
+    expect(
+      dragMoveTarget(document, 'top', { x: 10, y: 20 }, { x: 10, y: 20 }),
+    ).toEqual({});
+  });
+
   it('keeps an axis whose canvas position only differs by layout rounding', () => {
     const precise = documentFrom({
       version: 2,

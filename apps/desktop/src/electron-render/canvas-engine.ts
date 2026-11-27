@@ -7,8 +7,7 @@ export interface CanvasEngineOptions {
   /**
    * Called when a drag ends with its start and landing positions, both
    * relative to the element's parent border box. The editor converts them to
-   * declaration coordinates. Returns false when the landing was not
-   * committed, so the canvas restores the pre-drag position.
+   * declaration coordinates. Returning false restores the pre-drag position.
    */
   onMoveElement?: (
     id: string,

@@ -197,8 +197,7 @@ function resolvedCoordinate(
   value: unknown,
   variables: Readonly<DesignVariables>,
 ): number {
-  const resolved = resolveVariableValue(value, variables);
-  return typeof resolved === 'number' ? resolved : 0;
+  return numeric(resolveVariableValue(value, variables));
 }
 
 function dimensionMode(value: unknown): DimensionMode {

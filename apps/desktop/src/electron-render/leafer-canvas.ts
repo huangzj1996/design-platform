@@ -1,4 +1,5 @@
 import type { UI as LeaferElement } from 'leafer-ui';
+import type { ElementPosition } from '@design-ai/editor-core';
 import { selectedElementId } from '@design-ai/editor-core/leafer';
 import {
   DEFAULT_CANVAS_VIEWPORT,
@@ -24,11 +25,17 @@ interface DraggedLeaf {
   y: number;
 }
 
+/** A dragged leaf that belongs to a movable design element. */
+type DraggableLeaf = DraggedLeaf & { data: { elementId: string } };
+
 interface ActiveDrag {
   id: string;
-  leaf: DraggedLeaf;
-  startX: number;
-  startY: number;
+  leaf: DraggableLeaf;
+  start: ElementPosition;
+}
+
+function isDraggableLeaf(leaf: DraggedLeaf): leaf is DraggableLeaf {
+  return leaf.draggable === true && typeof leaf.data?.elementId === 'string';
 }
 
 /**
@@ -70,16 +77,12 @@ export async function createLeaferEngine(
       return;
     }
     const leaves = (event.path?.list ?? []) as DraggedLeaf[];
-    const leaf = leaves.find(
-      (candidate) =>
-        candidate.draggable === true &&
-        typeof candidate.data?.elementId === 'string',
-    );
+    const leaf = leaves.find(isDraggableLeaf);
     if (leaf === undefined) {
       return;
     }
-    const id = leaf.data?.elementId as string;
-    activeDrag = { id, leaf, startX: leaf.x, startY: leaf.y };
+    const id = leaf.data.elementId;
+    activeDrag = { id, leaf, start: { x: leaf.x, y: leaf.y } };
     options.onSelect(id);
     // The element itself previews the move; the static outline would lag.
     showSelection(null);
@@ -92,14 +95,13 @@ export async function createLeaferEngine(
     }
     activeDrag = null;
     const accepted =
-      options.onMoveElement?.(
-        drag.id,
-        { x: drag.startX, y: drag.startY },
-        { x: drag.leaf.x, y: drag.leaf.y },
-      ) ?? false;
+      options.onMoveElement?.(drag.id, drag.start, {
+        x: drag.leaf.x,
+        y: drag.leaf.y,
+      }) ?? false;
     if (!accepted) {
-      drag.leaf.x = drag.startX;
-      drag.leaf.y = drag.startY;
+      drag.leaf.x = drag.start.x;
+      drag.leaf.y = drag.start.y;
     }
     showSelection(lastSelection);
   });

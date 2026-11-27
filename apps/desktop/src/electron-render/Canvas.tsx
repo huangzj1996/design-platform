@@ -25,8 +25,8 @@ export interface CanvasProps {
   selectable?: boolean;
   onSelect?: (id: string | null) => void;
   /**
-   * Commits a drag between parent-local positions. Return whether it was
-   * applied so an uncommitted preview is restored.
+   * Commits a drag between parent-local positions. Returning false restores
+   * the pre-drag preview.
    */
   onMoveElement?: (
     id: string,
