@@ -52,3 +52,5 @@ Once complete, output <promise>COMPLETE</promise>.
 # FINAL RULES
 
 ONLY WORK ON A SINGLE TASK.
+
+If the issue is a PRD or spec document (its title starts or ends with `PRD`, `spec`, or `规格`) rather than an implementation task, do not implement it. Leave a comment on the issue explaining this and output <promise>COMPLETE</promise>.

@@ -8,7 +8,7 @@ Here are the open implementation issues ready for work:
 
 </issues-json>
 
-PRD issues are excluded from the candidate list. Use them as context when needed, and include only issues from the list above in the plan.
+PRD and spec (规格) issues are excluded from the candidate list. Use them as context when needed, and include only issues from the list above in the plan.
 
 # TASK
 

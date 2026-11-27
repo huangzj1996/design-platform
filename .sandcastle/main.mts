@@ -22,6 +22,7 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { basename, delimiter, dirname, isAbsolute } from 'node:path';
+import { loadEnvFile } from 'node:process';
 import * as sandcastle from '@ai-hero/sandcastle';
 import { bwrap } from '@ai-hero/sandcastle/sandboxes/bwrap';
 import { z } from 'zod';
@@ -45,7 +46,11 @@ const candidateSchema = z.array(
     comments: z.array(z.string()),
   }),
 );
-const prdTitle = /^\s*(?:\[prd\]|prd\s*[:：]|prd\s*$)/i;
+// PRD and spec issues describe what to build; they are not implementation
+// tasks. Match titles that start with the marker (`PRD · …`, `规格：…`,
+// `[spec] …`) or end with it (`… PRD`, `… 规格`).
+const prdOrSpecTitle =
+  /^\s*(?:\[(?:prd|spec|规格)\]|(?:prd|spec|规格)(?:\s*[:：·・—–-]|\s+|$))|\s(?:prd|spec|规格)\s*$/i;
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -68,10 +73,26 @@ if (
     .join(delimiter);
 }
 
-// Must match the model id of the provider configured in .sandcastle/.env.
-// Currently SiliconFlow (ANTHROPIC_BASE_URL=https://api.siliconflow.cn/);
-// `deepseek-flash[1m]` only exists on DeepSeek's own Anthropic endpoint.
-const agent = sandcastle.claudeCode('deepseek-ai/DeepSeek-V4-Flash');
+// Load .sandcastle/.env into the host process so the model id and provider
+// credentials live in one place. Variables already set in the environment
+// take precedence (same as Node's --env-file).
+try {
+  loadEnvFile(new URL('./.env', import.meta.url));
+} catch (error) {
+  // A missing .env is fine when the variables are exported instead.
+  if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+}
+
+// The model id comes from ANTHROPIC_MODEL so it matches the provider
+// configured by ANTHROPIC_BASE_URL in .sandcastle/.env (see .env.example).
+// claudeCode() passes it to the Claude CLI as --model.
+const model = process.env.ANTHROPIC_MODEL;
+if (!model) {
+  throw new Error(
+    'ANTHROPIC_MODEL is not set. Define it in .sandcastle/.env (see .env.example).',
+  );
+}
+const agent = sandcastle.claudeCode(model);
 const codingStandards = readFileSync(
   new URL('./CODING_STANDARDS.md', import.meta.url),
   'utf8',
@@ -137,7 +158,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   );
   const candidates = candidateSchema
     .parse(JSON.parse(issueJson))
-    .filter((issue) => !prdTitle.test(issue.title));
+    .filter((issue) => !prdOrSpecTitle.test(issue.title));
 
   if (candidates.length === 0) {
     console.log('No implementation issues ready for planning. Exiting.');
