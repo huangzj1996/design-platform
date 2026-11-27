@@ -5,7 +5,9 @@ import {
 import { describe, expect, it } from 'vitest';
 import {
   buildCanvasScene,
+  collectCanvasIconKeys,
   findCanvasSelection,
+  loadCanvasIconPaints,
 } from '../src/electron-render/canvas-scene';
 import { findSceneNode } from './test-canvas-engine';
 
@@ -121,6 +123,52 @@ describe('buildCanvasScene', () => {
       width: 24,
       height: 24,
     });
+  });
+
+  it('loads icon paints and draws them inside the icon element', async () => {
+    const document = documentFrom(fiveElementDocument);
+
+    expect(collectCanvasIconKeys(document)).toEqual(['lucide/arrow-right']);
+    const icons = await loadCanvasIconPaints(collectCanvasIconKeys(document));
+    expect(icons['lucide/arrow-right']?.map((paint) => paint.filled)).toEqual([
+      false,
+      false,
+    ]);
+
+    const icon = findSceneNode(buildCanvasScene(document, icons), 'icon');
+    expect(icon.node.children?.map((child) => child.tag)).toEqual([
+      'Path',
+      'Path',
+    ]);
+  });
+
+  it('resolves icon keys through variables and deduplicates them', () => {
+    const document = documentFrom({
+      version: 2,
+      variables: {
+        'icon-name': { type: 'string', value: 'Star' },
+      },
+      children: [
+        {
+          id: 'first-icon',
+          type: 'icon',
+          library: 'lucide',
+          icon: '$icon-name',
+          width: 24,
+          height: 24,
+        },
+        {
+          id: 'second-icon',
+          type: 'icon',
+          library: 'lucide',
+          icon: 'star',
+          width: 24,
+          height: 24,
+        },
+      ],
+    });
+
+    expect(collectCanvasIconKeys(document)).toEqual(['lucide/star']);
   });
 
   it('resolves variable values for the scene while the document keeps references', () => {

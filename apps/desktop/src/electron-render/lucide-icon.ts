@@ -1,9 +1,11 @@
-/** One drawable subpath of a Lucide icon, in the library's 24x24 viewBox. */
-export interface IconPath {
-  path: string;
-  /** Whether the source shape asks for a solid fill in the icon color. */
-  filled: boolean;
-}
+import {
+  ICON_VIEWBOX_SIZE,
+  toIconKey,
+  type IconPaint,
+} from '@design-ai/editor-core/leafer';
+
+export { ICON_VIEWBOX_SIZE, toIconKey };
+export type IconPath = IconPaint;
 
 type IconAttributes = Record<string, string | number>;
 type IconNode = [
@@ -12,7 +14,6 @@ type IconNode = [
   children?: IconNode[],
 ];
 
-export const ICON_VIEWBOX_SIZE = 24;
 const cache = new Map<string, Promise<IconPath[] | null>>();
 
 function numberAttribute(
@@ -171,16 +172,6 @@ function pathsOf(node: IconNode): IconPath[] {
   const own = shapePath(node);
   const nested = (node[2] ?? []).flatMap(pathsOf);
   return own === null ? nested : [own, ...nested];
-}
-
-/** Converts a Lucide icon name to the kebab-case key used by the library. */
-export function toIconKey(name: string): string {
-  return name
-    .trim()
-    .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
-    .replace(/[^A-Za-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .toLowerCase();
 }
 
 async function loadIconPaths(key: string): Promise<IconPath[] | null> {

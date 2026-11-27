@@ -17,7 +17,7 @@ import {
 import { App } from '../src/electron-render/App';
 import { readDesignFile } from '../src/electron-main/read-design-file';
 import type { OpenDesignFileResult } from '../src/electron-preload/contract';
-import { TestCanvasRegistry } from './test-canvas-engine';
+import { hasSceneNode, TestCanvasRegistry } from './test-canvas-engine';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean;
@@ -201,6 +201,45 @@ describe('v2 opened design selection', () => {
     expect(
       container.querySelector('[data-testid="property-panel"]'),
     ).toBeNull();
+  });
+
+  it('selects an icon from its canvas paint area into the layer tree and inspector', async () => {
+    await renderApp();
+    await openDesign('icon.json', {
+      version: 2,
+      children: [
+        {
+          id: 'icon-board',
+          type: 'frame',
+          width: 200,
+          height: 100,
+          children: [
+            {
+              id: 'star-icon',
+              type: 'icon',
+              name: '星标',
+              library: 'lucide',
+              icon: 'star',
+              width: 24,
+              height: 24,
+              x: 8,
+              y: 8,
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(hasSceneNode(canvas.engine?.scene ?? null, 'star-icon')).toBe(true);
+
+    await act(async () => {
+      canvas.engine?.tap('star-icon');
+    });
+    await settle();
+
+    expect(canvas.engine?.selection?.id).toBe('star-icon');
+    expect(layerRow('star-icon').getAttribute('data-selected')).toBe('true');
+    expect(inspectorLabel()).toBe('星标');
   });
 
   it('keeps each tab selection in its own session', async () => {

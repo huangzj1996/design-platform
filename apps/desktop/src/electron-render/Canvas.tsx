@@ -1,9 +1,11 @@
 import type { DesignDocument } from '@design-ai/design-schema';
+import type { IconPaintMap } from '@design-ai/editor-core/leafer';
 import {
   useEffect,
   useEffectEvent,
   useMemo,
   useRef,
+  useState,
   type PointerEventHandler,
 } from 'react';
 import {
@@ -12,8 +14,48 @@ import {
   type CanvasEngineFactory,
   type CanvasViewport,
 } from './canvas-engine';
-import { buildCanvasScene, findCanvasSelection } from './canvas-scene';
+import {
+  buildCanvasScene,
+  collectCanvasIconKeys,
+  findCanvasSelection,
+  loadCanvasIconPaints,
+} from './canvas-scene';
 import { createLeaferEngine } from './leafer-canvas';
+
+/**
+ * Loads the paint paths of every icon in the document. Missing paints fall back
+ * to the adapter's placeholder until the lazy icon modules resolve.
+ */
+function useCanvasIconPaints(
+  document: DesignDocument | null,
+): IconPaintMap | undefined {
+  const iconKeys = useMemo(
+    () => (document === null ? [] : collectCanvasIconKeys(document)),
+    [document],
+  );
+  const iconKeySignature = iconKeys.join('\n');
+  const [iconPaints, setIconPaints] = useState<IconPaintMap | undefined>(
+    undefined,
+  );
+
+  useEffect(() => {
+    if (iconKeySignature.length === 0) {
+      setIconPaints(undefined);
+      return;
+    }
+    let cancelled = false;
+    void loadCanvasIconPaints(iconKeys).then((paints) => {
+      if (!cancelled) {
+        setIconPaints(paints);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [iconKeySignature]);
+
+  return iconKeySignature.length === 0 ? undefined : iconPaints;
+}
 
 export interface CanvasProps {
   document: DesignDocument | null;
@@ -52,9 +94,10 @@ export function Canvas({
     }
   });
 
+  const iconPaints = useCanvasIconPaints(document);
   const scene = useMemo(
-    () => (document === null ? null : buildCanvasScene(document)),
-    [document],
+    () => (document === null ? null : buildCanvasScene(document, iconPaints)),
+    [document, iconPaints],
   );
   const hasElements = scene !== null && scene.roots.length > 0;
   const selection = useMemo(

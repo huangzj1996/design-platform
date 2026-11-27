@@ -158,6 +158,40 @@ describe('Canvas', () => {
     expect(canvas.engine?.scene?.roots[0]?.children[0]?.text).toBe('变量标题');
   });
 
+  it('loads icon paints and hands painted paths to the engine', async () => {
+    await render(
+      documentFrom({
+        version: 2,
+        children: [
+          {
+            id: 'icon',
+            type: 'icon',
+            library: 'lucide',
+            icon: 'arrow-right',
+            width: 24,
+            height: 24,
+          },
+        ],
+      }),
+    );
+
+    const paintPaths = () =>
+      canvas.engine?.scene?.roots[0]?.node.children?.map(
+        (child) => (child as { path?: string }).path,
+      );
+
+    for (let round = 0; round < 100; round += 1) {
+      if (paintPaths()?.[0] === 'M5 12h14') {
+        break;
+      }
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      });
+    }
+
+    expect(paintPaths()).toEqual(['M5 12h14', 'm12 5 7 7-7 7']);
+  });
+
   it('forwards viewport changes to the engine without recreating it', async () => {
     await render(documentWithFrame);
     const created = canvas.engine;

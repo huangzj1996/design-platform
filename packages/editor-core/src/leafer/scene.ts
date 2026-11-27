@@ -1,4 +1,4 @@
-import { Box, Ellipse, Rect, Text, type UI } from '@leafer-ui/draw';
+import { Box, Ellipse, Path, Rect, Text, type UI } from '@leafer-ui/draw';
 import {
   layoutDesignDocument,
   resolveVariableValue,
@@ -9,8 +9,18 @@ import {
   type LayoutBox,
   type LayoutNode,
 } from '@design-ai/design-schema';
+import { ICON_VIEWBOX_SIZE, iconPaintKey, type IconPaintMap } from './icons';
 
 type FillLayer = NonNullable<DesignElement['fill']>[number];
+
+/** Resolved drawing data of one icon element. */
+export interface LeaferSceneIcon {
+  library: string;
+  icon: string;
+  /** Stroke and filled-path color used by the icon's paint nodes. */
+  color: string;
+  strokeWidth: number;
+}
 
 /** One design element adapted to a mountable LeaferJS node. */
 export interface LeaferSceneNode {
@@ -25,6 +35,8 @@ export interface LeaferSceneNode {
   node: UI;
   /** Resolved text content for text elements. */
   text?: string;
+  /** Resolved drawing data for icon elements. */
+  icon?: LeaferSceneIcon;
   children: LeaferSceneNode[];
 }
 
@@ -36,8 +48,21 @@ export interface LeaferScene {
   roots: LeaferSceneNode[];
 }
 
+export interface LeaferSceneOptions {
+  /** Resolved icon paints keyed by `iconPaintKey`. Missing icons use a placeholder. */
+  icons?: IconPaintMap;
+}
+
 const DEFAULT_TEXT_COLOR = '#1f2328';
+const DEFAULT_FONT_FAMILY = 'sans-serif';
+const DEFAULT_FONT_SIZE = 16;
+const DEFAULT_LINE_HEIGHT = 1.2;
 const DEFAULT_ICON_STROKE_WIDTH = 2;
+const ICON_PLACEHOLDER_COLOR = '#8250df';
+/** Dashed frame and question mark used until an icon's paths are available. */
+const ICON_PLACEHOLDER_FRAME = 'M 3 3 H 21 V 21 H 3 Z';
+const ICON_PLACEHOLDER_MARK =
+  'M 9 9 A 3 3 0 1 1 15 9 C 15 12 12 11.5 12 14 M 12 17 L 12 17.1';
 
 type Paint = string | { type: 'solid'; color: string; opacity: number };
 
@@ -55,6 +80,13 @@ function resolvedNumber(
 ): number | undefined {
   const resolved = resolveVariableValue(value, variables);
   return typeof resolved === 'number' ? resolved : undefined;
+}
+
+function resolvedBoolean(
+  value: unknown,
+  variables: Readonly<DesignVariables>,
+): boolean {
+  return resolveVariableValue(value, variables) === true;
 }
 
 /** Maps v2 color fill layers onto Leafer paints, preserving their order. */
@@ -78,6 +110,22 @@ function fillPaint(
     return undefined;
   }
   return paints.length === 1 ? paints[0] : paints;
+}
+
+/** First resolved color of an ordered fill layer list. */
+function firstColor(
+  layers: readonly FillLayer[] | undefined,
+  variables: Readonly<DesignVariables>,
+): string | undefined {
+  for (const layer of layers ?? []) {
+    if (layer.type === 'color') {
+      const color = resolvedString(layer.color, variables);
+      if (color !== undefined) {
+        return color;
+      }
+    }
+  }
+  return undefined;
 }
 
 function elementStroke(
@@ -105,13 +153,43 @@ function elementCornerRadius(
   if (value === undefined) {
     return undefined;
   }
-  if (typeof value === 'number') {
-    return value;
+  if (Array.isArray(value)) {
+    return value.map((radius) => resolvedNumber(radius, variables) ?? 0);
   }
-  if (typeof value === 'string') {
-    return undefined;
-  }
-  return value.map((radius) => resolvedNumber(radius, variables) ?? 0);
+  return resolvedNumber(value, variables);
+}
+
+function baseNodeInput(
+  element: DesignElement,
+  box: LayoutBox,
+  variables: Readonly<DesignVariables>,
+) {
+  return {
+    x: box.x,
+    y: box.y,
+    width: box.width,
+    height: box.height,
+    opacity: resolvedNumber(element.opacity, variables) ?? 1,
+    rotation: resolvedNumber(element.rotation, variables) ?? 0,
+    origin: 'center' as const,
+    hitFill: 'all' as const,
+    data: { elementId: element.id },
+  };
+}
+
+function nodeInput(
+  element: DesignElement,
+  box: LayoutBox,
+  variables: Readonly<DesignVariables>,
+) {
+  const { stroke, strokeWidth } = elementStroke(element, variables);
+  return {
+    ...baseNodeInput(element, box, variables),
+    fill: fillPaint(element.fill, variables),
+    stroke,
+    strokeWidth,
+    cornerRadius: elementCornerRadius(element, variables),
+  };
 }
 
 function textInput(
@@ -124,83 +202,157 @@ function textInput(
   const growth = style.textGrowth ?? 'auto';
   return {
     text: content,
-    fontFamily: resolvedString(style.fontFamily, variables),
-    fontSize: resolvedNumber(style.fontSize, variables),
+    fontFamily:
+      resolvedString(style.fontFamily, variables) ?? DEFAULT_FONT_FAMILY,
+    fontSize: resolvedNumber(style.fontSize, variables) ?? DEFAULT_FONT_SIZE,
     fontWeight: resolvedNumber(style.fontWeight, variables),
-    lineHeight: resolvedNumber(style.lineHeight, variables),
+    lineHeight: {
+      type: 'percent' as const,
+      value: resolvedNumber(style.lineHeight, variables) ?? DEFAULT_LINE_HEIGHT,
+    },
     textAlign: style.textAlign,
     textWrap: growth === 'auto' ? ('none' as const) : ('break' as const),
+    verticalAlign: 'top' as const,
     width: box.width,
     height: box.height,
   };
 }
 
-function nodeInput(
-  element: DesignElement,
+function resolveIcon(
+  element: Extract<DesignElement, { type: 'icon' }>,
+  variables: Readonly<DesignVariables>,
+): LeaferSceneIcon {
+  return {
+    library: resolvedString(element.library, variables) ?? element.library,
+    icon: resolvedString(element.icon, variables) ?? element.icon,
+    color:
+      firstColor(element.fill, variables) ??
+      firstColor(element.stroke?.fill, variables) ??
+      DEFAULT_TEXT_COLOR,
+    strokeWidth:
+      resolvedNumber(element.stroke?.width, variables) ??
+      DEFAULT_ICON_STROKE_WIDTH,
+  };
+}
+
+function iconPlaceholderNodes(box: LayoutBox): UI[] {
+  const scaleX = box.width / ICON_VIEWBOX_SIZE;
+  const scaleY = box.height / ICON_VIEWBOX_SIZE;
+  return [
+    new Path({
+      path: ICON_PLACEHOLDER_FRAME,
+      stroke: ICON_PLACEHOLDER_COLOR,
+      strokeWidth: 1,
+      dashPattern: [4, 4],
+      scaleX,
+      scaleY,
+      hittable: false,
+    }),
+    new Path({
+      path: ICON_PLACEHOLDER_MARK,
+      stroke: ICON_PLACEHOLDER_COLOR,
+      strokeWidth: 2,
+      strokeCap: 'round',
+      strokeJoin: 'round',
+      scaleX,
+      scaleY,
+      hittable: false,
+    }),
+  ];
+}
+
+/** Draws icon paths scaled from the library's 24x24 view box to the element. */
+function iconPaintNodes(
+  box: LayoutBox,
+  paints: NonNullable<IconPaintMap[string]>,
+  icon: LeaferSceneIcon,
+): UI[] {
+  const scaleX = box.width / ICON_VIEWBOX_SIZE;
+  const scaleY = box.height / ICON_VIEWBOX_SIZE;
+  return paints.map(
+    (paint) =>
+      new Path({
+        path: paint.path,
+        fill: paint.filled ? icon.color : undefined,
+        stroke: icon.color,
+        strokeWidth: icon.strokeWidth,
+        strokeCap: 'round',
+        strokeJoin: 'round',
+        scaleX,
+        scaleY,
+      }),
+  );
+}
+
+function createIconNode(
+  element: Extract<DesignElement, { type: 'icon' }>,
   box: LayoutBox,
   variables: Readonly<DesignVariables>,
-) {
-  const { stroke, strokeWidth } = elementStroke(element, variables);
-  return {
-    x: box.x,
-    y: box.y,
-    width: box.width,
-    height: box.height,
-    fill: fillPaint(element.fill, variables),
-    stroke,
-    strokeWidth,
-    cornerRadius: elementCornerRadius(element, variables),
-    opacity: resolvedNumber(element.opacity, variables) ?? 1,
-    rotation: resolvedNumber(element.rotation, variables) ?? 0,
-    hitFill: 'all' as const,
-    data: { elementId: element.id },
-  };
+  options: LeaferSceneOptions,
+): { node: UI; icon: LeaferSceneIcon } {
+  const icon = resolveIcon(element, variables);
+  const node = new Box(baseNodeInput(element, box, variables));
+  const paints = options.icons?.[iconPaintKey(icon.library, icon.icon)];
+  const paintNodes =
+    paints === undefined || paints === null || paints.length === 0
+      ? iconPlaceholderNodes(box)
+      : iconPaintNodes(box, paints, icon);
+  for (const paintNode of paintNodes) {
+    node.add(paintNode);
+  }
+  return { node, icon };
 }
 
 function createElementNode(
   element: DesignElement,
   box: LayoutBox,
   variables: Readonly<DesignVariables>,
-): UI {
-  const input = nodeInput(element, box, variables);
+  options: LeaferSceneOptions,
+): { node: UI; icon?: LeaferSceneIcon } {
   switch (element.type) {
     case 'frame':
-      return new Box({
-        ...input,
-        overflow: resolvedBoolean(element.clip, variables) ? 'hide' : undefined,
-      });
+      return {
+        node: new Box({
+          ...nodeInput(element, box, variables),
+          overflow: resolvedBoolean(element.clip, variables)
+            ? 'hide'
+            : undefined,
+        }),
+      };
     case 'rectangle':
-      return new Rect(input);
+      return { node: new Rect(nodeInput(element, box, variables)) };
     case 'ellipse':
-      return new Ellipse(input);
-    case 'text':
-      return new Text({
-        ...input,
-        ...textInput(element, box, variables),
-        fill: input.fill ?? DEFAULT_TEXT_COLOR,
-      });
+      return { node: new Ellipse(nodeInput(element, box, variables)) };
+    case 'text': {
+      const input = nodeInput(element, box, variables);
+      return {
+        node: new Text({
+          ...input,
+          ...textInput(element, box, variables),
+          fill: input.fill ?? DEFAULT_TEXT_COLOR,
+        }),
+      };
+    }
     case 'icon':
-      return new Box({
-        ...input,
-        strokeWidth: input.strokeWidth ?? DEFAULT_ICON_STROKE_WIDTH,
-      });
+      return createIconNode(element, box, variables, options);
   }
-}
-
-function resolvedBoolean(
-  value: unknown,
-  variables: Readonly<DesignVariables>,
-): boolean {
-  return resolveVariableValue(value, variables) === true;
 }
 
 function sceneNode(
   node: LayoutNode<DesignElement>,
   variables: Readonly<DesignVariables>,
+  options: LeaferSceneOptions,
 ): LeaferSceneNode {
   const element = node.element;
-  const leaferNode = createElementNode(element, node.box, variables);
-  const children = node.children.map((child) => sceneNode(child, variables));
+  const { node: leaferNode, icon } = createElementNode(
+    element,
+    node.box,
+    variables,
+    options,
+  );
+  const children = node.children.map((child) =>
+    sceneNode(child, variables, options),
+  );
   if (element.type === 'frame') {
     for (const child of children) {
       leaferNode.add(child.node);
@@ -215,6 +367,7 @@ function sceneNode(
     ...(element.type === 'text'
       ? { text: resolvedString(element.textStyle.content, variables) ?? '' }
       : {}),
+    ...(icon === undefined ? {} : { icon }),
     children,
   };
 }
@@ -224,12 +377,17 @@ function sceneNode(
  * boxes come from the shared design-schema layout, so the adapter only handles
  * element appearance and tree structure.
  */
-export function createLeaferScene(document: DesignDocument): LeaferScene {
+export function createLeaferScene(
+  document: DesignDocument,
+  options: LeaferSceneOptions = {},
+): LeaferScene {
   const layout = layoutDesignDocument(document);
   return {
     width: layout.width,
     height: layout.height,
-    roots: layout.roots.map((node) => sceneNode(node, document.variables)),
+    roots: layout.roots.map((node) =>
+      sceneNode(node, document.variables, options),
+    ),
   };
 }
 

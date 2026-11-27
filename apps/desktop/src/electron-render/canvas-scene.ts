@@ -1,13 +1,17 @@
 import {
   measureText,
+  resolveVariableValue,
   type DesignDocument,
   type LayoutBox,
 } from '@design-ai/design-schema';
 import {
   createLeaferScene,
+  iconPaintKey,
+  type IconPaintMap,
   type LeaferScene,
   type LeaferSceneNode,
 } from '@design-ai/editor-core/leafer';
+import { loadLucideIconPaths } from './lucide-icon';
 
 /** Mountable LeaferJS node tree shared by the canvas engine and its tests. */
 export type CanvasSceneNode = LeaferSceneNode;
@@ -63,8 +67,51 @@ export interface CanvasSelection {
 }
 
 /** Builds the mountable node tree consumed by the canvas engine. */
-export function buildCanvasScene(document: DesignDocument): CanvasScene {
-  return createLeaferScene(document);
+export function buildCanvasScene(
+  document: DesignDocument,
+  icons?: IconPaintMap,
+): CanvasScene {
+  return createLeaferScene(document, { icons });
+}
+
+/**
+ * Keys of every icon the document references. Library and icon names are
+ * resolved through the document variables so the paint loader sees the
+ * effective declaration.
+ */
+export function collectCanvasIconKeys(document: DesignDocument): string[] {
+  const keys = new Set<string>();
+  const pending = [...document.children];
+  let element = pending.pop();
+  while (element !== undefined) {
+    if (element.type === 'icon') {
+      const library = resolveVariableValue(element.library, document.variables);
+      const icon = resolveVariableValue(element.icon, document.variables);
+      if (typeof library === 'string' && typeof icon === 'string') {
+        keys.add(iconPaintKey(library, icon));
+      }
+    }
+    if (element.type === 'frame' && element.children !== undefined) {
+      pending.push(...element.children);
+    }
+    element = pending.pop();
+  }
+  return [...keys].sort();
+}
+
+/** Loads the resolved paints for every icon key a document references. */
+export async function loadCanvasIconPaints(
+  keys: readonly string[],
+): Promise<IconPaintMap> {
+  const entries = await Promise.all(
+    keys.map(async (key) => {
+      const separator = key.indexOf('/');
+      const library = key.slice(0, separator);
+      const icon = key.slice(separator + 1);
+      return [key, await loadLucideIconPaths(library, icon)] as const;
+    }),
+  );
+  return Object.fromEntries(entries);
 }
 
 interface LocatedNode {
